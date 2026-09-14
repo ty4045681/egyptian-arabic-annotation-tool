@@ -12,6 +12,8 @@ import binascii
 import hashlib
 import json
 import math
+import os
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -390,7 +392,7 @@ def claim(user_id: str, *, source_scene: str | None = None,
     """
     from annotation_metadata.claim_policy import get_claim_policy
     from annotation_metadata.claiming import (
-        assert_scope_allows, candidate_exists_sql, claimable_select_sql,
+        assert_scope_allows, candidate_exists_sql, fetch_claim_candidate,
         parse_claim_filters, task_still_matches,
     )
     from annotation_metadata.queries import load_scope
@@ -416,15 +418,12 @@ def claim(user_id: str, *, source_scene: str | None = None,
 
         scope = load_scope(cur, uid)
         assert_scope_allows(scope, filters)
-        select_sql, select_params = claimable_select_sql(
-            scope, filters, uid, policy.name
-        )
         exists_sql, exists_params = candidate_exists_sql(scope, filters, uid)
 
         task_row = None
         lease_token = None
         for _attempt in range(64):
-            task_row = cur.execute(select_sql, select_params).fetchone()
+            task_row = fetch_claim_candidate(cur, scope, filters, uid, policy.name)
             if not task_row:
                 candidate_exists = cur.execute(exists_sql, exists_params).fetchone()[0]
                 if candidate_exists:
@@ -1525,12 +1524,52 @@ def admin_overview(filters: dict | None = None) -> dict:
     snapshot_filters = {**normalized, "from": None, "to": None}
     where, params = _admin_task_filter_sql(snapshot_filters)
     with db_tx() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
-        )
+        # REPEATABLE READ snapshot. Temp table is session-local (not a durable
+        # write); READ ONLY is omitted so the snapshot can be materialized once.
+        trace = os.environ.get("ANNOTATION_OVERVIEW_TRACE")
+        started = time.perf_counter()
+        last = started
+
+        def _mark(label: str) -> None:
+            nonlocal last
+            if not trace:
+                return
+            now = time.perf_counter()
+            print(
+                f"overview_trace {label}: {(now - last) * 1000:.1f} ms "
+                f"(total {(now - started) * 1000:.1f})",
+                flush=True,
+            )
+            last = now
+
+        cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        cur.execute("SET LOCAL work_mem = '256MB'")
+        cur.execute("SET LOCAL temp_buffers = '128MB'")
+        cur.execute("SET LOCAL jit = off")
+        cur.execute("SET LOCAL max_parallel_workers_per_gather = 2")
+        cur.execute("SET LOCAL parallel_setup_cost = 10")
+        cur.execute("SET LOCAL parallel_tuple_cost = 0.001")
         as_of = cur.execute("SELECT now()").fetchone()[0]
+        cur.execute(
+            f"""CREATE TEMP TABLE _overview_matched ON COMMIT DROP AS
+                SELECT t.id, t.duration, t.status, t.eligible,
+                       t.reserved_for_user_id, t.current_published_version_id,
+                       t.baseline_version_id, t.category, t.created_at,
+                       (d.id IS NOT NULL) AS has_draft,
+                       (a.user_id IS NOT NULL) AS has_assignment,
+                       a.last_activity_at AS assignment_last_activity_at
+                FROM annotation_tasks t
+                LEFT JOIN annotation_versions v
+                  ON v.id = t.current_published_version_id
+                LEFT JOIN annotation_versions d
+                  ON d.task_id = t.id AND d.lifecycle = 'draft'
+                LEFT JOIN assignments a ON a.task_id = t.id
+                WHERE {where}""",
+            params,
+        )
+        _mark("matched")
         row = cur.execute(
-            f"""SELECT
+            """SELECT
                    count(*) AS total_audio_count,
                    COALESCE(sum(t.duration), 0) AS total_duration,
                    count(*) FILTER (WHERE t.status = 'annotated'),
@@ -1542,25 +1581,17 @@ def admin_overview(filters: dict | None = None) -> dict:
                    count(*) FILTER (WHERE t.status = 'pending'),
                    COALESCE(sum(t.duration) FILTER
                        (WHERE t.status = 'pending'), 0),
-                   count(*) FILTER (WHERE t.status = 'pending' AND EXISTS
-                       (SELECT 1 FROM assignments a WHERE a.task_id = t.id)),
+                   count(*) FILTER (WHERE t.status = 'pending' AND t.has_assignment),
                    count(*) FILTER (WHERE t.status = 'pending' AND t.eligible
-                       AND EXISTS (SELECT 1 FROM annotation_versions d
-                                   WHERE d.task_id = t.id AND d.lifecycle = 'draft')
-                       AND NOT EXISTS (SELECT 1 FROM assignments a
-                                       WHERE a.task_id = t.id)),
+                       AND t.has_draft AND NOT t.has_assignment),
                    count(*) FILTER (WHERE t.status = 'pending' AND NOT t.eligible),
                    count(*) FILTER (WHERE t.status = 'pending'
                        AND t.reserved_for_user_id IS NOT NULL),
                    min(t.created_at) FILTER (WHERE t.status = 'pending')
-               FROM annotation_tasks t
-               LEFT JOIN annotation_versions v
-                 ON v.id = t.current_published_version_id
-               WHERE {where}""",
-            params,
+               FROM _overview_matched t"""
         ).fetchone()
         segment_row = cur.execute(
-            f"""SELECT count(s.segment_id), COALESCE(sum(s.duration), 0),
+            """SELECT count(s.segment_id), COALESCE(sum(s.duration), 0),
                        count(s.segment_id) FILTER
                            (WHERE NOT s.exclude_from_training),
                        COALESCE(sum(s.duration) FILTER
@@ -1569,13 +1600,13 @@ def admin_overview(filters: dict | None = None) -> dict:
                            (WHERE s.exclude_from_training),
                        COALESCE(sum(s.duration) FILTER
                            (WHERE s.exclude_from_training), 0)
-                FROM annotation_tasks t
+                FROM _overview_matched t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
                 LEFT JOIN segments s ON s.version_id = v.id
-                WHERE t.status = 'annotated' AND {where}""",
-            params,
+                WHERE t.status = 'annotated'"""
         ).fetchone()
+        _mark("totals_segments")
 
         activity_clauses = ["e.event_type = 'completed'"]
         activity_params: list = []
@@ -1612,134 +1643,149 @@ def admin_overview(filters: dict | None = None) -> dict:
             recent_activity_params,
         ).fetchone()[0]
         category_rows = cur.execute(
-            f"""SELECT COALESCE(t.category, 'Uncategorized'), count(*),
+            """SELECT COALESCE(t.category, 'Uncategorized'), count(*),
                        COALESCE(sum(t.duration), 0)
-                FROM annotation_tasks t
-                LEFT JOIN annotation_versions v
-                  ON v.id = t.current_published_version_id
-                WHERE {where}
+                FROM _overview_matched t
                 GROUP BY COALESCE(t.category, 'Uncategorized')
                 ORDER BY count(*) DESC, COALESCE(t.category, 'Uncategorized')
-                LIMIT 25""",
-            params,
+                LIMIT 25"""
         ).fetchall()
         skip_rows = cur.execute(
-            f"""SELECT reason, count(*)
-                FROM annotation_tasks t
+            """SELECT reason, count(*)
+                FROM _overview_matched t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
                 CROSS JOIN LATERAL unnest(v.skip_reasons) reason
-                WHERE t.status = 'skipped' AND {where}
-                GROUP BY reason ORDER BY count(*) DESC, reason""",
-            params,
+                WHERE t.status = 'skipped'
+                GROUP BY reason ORDER BY count(*) DESC, reason"""
         ).fetchall()
         queue = cur.execute(
-            f"""SELECT
-                   count(*) FILTER (WHERE t.status = 'pending'
-                       AND NOT EXISTS (SELECT 1 FROM annotation_versions d
-                                       WHERE d.task_id = t.id
-                                         AND d.lifecycle = 'draft')),
+            """SELECT
+                   count(*) FILTER (WHERE t.status = 'pending' AND NOT t.has_draft),
                    count(*) FILTER (WHERE t.baseline_version_id IS NULL),
-                   count(*) FILTER (WHERE EXISTS (
-                       SELECT 1 FROM assignments a WHERE a.task_id = t.id
-                         AND a.last_activity_at < now() - interval '4 hours')),
+                   count(*) FILTER (WHERE t.has_assignment
+                       AND t.assignment_last_activity_at < now() - interval '4 hours'),
                    count(*) FILTER (WHERE t.status = 'pending' AND t.eligible
-                       AND EXISTS (SELECT 1 FROM annotation_versions d
-                                   WHERE d.task_id = t.id
-                                     AND d.lifecycle = 'draft')
-                       AND NOT EXISTS (SELECT 1 FROM assignments a
-                                       WHERE a.task_id = t.id))
-                FROM annotation_tasks t
-                LEFT JOIN annotation_versions v
-                  ON v.id = t.current_published_version_id
-                WHERE {where}""",
-            params,
+                       AND t.has_draft AND NOT t.has_assignment)
+                FROM _overview_matched t"""
         ).fetchone()
+        _mark("activity_queue")
         from annotation_metadata.queries import (
-            NO_CURRENT_SOURCES, SceneScope, best_source_lateral,
-            published_review_status_sql, source_row_match_sql,
+            CONFIDENCE_CASE, NO_CURRENT_SOURCES, source_row_match_sql,
         )
         from annotation_metadata.taxonomy import scene_label
         metadata_filter = normalized["metadata"]
-        admin_scope = SceneScope(mode="all")
-        best_sql, best_params = best_source_lateral(
-            scope=admin_scope, filters=metadata_filter
-        )
-        conf_rows = cur.execute(
-            f"""SELECT COALESCE(best.confidence, 'unknown'), count(*),
-                       COALESCE(sum(t.duration), 0)
-                FROM annotation_tasks t
-                LEFT JOIN annotation_versions v
-                  ON v.id = t.current_published_version_id
-                {best_sql}
-                WHERE {where}
-                GROUP BY 1 ORDER BY 1""",
-            (*best_params, *params),
-        ).fetchall()
         match_sql, match_params = source_row_match_sql(
             metadata_filter, src_alias="src"
         )
-        scene_sql = f"""
-            SELECT scene_code, count(*) AS task_count,
-                   COALESCE(sum(duration), 0) AS duration_seconds
-            FROM (
-                SELECT DISTINCT t.id, t.duration,
-                       COALESCE(src.scene_code, 'unknown') AS scene_code
+        conf_rank = CONFIDENCE_CASE.format(expr="confidence")
+        cur.execute(
+            """CREATE TEMP TABLE _overview_review ON COMMIT DROP AS
+               SELECT DISTINCT ON (sr.version_id) sr.version_id, sr.status
+               FROM scene_reviews sr
+               JOIN _overview_matched t
+                 ON t.current_published_version_id = sr.version_id
+               WHERE NOT sr.superseded
+               ORDER BY sr.version_id, sr.review_no DESC"""
+        )
+        _mark("review_temp")
+        virtual_sql = ""
+        if metadata_filter.allows_virtual_unknown():
+            virtual_sql = f"""
+                UNION ALL
+                SELECT t.id, t.duration, 'unknown'::text, NULL::uuid,
+                       'unknown'::text, NULL::uuid
+                FROM _overview_matched t
+                WHERE {NO_CURRENT_SOURCES.format(task="t")}
+            """
+        grouped_rows = cur.execute(
+            f"""
+            WITH src AS (
+                SELECT t.id AS task_id, t.duration, src.scene_code, src.batch_id,
+                       src.confidence, src.id AS source_id
                 FROM annotation_tasks t
                 LEFT JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
                 JOIN task_sources src ON src.task_id = t.id AND {match_sql}
                 WHERE {where}
-        """
-        scene_params: list = [*match_params, *params]
-        if metadata_filter.allows_virtual_unknown():
-            scene_sql += f"""
-                UNION
-                SELECT t.id, t.duration, 'unknown'
-                FROM annotation_tasks t
-                LEFT JOIN annotation_versions v
-                  ON v.id = t.current_published_version_id
-                WHERE {where}
-                  AND {NO_CURRENT_SOURCES.format(task="t")}
-            """
-            scene_params.extend(params)
-        scene_sql += """
-            ) grouped
-            GROUP BY scene_code
-            ORDER BY task_count DESC, scene_code
-        """
-        scene_rows = cur.execute(scene_sql, scene_params).fetchall()
-        batch_rows = cur.execute(
-            f"""SELECT batch_code, count(*) AS task_count,
+                {virtual_sql}
+            ),
+            best AS (
+                SELECT DISTINCT ON (task_id) task_id, confidence
+                FROM src
+                ORDER BY task_id, {conf_rank}, COALESCE(scene_code, ''), source_id
+            )
+            SELECT 'conf' AS kind, key, task_count, duration_seconds
+            FROM (
+                SELECT COALESCE(b.confidence, 'unknown') AS key,
+                       count(*) AS task_count,
+                       COALESCE(sum(t.duration), 0) AS duration_seconds
+                FROM _overview_matched t
+                LEFT JOIN best b ON b.task_id = t.id
+                GROUP BY 1
+            ) confidence
+            UNION ALL
+            SELECT 'scene', key, task_count, duration_seconds
+            FROM (
+                SELECT COALESCE(scene_code, 'unknown') AS key,
+                       count(*) AS task_count,
                        COALESCE(sum(duration), 0) AS duration_seconds
                 FROM (
-                    SELECT DISTINCT t.id, t.duration, sb.batch_code
-                    FROM annotation_tasks t
-                    LEFT JOIN annotation_versions v
-                      ON v.id = t.current_published_version_id
-                    JOIN task_sources src ON src.task_id = t.id AND {match_sql}
-                    JOIN source_batches sb ON sb.id = src.batch_id
-                    WHERE {where}
-                ) grouped
-                GROUP BY batch_code
-                ORDER BY task_count DESC, batch_code""",
+                    SELECT task_id, duration,
+                           COALESCE(scene_code, 'unknown') AS scene_code
+                    FROM src
+                    GROUP BY task_id, duration, COALESCE(scene_code, 'unknown')
+                ) scene_tasks
+                GROUP BY 1
+            ) scenes
+            UNION ALL
+            SELECT 'batch', key, task_count, duration_seconds
+            FROM (
+                SELECT sb.batch_code AS key,
+                       count(*) AS task_count,
+                       COALESCE(sum(duration), 0) AS duration_seconds
+                FROM (
+                    SELECT src.task_id, src.duration, src.batch_id
+                    FROM src
+                    WHERE src.batch_id IS NOT NULL
+                    GROUP BY src.task_id, src.duration, src.batch_id
+                ) batch_tasks
+                JOIN source_batches sb ON sb.id = batch_tasks.batch_id
+                GROUP BY sb.batch_code
+            ) batches
+            """,
             (*match_params, *params),
         ).fetchall()
-        review_status_sql = published_review_status_sql(task_alias="t")
+        _mark("source_groups")
+        conf_rows = [
+            (row[1], row[2], row[3]) for row in grouped_rows if row[0] == "conf"
+        ]
+        scene_rows = [
+            (row[1], row[2], row[3]) for row in grouped_rows if row[0] == "scene"
+        ]
+        batch_rows = [
+            (row[1], row[2], row[3]) for row in grouped_rows if row[0] == "batch"
+        ]
+        conf_rows.sort(key=lambda item: item[0] or "")
+        scene_rows.sort(key=lambda item: (-int(item[1]), item[0] or ""))
+        batch_rows.sort(key=lambda item: (-int(item[1]), item[0] or ""))
         review_rows = cur.execute(
-            f"""SELECT status, count(*) AS task_count,
-                       COALESCE(sum(duration), 0) AS duration_seconds
-                FROM (
-                    SELECT t.id, t.duration, {review_status_sql} AS status
-                    FROM annotation_tasks t
-                    LEFT JOIN annotation_versions v
-                      ON v.id = t.current_published_version_id
-                    WHERE {where}
-                ) grouped
-                GROUP BY status
-                ORDER BY task_count DESC, status""",
-            params,
+            """SELECT status, count(*) AS task_count,
+                      COALESCE(sum(duration), 0) AS duration_seconds
+               FROM (
+                   SELECT t.id, t.duration,
+                          CASE WHEN t.current_published_version_id IS NULL
+                               THEN 'unreviewed_unpublished'
+                               ELSE COALESCE(r.status, 'pending')
+                          END AS status
+                   FROM _overview_matched t
+                   LEFT JOIN _overview_review r
+                     ON r.version_id = t.current_published_version_id
+               ) grouped
+               GROUP BY status
+               ORDER BY task_count DESC, status"""
         ).fetchall()
+        _mark("reviews")
 
     confidence_buckets = [
         {"confidence": item[0], "task_count": int(item[1]),

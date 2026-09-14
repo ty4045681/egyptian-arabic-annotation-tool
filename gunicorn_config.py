@@ -6,11 +6,12 @@ import os
 # 绑定地址和端口
 bind = "127.0.0.1:8081"
 
-# 工作进程数（推荐: CPU核心数 * 2 + 1）
-workers = 4
-
-# 每个 worker 的线程数
-threads = 4
+# Isolated 4-core/~8GB preview uses 2 workers x 4 threads. Override with
+# GUNICORN_WORKERS / GUNICORN_THREADS (capacity tests measure that layout).
+# Larger hosts may raise workers; do not hide application work in extra
+# processes when comparing to the 2x4 measurement.
+workers = int(os.environ.get("GUNICORN_WORKERS", "4"))
+threads = int(os.environ.get("GUNICORN_THREADS", "4"))
 
 # 工作模式
 worker_class = "gthread"

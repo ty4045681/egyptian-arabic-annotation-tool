@@ -15,7 +15,7 @@ def test_003_seeds_scenes_and_keeps_legacy_tasks_unknown(database, seed_tasks):
     seed_tasks(2)
     with db.db_conn() as conn:
         assert conn.execute("SELECT count(*) FROM scenes").fetchone()[0] == 9
-        assert db.applied_versions(conn) == [1, 2, 3]
+        assert db.applied_versions(conn) == db.expected_versions()
         assert conn.execute("SELECT count(*) FROM task_sources").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM annotation_tasks").fetchone()[0] == 2
 

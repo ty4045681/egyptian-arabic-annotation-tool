@@ -36,6 +36,7 @@ def test_backup_password_is_not_in_process_args_or_report(monkeypatch, tmp_path,
             Path(argv[argv.index('--file') + 1]).write_bytes(b'fixture-custom-dump')
         return SimpleNamespace(returncode=0, stdout='', stderr='')
     class EmptyTarget:
+        info = SimpleNamespace(server_version=180006)
         def __enter__(self): return self
         def __exit__(self, *args): return False
         def execute(self, *args, **kwargs): return self

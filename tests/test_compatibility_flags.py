@@ -35,7 +35,7 @@ def test_flags_off_fifo_reads_old_and_new_and_refuses_writes(
     health = client.get("/api/health")
     assert health.status_code == 200
     assert health.json["ok"] is True
-    assert health.json["schema_versions"] == [1, 2, 3]
+    assert health.json["schema_versions"] == db.expected_versions()
 
     with db.db_conn() as conn:
         tables = {

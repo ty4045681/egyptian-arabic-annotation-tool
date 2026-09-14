@@ -98,6 +98,7 @@ def test_dump_preserves_non_password_libpq_options(monkeypatch, tmp_path):
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(backup, "running_postgres_bindir", lambda explicit=None: tmp_path)
+    monkeypatch.setattr(backup, "assert_client_matches_server", lambda *args, **kwargs: None)
     monkeypatch.setattr(backup.subprocess, "run", run)
     monkeypatch.setattr(
         backup.subprocess, "check_output",
@@ -115,3 +116,12 @@ def test_restore_refuses_existing_user_schema(database, tmp_path):
     dump_path.write_bytes(b"not-a-real-dump")
     with pytest.raises(RuntimeError, match="user schema objects"):
         restore_database(dump_path, database)
+
+
+def test_dump_refuses_major_version_mismatch(database, monkeypatch, tmp_path):
+    from annotation_metadata import postgres_backup as backup
+    monkeypatch.setattr(backup, "running_postgres_bindir", lambda explicit=None: tmp_path)
+    monkeypatch.setattr(backup, "client_major_version", lambda bindir: 14)
+    monkeypatch.setattr(backup, "server_major_version", lambda dsn: 18)
+    with pytest.raises(RuntimeError, match="does not match server major"):
+        backup.dump_database(database, tmp_path / "mismatch.dump", bindir=tmp_path)

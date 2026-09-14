@@ -738,9 +738,13 @@ def _plan_audit_events(cur, plan: ImportPlan) -> None:
                       to_status, details, created_at, admin_action_id
                FROM annotation_events
                WHERE task_id = %s AND event_type = %s
+                 AND version_id IS NOT DISTINCT FROM %s
+                 AND created_at = %s::timestamptz
                  AND COALESCE(details->>'scene_review_id', '') = ANY(%s)""",
             (
                 uuid.UUID(dest_task), event.get("event_type"),
+                uuid.UUID(dest_version) if dest_version else None,
+                event.get("created_at"),
                 [str(publication or ""), str(mapped_publication or "")],
             ),
         ).fetchall()

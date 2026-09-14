@@ -1,32 +1,47 @@
 from __future__ import annotations
 
 import os
-import shutil
 import uuid
-from pathlib import Path
 
-import pgserver
 import psycopg
 import pytest
 
+from tests.pg_runtime import open_test_postgres
+
 
 @pytest.fixture(scope="session")
-def pg_server(tmp_path_factory):
-    root = tmp_path_factory.mktemp("pgserver")
-    server = pgserver.get_server(root / "data")
-    yield server
+def pg_admin(tmp_path_factory):
+    admin = open_test_postgres(tmp_path_factory.mktemp("pgserver"))
+    print(f"ACCEPTANCE DATABASE BINARY: {admin.version} ({admin.kind})", flush=True)
+    if admin.bindir is not None:
+        print(f"ACCEPTANCE DATABASE BINDIR: {admin.bindir}", flush=True)
+    yield admin
+
+
+@pytest.fixture(scope="session")
+def pg_server(pg_admin):
+    """Compatibility alias: pgserver handle, or a URI adapter for services."""
+    if pg_admin.pg_server is not None:
+        yield pg_admin.pg_server
+        return
+
+    class _ServiceAdapter:
+        def get_uri(self, database="postgres"):
+            return pg_admin.uri_for(database)
+
+    yield _ServiceAdapter()
 
 
 @pytest.fixture
-def database(pg_server, monkeypatch):
+def database(pg_admin, monkeypatch):
     import db
 
     db.close_pool()
     name = "test_" + uuid.uuid4().hex
-    admin_dsn = pg_server.get_uri(database="postgres")
+    admin_dsn = pg_admin.uri_for("postgres")
     with psycopg.connect(admin_dsn, autocommit=True) as conn:
         conn.execute(f'CREATE DATABASE "{name}"')
-    dsn = pg_server.get_uri(database=name)
+    dsn = pg_admin.uri_for(name)
     monkeypatch.setenv("ANNOTATION_DB_DSN", dsn)
     with psycopg.connect(dsn) as conn:
         assert db.apply_migrations(conn) == db.expected_versions()
@@ -38,7 +53,10 @@ def database(pg_server, monkeypatch):
             "WHERE datname = %s AND pid <> pg_backend_pid()",
             (name,),
         )
-        conn.execute(f'DROP DATABASE "{name}"')
+        try:
+            conn.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+        except psycopg.Error:
+            conn.execute(f'DROP DATABASE "{name}"')
 
 
 @pytest.fixture

@@ -9,6 +9,7 @@ Non-password libpq options (sslmode, options, hostaddr, ...) are preserved.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -42,6 +43,31 @@ def client_version(bindir: Path) -> str:
     ).strip()
 
 
+def client_major_version(bindir: Path) -> int:
+    text = client_version(bindir)
+    match = re.search(r"(\d+)\.", text)
+    if not match:
+        raise RuntimeError(f"cannot parse pg_dump version: {text}")
+    return int(match.group(1))
+
+
+def server_major_version(dsn: str) -> int:
+    with psycopg.connect(dsn) as conn:
+        return conn.info.server_version // 10000
+
+
+def assert_client_matches_server(dsn: str, bindir: Path) -> None:
+    """Refuse dump/restore when pg_dump/pg_restore major != server major."""
+    client_major = client_major_version(bindir)
+    server_major = server_major_version(dsn)
+    if client_major != server_major:
+        raise RuntimeError(
+            f"PostgreSQL client major {client_major} in {bindir} does not "
+            f"match server major {server_major}; use same-major pg_dump/"
+            "pg_restore (pgserver 16 or /usr/lib/postgresql/18/bin)"
+        )
+
+
 def _client_command(bindir: Path, tool: str, dsn: str, extra: list[str]) -> tuple[list[str], dict]:
     info = conninfo_to_dict(dsn)
     password = info.pop("password", None)
@@ -56,6 +82,7 @@ def _client_command(bindir: Path, tool: str, dsn: str, extra: list[str]) -> tupl
 
 def dump_database(dsn: str, output: Path, *, bindir: Path | None = None) -> dict:
     bindir = running_postgres_bindir(bindir)
+    assert_client_matches_server(dsn, bindir)
     output = Path(output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
@@ -110,6 +137,7 @@ def restore_database(dump: Path, target_dsn: str, *, bindir: Path | None = None)
                 "restore only into a newly created empty database: "
                 + ", ".join(existing[:20])
             )
+    assert_client_matches_server(target_dsn, bindir)
     argv, env = _client_command(
         bindir, "pg_restore", target_dsn,
         ["--no-owner", "--no-acl", "--exit-on-error", str(dump)],

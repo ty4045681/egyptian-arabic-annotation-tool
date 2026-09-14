@@ -91,7 +91,7 @@ maintenance_work_mem = 1GB
 work_mem = 16MB
 ```
 
-应用池：4 Gunicorn workers × 每 worker `max_size=16`，理论上限 64，按需建立；至少 50 个连接留给迁移、预处理、备份、管理和监控。
+应用池：较大主机可用 4 Gunicorn workers × 每 worker `max_size=16`（理论上限 64）。本仓库 4 核/~8GB 隔离预览与容量测试使用 **2 workers × 4 threads**（`GUNICORN_WORKERS=2 GUNICORN_THREADS=4`）。至少 50 个连接留给迁移、预处理、备份、管理和监控。
 
 ```bash
 sudo systemctl restart postgresql
@@ -127,7 +127,8 @@ uv run python -c 'import hashlib,secrets; k=secrets.token_urlsafe(32); print("AD
 migration 使用 owner DSN 临时导出到当前 shell，不写入仓库：
 
 ```bash
-export ANNOTATION_DB_DSN='postgresql://annotation_owner:...@127.0.0.1:5432/annotation_tool'
+# DSN without a password; libpq reads PGPASSWORD, ~/.pgpass, or PGSERVICEFILE.
+export ANNOTATION_DB_DSN='postgresql://annotation_owner@127.0.0.1:5432/annotation_tool'
 uv run python manage_state.py apply-migrations
 uv run python manage_state.py schema
 ```
@@ -393,7 +394,10 @@ trip, not a substitute:
 
 ```bash
 uv run python manage_state.py dump-postgres --output "$BACKUP_DUMP" --pg-bindir "$PG_BINDIR"
-# Restore only into a newly created empty database:
+# Restore only into a newly created database with no user schema objects
+# (any non-system table/view/sequence, not merely annotation_tasks rows).
+# Pass --target-dsn without a password; libpq reads PGPASSWORD, ~/.pgpass,
+# or PGSERVICE/PGSERVICEFILE.
 createdb --maintenance-db="$ADMIN_DSN" new_annotation_restore
 uv run python manage_state.py restore-postgres \
   --dump "$BACKUP_DUMP" --target-dsn "$TARGET_DB_DSN" --pg-bindir "$PG_BINDIR"

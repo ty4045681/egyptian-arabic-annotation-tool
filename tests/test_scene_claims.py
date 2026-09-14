@@ -109,6 +109,44 @@ def test_twenty_users_claim_distinct_tasks(database, seed_tasks):
     assert set(claims) == set(tasks)
 
 
+def test_scene_counts_match_per_scene_pool(database, seed_tasks):
+    airport, shopping, taxi = seed_tasks(3)
+    source(airport, "airport", "high")
+    source(shopping, "shopping", "medium")
+    source(taxi, "taxi", "low")
+    uid = user("count-all")
+    pool = repo.pool_state(uid)
+    by_code = {item["scene_code"]: item["available"] for item in pool["by_scene"]}
+    assert by_code["airport"] == repo.pool_state(uid, source_scene="airport")["available"]
+    assert by_code["shopping"] == repo.pool_state(uid, source_scene="shopping")["available"]
+    assert by_code["taxi"] == repo.pool_state(uid, source_scene="taxi")["available"]
+    assert by_code["emergencies"] == 0
+    empty = repo.pool_state(uid, source_scene="emergencies")
+    assert empty["available"] == 0
+    assert empty["reason"] == "no_matching_scene"
+
+
+def test_restricted_scope_counts_do_not_leak_other_scenes(database, seed_tasks):
+    airport, shopping = seed_tasks(2)
+    source(airport, "airport", "high")
+    source(shopping, "shopping", "high")
+    uid = user("count-restricted")
+    with db.db_conn() as conn:
+        conn.execute(
+            "INSERT INTO annotator_scene_scopes(user_id,mode) VALUES(%s,'restricted') "
+            "ON CONFLICT(user_id) DO UPDATE SET mode='restricted'",
+            (uid,),
+        )
+        conn.execute(
+            "INSERT INTO annotator_scene_access(user_id,scene_code) VALUES(%s,'airport')",
+            (uid,),
+        )
+    pool = repo.pool_state(uid)
+    assert {item["scene_code"] for item in pool["by_scene"]} == {"airport"}
+    assert pool["by_scene"][0]["available"] == 1
+    assert pool["available"] == 1
+
+
 def test_unauthorized_selected_scene_is_forbidden(database, seed_tasks):
     task = seed_tasks(1)[0]
     source(task, "airport", "high")

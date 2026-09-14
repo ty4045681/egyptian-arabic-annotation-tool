@@ -1308,8 +1308,11 @@ def parser() -> argparse.ArgumentParser:
         "dump-postgres",
         help="PostgreSQL custom dump of the current ANNOTATION_DB_DSN",
         description=(
-            "Complete backup format. Restore only into a newly created empty "
-            "database. Use same-major pg_dump (pgserver 16 or /usr/lib/postgresql/18/bin)."
+            "Complete backup format. Restore only into a newly created database "
+            "that has no user schema objects (tables/views/sequences in any "
+            "non-system schema). Use same-major pg_dump (pgserver 16 or "
+            "/usr/lib/postgresql/18/bin). ANNOTATION_DB_DSN should omit the "
+            "password; libpq reads PGPASSWORD, ~/.pgpass, or PGSERVICEFILE."
         ),
     )
     dump_pg.add_argument("--output", required=True, help="output .dump path")
@@ -1320,12 +1323,22 @@ def parser() -> argparse.ArgumentParser:
         "restore-postgres",
         help="pg_restore a custom dump into an empty target DSN and print counts",
         description=(
-            "Refuses a target that already has annotation_tasks rows. "
-            "Never use a live staging DSN."
+            "Refuses a target that already has any non-system user schema "
+            "object (not merely annotation_tasks rows). Never use a live "
+            "staging DSN. Pass --target-dsn without a password; libpq reads "
+            "PGPASSWORD, ~/.pgpass, or PGSERVICE/PGSERVICEFILE."
         ),
     )
     restore_pg.add_argument("--dump", required=True)
-    restore_pg.add_argument("--target-dsn", required=True)
+    restore_pg.add_argument(
+        "--target-dsn",
+        required=True,
+        help=(
+            "libpq DSN of an empty database (no user schema objects). Omit "
+            "the password; credentials come from PGPASSWORD, ~/.pgpass, or "
+            "a service file."
+        ),
+    )
     restore_pg.add_argument("--pg-bindir", help="PostgreSQL binary directory")
     restore_pg.set_defaults(func=command_restore_postgres)
     return p

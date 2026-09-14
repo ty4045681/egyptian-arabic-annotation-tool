@@ -286,16 +286,94 @@ def claim_match_predicate(scope: SceneScope, filters: TaskFilter,
     if not scope.can_claim:
         return "false"
     no_sources = NO_CURRENT_SOURCES.format(task="t")
+    virtual_ok = scope.all_scenes or scope.allow_unknown
     if filters.requires_source_row():
         return f"{best_alias}.id IS NOT NULL"
     if (filters.source_scene_value() == "unknown"
             or filters.source_confidence == "unknown"):
-        return f"({best_alias}.id IS NOT NULL OR {no_sources})"
+        if virtual_ok:
+            return f"({best_alias}.id IS NOT NULL OR {no_sources})"
+        return f"{best_alias}.id IS NOT NULL"
     if scope.all_scenes:
         return "true"
     if scope.allow_unknown:
         return f"({best_alias}.id IS NOT NULL OR {no_sources})"
     return f"{best_alias}.id IS NOT NULL"
+
+
+def _scope_source_clause(scope: SceneScope, *, src_alias: str = "src") -> tuple[str, list]:
+    """Restrict a source row to the annotator's allowed scenes."""
+    if scope.all_scenes:
+        return "true", []
+    parts: list[str] = []
+    params: list = []
+    if scope.scene_codes:
+        parts.append(f"{src_alias}.scene_code = ANY(%s)")
+        params.append(scope.scene_codes)
+    if scope.allow_unknown:
+        parts.append(f"{src_alias}.scene_code IS NULL")
+    if not parts:
+        return "false", []
+    return "(" + " OR ".join(parts) + ")", params
+
+
+def claim_source_exists_sql(scope: SceneScope, filters: TaskFilter,
+                            *, task_alias: str = "t") -> tuple[str, list]:
+    """EXISTS equivalent of ``claim_match_predicate`` plus LATERAL best.
+
+    Pool counts use this instead of per-task LATERAL so a 100k-task pool
+    is one index nested-loop, not a sort of every pending row.
+    """
+    if not scope.can_claim:
+        return "false", []
+    clauses, params = _source_row_clauses(filters, src_alias="src")
+    scope_sql, scope_params = _scope_source_clause(scope, src_alias="src")
+    if scope_sql != "true":
+        clauses.append(scope_sql)
+        params.extend(scope_params)
+    exists_row = (
+        f"EXISTS (SELECT 1 FROM task_sources src WHERE src.task_id = {task_alias}.id"
+        f" AND " + " AND ".join(clauses) + ")"
+    )
+    no_sources = NO_CURRENT_SOURCES.format(task=task_alias)
+    virtual_ok = scope.all_scenes or scope.allow_unknown
+    if filters.requires_source_row():
+        return exists_row, params
+    if (filters.source_scene_value() == "unknown"
+            or filters.source_confidence == "unknown"):
+        if virtual_ok:
+            return f"({exists_row} OR {no_sources})", params
+        return exists_row, params
+    if scope.all_scenes:
+        return "true", []
+    if scope.allow_unknown:
+        return f"({exists_row} OR {no_sources})", params
+    return exists_row, params
+
+
+def matching_source_task_ids_sql(scope: SceneScope, filters: TaskFilter) -> tuple[str, list]:
+    """Distinct pending task ids that currently have matching source evidence.
+
+    Used as a source-first candidate set so empty/rare scenes do not walk
+    every pending task. Virtual (no-row) unknown tasks are unioned only
+    when the filter allows them.
+    """
+    clauses, params = _source_row_clauses(filters, src_alias="src")
+    scope_sql, scope_params = _scope_source_clause(scope, src_alias="src")
+    if scope_sql != "true":
+        clauses.append(scope_sql)
+        params.extend(scope_params)
+    sql = "SELECT src.task_id FROM task_sources src WHERE " + " AND ".join(clauses)
+    if filters.allows_virtual_unknown() and (
+            not scope.all_scenes or filters.source_scene_value() == "unknown"
+            or filters.source_confidence == "unknown"):
+        if scope.all_scenes or scope.allow_unknown:
+            sql += (
+                " UNION SELECT t0.id FROM annotation_tasks t0 "
+                "WHERE t0.status = 'pending' AND t0.eligible AND "
+                + NO_CURRENT_SOURCES.format(task="t0")
+            )
+    return sql, params
 
 
 CLAIMABLE_BASE = """
