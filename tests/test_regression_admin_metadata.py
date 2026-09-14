@@ -199,6 +199,8 @@ def test_task_detail_keeps_full_source_provenance(seed_tasks):
     listed = repo.admin_tasks({"source_scene": "airport"})["items"][0]
     assert listed["source_confidence"] == "medium"
     assert listed["batch_codes"] == ["detail-airport"]
+    assert listed["human_scenes"] == []
+    assert "prediction_scene" in listed
     detail = repo.admin_annotation_detail(task)
     scenes = {item["scene_code"] for item in detail["metadata"]["sources"]}
     batches = {item["batch_code"] for item in detail["metadata"]["sources"]}

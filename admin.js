@@ -49,6 +49,19 @@ const state = {
   pendingRevoke: null,
   pendingDeactivate: null,
   requestEpoch: 0,
+  sceneLabels: {},
+  metadataFilters: {},
+};
+
+const CONF_ZH = { high: "来源置信度高", medium: "来源置信度中", low: "来源置信度低", unknown: "来源置信度未知" };
+const REVIEW_STATUS_ZH = {
+  pending: "待核验（已发布）",
+  confirmed: "已确认",
+  mixed: "多场景",
+  out_of_scope: "不属于九场景",
+  uncertain: "无法判断",
+  unreviewed_unpublished: "未发布、未核验",
+  unreviewed_published: "已发布、未核验",
 };
 
 const charts = {
@@ -487,25 +500,77 @@ function normaliseAnnotator(raw) {
   };
 }
 
+function sceneLabel(code) {
+  if (!code || code === "unknown") return "未知";
+  return state.sceneLabels[code] || (window.AnnotationMetadata && AnnotationMetadata.sceneLabel(code)) || code;
+}
+
+function fillSelect(select, items, { allText, extra = [] } = {}) {
+  if (!select) return;
+  const current = select.value;
+  select.replaceChildren(element("option", { value: "", text: allText }));
+  extra.forEach((item) => select.appendChild(element("option", { value: item.value, text: item.text })));
+  items.forEach((item) => select.appendChild(element("option", {
+    value: item.value,
+    text: item.text,
+  })));
+  if (Array.from(select.options).some((option) => option.value === current)) select.value = current;
+}
+
+function readNamedFilters(prefix) {
+  const fields = {
+    source_scene: $(`${prefix}SourceScene`),
+    source_confidence: $(`${prefix}SourceConfidence`),
+    batch_code: $(`${prefix}Batch`),
+    review_status: $(`${prefix}ReviewStatus`),
+    prediction_scene: $(`${prefix}PredictionScene`),
+    human_scene: $(`${prefix}HumanScene`),
+  };
+  const extra = {};
+  for (const [key, node] of Object.entries(fields)) {
+    if (node && node.value) extra[key] = node.value;
+  }
+  return extra;
+}
+
+function writeNamedFilters(prefix, filters) {
+  const map = {
+    SourceScene: filters.source_scene || "",
+    SourceConfidence: filters.source_confidence || "",
+    Batch: filters.batch_code || "",
+    ReviewStatus: filters.review_status || "",
+    PredictionScene: filters.prediction_scene || "",
+    HumanScene: filters.human_scene || "",
+  };
+  for (const [suffix, value] of Object.entries(map)) {
+    const node = $(prefix + suffix);
+    if (node) node.value = value;
+  }
+}
+
+function syncMetadataFilters(fromPrefix) {
+  const filters = readNamedFilters(fromPrefix);
+  state.metadataFilters = filters;
+  writeNamedFilters(fromPrefix === "corpus" ? "overview" : "corpus", filters);
+  return filters;
+}
+
 async function loadMetadataFacets() {
   try {
     const data = await api.get("/api/admin/metadata/facets");
     const scenes = listValue(data, ["scenes"]);
     const batches = listValue(data, ["batches"]);
-    const sceneSelect = $("corpusSourceScene");
-    if (sceneSelect) {
-      const current = sceneSelect.value;
-      sceneSelect.replaceChildren(element("option", { value: "", text: "All source scenes" }), element("option", { value: "unknown", text: "Unknown source" }));
-      scenes.forEach((scene) => sceneSelect.appendChild(element("option", { value: scene.code, text: scene.label_zh || scene.code })));
-      sceneSelect.value = current;
-    }
-    const batchSelect = $("corpusBatch");
-    if (batchSelect) {
-      const current = batchSelect.value;
-      batchSelect.replaceChildren(element("option", { value: "", text: "All batches" }));
-      batches.forEach((batch) => batchSelect.appendChild(element("option", { value: batch.batch_code, text: batch.batch_code })));
-      batchSelect.value = current;
-    }
+    state.sceneLabels = Object.fromEntries(scenes.map((scene) => [scene.code, scene.label_zh || scene.code]));
+    const sceneOptions = scenes.map((scene) => ({ value: scene.code, text: scene.label_zh || scene.code }));
+    const batchOptions = batches.map((batch) => ({ value: batch.batch_code, text: batch.name ? `${batch.batch_code} · ${batch.name}` : batch.batch_code }));
+    fillSelect($("corpusSourceScene"), sceneOptions, { allText: "全部来源场景", extra: [{ value: "unknown", text: "来源未知" }] });
+    fillSelect($("overviewSourceScene"), sceneOptions, { allText: "全部来源场景", extra: [{ value: "unknown", text: "来源未知" }] });
+    fillSelect($("corpusBatch"), batchOptions, { allText: "全部批次" });
+    fillSelect($("overviewBatch"), batchOptions, { allText: "全部批次" });
+    fillSelect($("corpusPredictionScene"), sceneOptions, { allText: "全部模型分类", extra: [{ value: "unknown", text: "无模型分类" }] });
+    fillSelect($("overviewPredictionScene"), sceneOptions, { allText: "全部模型分类", extra: [{ value: "unknown", text: "无模型分类" }] });
+    fillSelect($("corpusHumanScene"), sceneOptions, { allText: "全部人工场景", extra: [{ value: "unknown", text: "无人工作场景" }] });
+    fillSelect($("overviewHumanScene"), sceneOptions, { allText: "全部人工场景", extra: [{ value: "unknown", text: "无人工作场景" }] });
     const grid = $("scopeSceneGrid");
     if (grid && !grid.childElementCount) {
       scenes.forEach((scene) => {
@@ -614,8 +679,12 @@ function overviewStats(data) {
 }
 
 async function loadOverview(epoch = state.requestEpoch) {
+  writeNamedFilters("overview", state.metadataFilters);
+  const metadata = readNamedFilters("overview");
+  state.metadataFilters = metadata;
+  writeNamedFilters("corpus", metadata);
   const [overviewResult, seriesResult] = await Promise.allSettled([
-    api.get(apiUrl("/api/admin/overview")),
+    api.get(apiUrl("/api/admin/overview", metadata)),
     api.get(apiUrl("/api/admin/timeseries")),
   ]);
   if (epoch !== state.requestEpoch) return;
@@ -687,6 +756,85 @@ function renderOverview(data) {
   const distributions = pick(data, ["distributions"], {});
   renderDistribution($("categoryDistribution"), pick(distributions, ["categories", "category"], pick(data, ["categories"], [])));
   renderDistribution($("skipDistribution"), pick(distributions, ["skip_reasons", "skipReasons"], pick(data, ["skip_reasons"], [])));
+  renderMetadataGroups(data);
+}
+
+function groupRows(items, labelFn) {
+  return (items || []).map((item) => ({
+    key: item.scene_code || item.batch_code || item.confidence || item.status || item.label,
+    label: labelFn(item),
+    tasks: numberValue(item.task_count),
+    duration: numberValue(item.duration_seconds),
+    overlapping: boolValue(item.overlapping, false),
+  }));
+}
+
+function renderGroupTable(container, rows, emptyText) {
+  clear(container);
+  if (!rows.length) {
+    container.appendChild(element("div", { className: "empty-inline", text: emptyText }));
+    return;
+  }
+  const table = element("table", { className: "metadata-group-table" });
+  table.appendChild(element("thead", {}, element("tr", {}, [
+    element("th", { text: "分组" }),
+    element("th", { className: "num", text: "任务数" }),
+    element("th", { className: "num", text: "原始音频时长" }),
+  ])));
+  const body = element("tbody");
+  for (const row of rows) {
+    body.appendChild(element("tr", {}, [
+      element("td", { text: row.label }),
+      element("td", { className: "num", text: formatInteger(row.tasks) }),
+      element("td", { className: "num", text: formatDuration(row.duration, false) }),
+    ]));
+  }
+  table.appendChild(body);
+  container.appendChild(table);
+}
+
+function renderMetadataGroups(data) {
+  renderGroupTable(
+    $("sourceSceneGroups"),
+    groupRows(listValue(data, ["source_scenes"]), (item) => item.label || sceneLabel(item.scene_code)),
+    "没有来源场景分组。",
+  );
+  renderGroupTable(
+    $("confidenceGroups"),
+    groupRows(listValue(data, ["confidence_buckets"]), (item) => CONF_ZH[item.confidence] || item.confidence || "未知"),
+    "没有来源置信度分组。",
+  );
+  renderGroupTable(
+    $("sourceBatchGroups"),
+    groupRows(listValue(data, ["source_batches"]), (item) => item.batch_code || "未知批次"),
+    "没有来源批次分组。",
+  );
+  renderGroupTable(
+    $("reviewStatusGroups"),
+    groupRows(listValue(data, ["review_statuses"]), (item) => REVIEW_STATUS_ZH[item.status] || item.status),
+    "没有已发布核验分组。",
+  );
+}
+
+function renderMatchedStats(data) {
+  const node = $("corpusMatchedStats");
+  if (!node) return;
+  if (!data) {
+    node.hidden = true;
+    node.replaceChildren();
+    return;
+  }
+  const totals = pick(data, ["totals"], {});
+  const tasks = numberValue(pick(totals, ["total_audio_count"], 0));
+  const duration = numberValue(pick(totals, ["total_audio_duration_seconds"], 0));
+  node.hidden = false;
+  node.replaceChildren();
+  node.append(
+    element("strong", { text: `${formatInteger(tasks)} 条任务` }),
+    document.createTextNode(" · "),
+    element("span", { text: `${formatDuration(duration, false)} 原始音频` }),
+    document.createTextNode(" · 下列来源场景/批次分组可重叠；来源置信度与已发布核验互斥。"),
+  );
 }
 
 function normaliseDistribution(raw) {
@@ -1099,23 +1247,44 @@ async function loadCorpus(append = false, epoch = state.requestEpoch) {
     setTaskTableState("corpus", "Loading tasks…");
     clear($("corpusTaskBody"));
   }
+  if (!append) writeNamedFilters("corpus", state.metadataFilters);
+  const metadata = readNamedFilters("corpus");
+  state.metadataFilters = metadata;
+  writeNamedFilters("overview", metadata);
   const extra = {
     limit: 50,
     cursor: append ? state.corpusTaskCursor : "",
     q: $("corpusSearch").value.trim(),
     status: $("corpusStatus").value,
-    source_scene: $("corpusSourceScene")?.value || "",
-    source_confidence: $("corpusSourceConfidence")?.value || "",
-    batch_code: $("corpusBatch")?.value || "",
-    review_status: $("corpusReviewStatus")?.value || "",
+    ...metadata,
   };
   try {
-    const data = await api.get(apiUrl("/api/admin/tasks", extra));
+    const requests = [api.get(apiUrl("/api/admin/tasks", extra))];
+    if (!append) requests.push(api.get(apiUrl("/api/admin/overview", {
+      q: extra.q,
+      status: extra.status,
+      ...metadata,
+    })));
+    const [listResult, overviewResult] = await Promise.allSettled(requests);
     if (epoch !== state.requestEpoch) return;
+    if (listResult.status !== "fulfilled") throw listResult.reason;
+    const data = listResult.value;
     const incoming = listValue(data, ["items", "annotations", "tasks", "results"]).map(normaliseTask);
     state.corpusTasks = append ? state.corpusTasks.concat(incoming) : incoming;
     state.corpusTaskCursor = pick(data, ["next_cursor", "cursor"], null);
     renderCorpusTasks();
+    if (!append) {
+      const overviewData = overviewResult && overviewResult.status === "fulfilled"
+        ? overviewResult.value
+        : null;
+      renderMatchedStats({
+        totals: {
+          total_audio_count: numberValue(pick(data, ["matched_count"], state.corpusTasks.length)),
+          total_audio_duration_seconds: numberValue(pick(data, ["matched_duration_seconds"], 0)),
+        },
+      });
+      if (overviewData) renderMetadataGroups(overviewData);
+    }
     hideStatus();
   } catch (error) {
     if (error.status === 404) setTaskTableState("corpus", "Global task browsing is not available on this server yet. Use Annotators to inspect current records.");
@@ -1134,9 +1303,14 @@ function renderCorpusTasks() {
     row.appendChild(element("td", { text: item.annotatorName }));
     row.appendChild(element("td", {}, statusBadge(item.status)));
     row.appendChild(element("td", { className: "mono-cell", text: formatDuration(item.durationSeconds) }));
-    row.appendChild(element("td", { text: (item.source_scenes || item.sourceScenes || []).join(", ") || "unknown" }));
-    row.appendChild(element("td", { text: item.source_confidence || item.sourceConfidence || "unknown" }));
-    row.appendChild(element("td", { text: item.review_status || item.reviewStatus || "pending" }));
+    const sourceScenes = (item.source_scenes || item.sourceScenes || []).map(sceneLabel);
+    row.appendChild(element("td", { text: sourceScenes.join("、") || "来源未知" }));
+    row.appendChild(element("td", { text: CONF_ZH[item.source_confidence || item.sourceConfidence] || item.source_confidence || "来源置信度未知" }));
+    const humanScenes = (item.human_scenes || item.humanScenes || []).map(sceneLabel);
+    const reviewStatus = item.review_status || item.reviewStatus || "pending";
+    const reviewText = (REVIEW_STATUS_ZH[reviewStatus] || reviewStatus) + (humanScenes.length ? ` · ${humanScenes.join("、")}` : "");
+    row.appendChild(element("td", { text: reviewText }));
+    row.appendChild(element("td", { text: item.prediction_label || item.predictionLabel || sceneLabel(item.prediction_scene) || "—" }));
     row.appendChild(element("td", { text: formatDateTime(item.submittedAt || item.updated_at) }));
     const actions = element("td", { className: "actions-cell" });
     actions.appendChild(element("button", { className: "table-action", text: "View", type: "button", dataset: { taskAction: "view-corpus", taskId: item.taskId } }));
@@ -1312,19 +1486,36 @@ function renderTaskDetail(data, task) {
   $("revokeFromDetailButton").hidden = !task.revocable;
   const metadata = pick(data, ["metadata"], null);
   if (metadata && window.AnnotationMetadata) {
-    const banner = element("div");
-    $("taskDetail").appendChild(banner);
+    const banner = element("div", { attrs: { id: "adminTaskMetadataBanner" } });
+    $("taskDetail").insertBefore(banner, $("taskDetail").firstChild);
     AnnotationMetadata.renderBanner(banner, metadata);
-    const details = element("div");
-    $("taskDetail").appendChild(details);
-    AnnotationMetadata.renderDetails(details, metadata);
+    const details = element("div", { attrs: { id: "adminTaskMetadataDetails" } });
+    banner.after(details);
+    AnnotationMetadata.renderDetails(details, metadata, { open: false, disclosureId: "adminMetadataDisclosure" });
   }
   const form = $("adminReviewForm");
   if (form) {
-    form.hidden = !pick(data, ["current_version_id"], null);
+    const publishedId = pick(data, ["current_version_id"], "") || "";
+    const review = pick(metadata, ["scene_review"], {}) || {};
+    const writeEnabled = boolValue(pick(metadata, ["features.scene_review_write", "features.metadata_ui"], true), true);
+    form.hidden = !publishedId || !writeEnabled;
     form.dataset.taskId = task.taskId || "";
-    form.dataset.versionId = pick(data, ["current_version_id"], "") || "";
-    form.dataset.reviewId = pick(metadata, ["scene_review.id"], "") || "";
+    form.dataset.versionId = publishedId;
+    form.dataset.reviewId = review.id || "";
+    formError($("adminReviewError"));
+    $("adminReviewStatus").value = review.status || "pending";
+    $("adminReviewNote").value = review.note || "";
+    $("adminReviewReason").value = "";
+    const selected = new Set(listValue(review, ["scene_codes"]));
+    for (const box of document.querySelectorAll("#adminReviewScenes input[type=checkbox]")) {
+      box.checked = selected.has(box.value);
+    }
+    const current = $("adminReviewCurrent");
+    if (current) {
+      const human = (review.scene_codes || []).map(sceneLabel).join("、");
+      const sourceText = (metadata?.sources || []).map((item) => item.scene_label || sceneLabel(item.scene_code)).join("、") || "来源未知";
+      current.textContent = `当前已发布核验：${REVIEW_STATUS_ZH[review.status] || review.status || "待核验"}${human ? " · " + human : ""}。来源场景：${sourceText}。`;
+    }
   }
 }
 
@@ -1779,8 +1970,17 @@ function setupEvents() {
 
   $("corpusFilterForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    state.corpusTaskCursor = null;
+    syncMetadataFilters("corpus");
     syncUrl();
     await loadCorpus(false, ++state.requestEpoch);
+  });
+  $("overviewFilterForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.corpusTaskCursor = null;
+    syncMetadataFilters("overview");
+    syncUrl();
+    await loadCurrentView();
   });
   $("loadMoreCorpusTasks").addEventListener("click", async () => {
     setButtonBusy($("loadMoreCorpusTasks"), true, "Loading…");
@@ -1791,42 +1991,71 @@ function setupEvents() {
   $("sceneScopeForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!state.selectedAnnotatorId) return;
+    formError($("scopeError"));
     const codes = Array.from(document.querySelectorAll("#scopeSceneGrid input[type=checkbox]:checked")).map((box) => box.value);
+    const reason = $("scopeReason").value.trim();
+    if (!reason) {
+      formError($("scopeError"), "请填写调整原因。");
+      $("scopeReason").focus();
+      return;
+    }
     try {
       await api.request(`/api/admin/annotators/${encodeURIComponent(state.selectedAnnotatorId)}/scene-scope`, {
         method: "PUT",
         body: {
-          operation_id: crypto.randomUUID(),
+          operation_id: uuid(),
           expected_revision: Number($("sceneScopeForm").dataset.revision || 0),
           mode: $("scopeMode").value,
           scene_codes: $("scopeMode").value === "restricted" ? codes : [],
           allow_unknown: $("scopeAllowUnknown").checked,
-          reason: $("scopeReason").value,
+          reason,
         },
       });
-      toast("Scene scope saved");
+      toast("可领取范围已保存。已领取任务不会被释放。");
+      $("scopeReason").value = "";
       await loadAnnotator(state.selectedAnnotatorId);
-    } catch (error) { toast(error.message, "error"); }
+    } catch (error) {
+      formError($("scopeError"), error.message);
+      toast(error.message, "error");
+    }
   });
   $("adminReviewForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = $("adminReviewForm");
     const taskId = form.dataset.taskId;
     if (!taskId) return;
+    formError($("adminReviewError"));
     const codes = Array.from(document.querySelectorAll("#adminReviewScenes input[type=checkbox]:checked")).map((box) => box.value);
+    const status = $("adminReviewStatus").value;
+    const reason = $("adminReviewReason").value.trim();
+    if (!reason) {
+      formError($("adminReviewError"), "请填写修正原因。");
+      $("adminReviewReason").focus();
+      return;
+    }
+    const check = window.AnnotationMetadata
+      ? AnnotationMetadata.validateReview({ status, scene_codes: codes })
+      : { ok: true };
+    if (!check.ok) {
+      formError($("adminReviewError"), check.error);
+      return;
+    }
     try {
       await api.post(`/api/admin/annotations/${encodeURIComponent(taskId)}/scene-review`, {
-        operation_id: crypto.randomUUID(),
+        operation_id: uuid(),
         expected_version_id: form.dataset.versionId,
         expected_review_id: form.dataset.reviewId || null,
-        status: $("adminReviewStatus").value,
+        status,
         scene_codes: codes,
         note: $("adminReviewNote").value,
-        reason: $("adminReviewReason").value,
+        reason,
       });
-      toast("Scene review corrected");
+      toast("人工核验已追加修正。");
       await showTask(taskId);
-    } catch (error) { toast(error.message, "error"); }
+    } catch (error) {
+      formError($("adminReviewError"), error.message);
+      toast(error.message, "error");
+    }
   });
 
   $("auditFilterForm").addEventListener("submit", async (event) => {

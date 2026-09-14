@@ -2511,8 +2511,9 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
     """Task-centric corpus list, including pending and assigned work."""
     normalized = _normalize_admin_filters(filters)
     limit = max(1, min(int(limit), 100))
-    where, params = _admin_task_filter_sql(normalized)
+    where, filter_params = _admin_task_filter_sql(normalized)
     clauses = [where]
+    params = list(filter_params)
     filter_digest = _admin_list_filter_digest(normalized)
     if cursor:
         created_at, task_id, cursor_digest = _decode_admin_cursor(cursor, 3)
@@ -2523,6 +2524,16 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
         clauses.append("(t.created_at, t.id) < (%s::timestamptz, %s::uuid)")
         params.extend([created_at, task_id])
     with db_tx() as conn, conn.cursor() as cur:
+        matched = cur.execute(
+            f"""SELECT count(*), COALESCE(sum(t.duration), 0)
+                FROM annotation_tasks t
+                LEFT JOIN annotation_versions v
+                  ON v.id = t.current_published_version_id
+                WHERE {where}""",
+            filter_params,
+        ).fetchone()
+        matched_count = int(matched[0])
+        matched_duration_seconds = float(matched[1])
         rows = cur.execute(
             f"""SELECT t.id, t.created_at, t.updated_at, t.filename,
                        t.folder, t.rel_path, t.duration, t.status, t.eligible,
@@ -2624,11 +2635,16 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
                 item["source_confidence"] = summary.get("source_confidence") or "unknown"
                 item["batch_codes"] = summary.get("batch_codes") or []
                 item["review_status"] = summary.get("review_status") or "pending"
+                item["prediction_label"] = summary.get("prediction_label")
+                item["prediction_scene"] = summary.get("prediction_scene")
+                item["human_scenes"] = summary.get("human_scenes") or []
     next_cursor = None
     if has_more and rows:
         next_cursor = _encode_admin_cursor(rows[-1][1], rows[-1][0], filter_digest)
     return {
         "items": items, "next_cursor": next_cursor,
+        "matched_count": matched_count,
+        "matched_duration_seconds": matched_duration_seconds,
         "applied_filters": _applied_admin_filters(normalized),
         "filter_digest": filter_digest,
     }
@@ -2756,6 +2772,9 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
                 item["source_confidence"] = summary.get("source_confidence") or "unknown"
                 item["batch_codes"] = summary.get("batch_codes") or []
                 item["review_status"] = summary.get("review_status") or "pending"
+                item["prediction_label"] = summary.get("prediction_label")
+                item["prediction_scene"] = summary.get("prediction_scene")
+                item["human_scenes"] = summary.get("human_scenes") or []
     next_cursor = None
     if has_more and rows:
         next_cursor = _encode_admin_cursor(rows[-1][1], rows[-1][0], filter_digest)

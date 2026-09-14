@@ -56,9 +56,9 @@ def _claim_primary_source(claim: dict | None) -> dict | None:
     if not claim:
         return None
     selected = claim.get("source")
-    if selected:
+    if selected and (selected.get("scene_code") or selected.get("confidence")):
         return selected
-    if claim.get("scene_code") or claim.get("confidence"):
+    if claim.get("scene_code"):
         return {
             "scene_code": claim.get("scene_code"),
             "scene_label": scene_label(claim.get("scene_code")),
@@ -69,7 +69,6 @@ def _claim_primary_source(claim: dict | None) -> dict | None:
 
 def headline(metadata: dict) -> str:
     sources = metadata.get("sources") or []
-    review = metadata.get("scene_review") or {}
     claim = metadata.get("claim_context") or {}
     primary = _claim_primary_source(claim)
     if primary is None and len(sources) == 1:
@@ -91,11 +90,33 @@ def headline(metadata: dict) -> str:
         ]
         scene_part = "；".join(labels)
         conf_part = "来源置信度按场景"
-    review_part = review_label((review or {}).get("status"))
-    draft = metadata.get("draft_review")
-    if draft and not (review or {}).get("submitted"):
-        review_part = "本人已保存，未提交"
+    review_part = _review_headline_part(metadata)
     return f"{scene_part} · {conf_part} · {review_part}"
+
+
+def _human_scene_suffix(review: dict | None) -> str:
+    codes = list((review or {}).get("scene_codes") or [])
+    if not codes:
+        return ""
+    return "（" + "、".join(scene_label(code) for code in codes) + "）"
+
+
+def _review_headline_part(metadata: dict) -> str:
+    """Working/unpublished choices must not read as published confirmation."""
+    review = metadata.get("scene_review") or {}
+    draft = metadata.get("draft_review")
+    submitted = bool(review.get("submitted"))
+    if draft is not None and not submitted:
+        status = draft.get("status") or "pending"
+        if status == "pending" and not (draft.get("id") or draft.get("scene_codes")):
+            return "场景待核验"
+        return "本人已保存，未提交" + _human_scene_suffix(draft)
+    if not submitted:
+        status = review.get("status") or "pending"
+        if status == "pending":
+            return "场景待核验"
+        return review_label(status) + _human_scene_suffix(review) + " · 未提交"
+    return review_label(review.get("status")) + _human_scene_suffix(review)
 
 
 def serialize_task_metadata(cur, task_id, *, version_id=None,

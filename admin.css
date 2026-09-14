@@ -1156,6 +1156,27 @@ input[type="checkbox"] { width: 15px; min-height: 15px; height: 15px; padding: 0
   .modal-actions .button { width: 100%; }
 }
 
+.admin-app .metadata-chip {
+  background: var(--blue-soft);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.admin-app .metadata-chip.high { border-color: var(--accent); color: var(--accent-dark); }
+.admin-app .metadata-chip.medium { border-color: var(--warning); color: var(--warning); }
+.admin-app .metadata-disclosure,
+.admin-app .metadata-notice,
+.admin-app .review-reference { color: var(--muted); }
+.admin-app .metadata-disclosure-body {
+  background: var(--surface-subtle);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.admin-app .metadata-source-title,
+.admin-app .review-reference-title { color: var(--ink); }
+.admin-app .metadata-disclosure a { color: var(--blue); }
+.metadata-overview-grid { padding: 8px 16px 16px; }
+.admin-app .form-error { margin: 8px 0; color: var(--danger); font-size: 13px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
 }

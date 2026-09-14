@@ -534,6 +534,38 @@ def metadata_summaries(cur, task_ids: list,
         (list(task_ids),),
     ).fetchall()
     reviews = {str(row[0]): row[1] for row in review_rows}
+    prediction_rows = cur.execute(
+        """SELECT DISTINCT ON (task_id)
+                  task_id, predicted_label, predicted_scene_code
+           FROM task_scene_predictions
+           WHERE task_id = ANY(%s)
+           ORDER BY task_id, created_at DESC, id DESC""",
+        (list(task_ids),),
+    ).fetchall()
+    predictions = {
+        str(row[0]): {
+            "prediction_label": row[1],
+            "prediction_scene": row[2],
+        }
+        for row in prediction_rows
+    }
+    human_rows = cur.execute(
+        """SELECT t.id, l.scene_code
+           FROM annotation_tasks t
+           JOIN LATERAL (
+               SELECT id FROM scene_reviews
+               WHERE version_id = t.current_published_version_id
+                 AND NOT superseded
+               ORDER BY review_no DESC LIMIT 1
+           ) sr ON true
+           JOIN scene_review_labels l ON l.review_id = sr.id
+           WHERE t.id = ANY(%s)
+           ORDER BY t.id, l.scene_code""",
+        (list(task_ids),),
+    ).fetchall()
+    human_scenes: dict[str, list[str]] = {}
+    for task_id, code in human_rows:
+        human_scenes.setdefault(str(task_id), []).append(code)
     result = {}
     for task_id in task_ids:
         key = str(task_id)
@@ -542,9 +574,13 @@ def metadata_summaries(cur, task_ids: list,
             "source_confidence": "unknown",
             "batch_codes": [],
         })
+        prediction = predictions.get(key, {})
         result[key] = {
             **base,
             "review_status": reviews.get(key, "pending"),
+            "prediction_label": prediction.get("prediction_label"),
+            "prediction_scene": prediction.get("prediction_scene"),
+            "human_scenes": human_scenes.get(key, []),
         }
     return result
 

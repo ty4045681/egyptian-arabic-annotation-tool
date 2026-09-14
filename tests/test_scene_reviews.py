@@ -54,6 +54,24 @@ def test_review_saves_with_complete_and_ignores_label_order(database, seed_tasks
     assert detail["metadata"]["scene_review"]["status"] == "mixed"
 
 
+def test_unpublished_confirmed_headline_uses_human_labels_not_published_wording(
+        database, seed_tasks):
+    seed_tasks(1)
+    user, _ = make_user("headline-unpublished")
+    assignment = repo.claim(user["id"])
+    saved = repo.save_draft(
+        user["id"], assignment["lease_token"], 0, full_segments(assignment),
+        str(uuid.uuid4()), "headline-save",
+        scene_review={"status": "confirmed", "scene_codes": ["shopping"]},
+    )
+    assert saved["scene_review"]["status"] == "confirmed"
+    current = repo.get_assignment(user["id"])
+    headline = current["metadata"]["headline"]
+    assert "未提交" in headline
+    assert "购物" in headline
+    assert current["metadata"]["scene_review"]["submitted"] is False
+
+
 def test_correction_draft_review_is_pending_not_published(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
