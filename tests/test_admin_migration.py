@@ -114,7 +114,7 @@ def test_admin_migration_schema_and_indexes(database):
     import db
 
     with db.db_conn() as conn:
-        assert db.applied_versions(conn) == [1, 2]
+        assert db.applied_versions(conn) == [1, 2, 3]
         assert db.apply_migrations(conn) == []
 
         columns = {
@@ -190,7 +190,7 @@ def test_002_backfills_exact_and_reconstructed_baselines(database_before_admin):
     import db
 
     with psycopg.connect(database_before_admin["dsn"]) as conn:
-        assert db.apply_migrations(conn) == [2]
+        assert db.apply_migrations(conn) == [2, 3]
         tasks = {
             row[0]: row[1:]
             for row in conn.execute(
