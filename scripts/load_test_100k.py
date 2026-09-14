@@ -981,6 +981,9 @@ def main() -> int:
             "locks_before": before_locks,
             "locks_after": after_locks,
         }
+        logout_status, _, _ = busy_client.request('POST', '/api/logout', {})
+        if logout_status != 200:
+            raise RuntimeError('contention fixture session did not log out')
 
         results["claim_concurrent"] = run_new_claim_scenario(
             base, take_users(20), {}, samples_path, "claim_concurrent_20",
@@ -1089,6 +1092,13 @@ def main() -> int:
                 f"RETAINED artifacts: pgdata={pgdata} database={db_name}",
                 flush=True,
             )
+
+        if sys.exc_info()[0] is not None:
+            results['incomplete'] = True
+            results['failure_type'] = sys.exc_info()[0].__name__
+            results['pass'] = {'all_gates': False}
+            (artifact_dir / 'results.incomplete.json').write_text(
+                json.dumps(results, indent=2, default=str) + '\n')
 
     claim_p95 = (results.get("claim_normal") or {}).get("latency", {}).get("p95_ms")
     list_p95 = (results.get("list_50") or {}).get("latency", {}).get("p95_ms")
