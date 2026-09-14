@@ -10,7 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from db import db_conn
-from preprocess_store import ingestion_states, load_draft_segments, store_preprocessed_task
+from preprocess_store import (
+    finalize_rejected_task, ingestion_states, load_draft_segments,
+    store_preprocessed_task,
+)
 
 PROCESSING_HEARTBEAT_SECONDS = 60
 
@@ -345,6 +348,36 @@ def process_audio_with_asr(audio_path, config, *, delete_rejected=False):
                 pass
 
 
+def _finalize_rejection(
+    audio_path, *, rel_path, fname, folder, processing_token,
+    delete_rejected, reason, segments, wav_full, orig_sr,
+    asr_checkpoint_incomplete, keep_message, delete_message,
+):
+    """Shared fenced rejection for no-speech and content inspection."""
+    total_dur, waveform_payload = build_waveform_payload(wav_full, orig_sr)
+    with db_conn() as conn:
+        result = finalize_rejected_task(
+            conn, rel_path=rel_path, filename=fname, folder=folder,
+            duration=round(total_dur, 2), segments=segments,
+            waveform_payload=waveform_payload,
+            preprocessed_at=datetime.now(timezone.utc),
+            processing_token=processing_token, reason=reason,
+            asr_checkpoint_incomplete=asr_checkpoint_incomplete,
+            delete_path=audio_path if delete_rejected else None,
+        )
+    if result["action"] == "skipped_human":
+        print(f"     ⏭️  已有人工标注，未覆盖: {fname}")
+        return {"status": "skipped_human", "rel_path": rel_path}
+    if delete_rejected:
+        print(delete_message)
+    else:
+        print(keep_message)
+    status = (
+        "rejected_no_speech" if reason == "no_speech" else "rejected_content"
+    )
+    return {"status": status, "rel_path": rel_path, "action": result["action"]}
+
+
 def _run_vad_asr_and_store(audio_path, config, *, rel_path, fname, folder,
                            processing_token, delete_rejected, t0):
     from annotation_metadata.ingestion import task_is_protected
@@ -362,23 +395,14 @@ def _run_vad_asr_and_store(audio_path, config, *, rel_path, fname, folder,
     print(f"     VAD: {n_segs} 段 ({time.time()-t0:.1f}s)")
 
     if not segs:
-        if delete_rejected:
-            print("     ⚠️  未检测到语音，删除音频")
-            audio_path.unlink(missing_ok=True)
-        else:
-            print("     ⚠️  未检测到语音，保留源音频并记录为不可领取")
-            total_dur, waveform_payload = build_waveform_payload(wav_full, orig_sr)
-            with db_conn() as conn:
-                store_preprocessed_task(
-                    conn, rel_path=rel_path, filename=fname, folder=folder,
-                    duration=round(total_dur, 2), segments=[],
-                    waveform_payload=waveform_payload,
-                    preprocessed_at=datetime.now(timezone.utc), eligible=False,
-                    task_extra={"preprocess_rejection": "no_speech",
-                                "asr_checkpoint_incomplete": False},
-                    processing_token=processing_token,
-                )
-        return {"status": "rejected_no_speech", "rel_path": rel_path}
+        return _finalize_rejection(
+            audio_path, rel_path=rel_path, fname=fname, folder=folder,
+            processing_token=processing_token, delete_rejected=delete_rejected,
+            reason="no_speech", segments=[], wav_full=wav_full, orig_sr=orig_sr,
+            asr_checkpoint_incomplete=False,
+            keep_message="     ⚠️  未检测到语音，保留源音频并记录为不可领取",
+            delete_message="     ⚠️  未检测到语音，删除音频",
+        )
 
     # 恢复未完成 ASR checkpoint（仅未分配、未人工修改的 draft）。
     with db_conn() as conn:
@@ -469,23 +493,14 @@ def _run_vad_asr_and_store(audio_path, config, *, rel_path, fname, folder,
 
     # 内容审核拦截默认保留源文件；只有显式参数才允许删除。
     if _reject_file:
-        if delete_rejected:
-            print(f"     🗑️  删除被拒绝的音频: {fname}")
-            audio_path.unlink(missing_ok=True)
-        else:
-            print(f"     ⏭️  保留被拒绝的源音频并记录为不可领取: {fname}")
-            total_dur, waveform_payload = build_waveform_payload(wav_full, orig_sr)
-            with db_conn() as conn:
-                store_preprocessed_task(
-                    conn, rel_path=rel_path, filename=fname, folder=folder,
-                    duration=round(total_dur, 2), segments=segs,
-                    waveform_payload=waveform_payload,
-                    preprocessed_at=datetime.now(timezone.utc), eligible=False,
-                    task_extra={"preprocess_rejection": "content_inspection",
-                                "asr_checkpoint_incomplete": True},
-                    processing_token=processing_token,
-                )
-        return {"status": "rejected_content", "rel_path": rel_path}
+        return _finalize_rejection(
+            audio_path, rel_path=rel_path, fname=fname, folder=folder,
+            processing_token=processing_token, delete_rejected=delete_rejected,
+            reason="content_inspection", segments=segs, wav_full=wav_full,
+            orig_sr=orig_sr, asr_checkpoint_incomplete=True,
+            keep_message=f"     ⏭️  保留被拒绝的源音频并记录为不可领取: {fname}",
+            delete_message=f"     🗑️  删除被拒绝的音频: {fname}",
+        )
 
     # 任何空转写都作为可续跑 checkpoint，不能进入标注员领取池。
     if any(not (segment.get("asr_text") or "").strip() for segment in segs):

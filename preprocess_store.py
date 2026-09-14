@@ -9,6 +9,7 @@ import base64
 import hashlib
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import psycopg
 from psycopg.types.json import Json
@@ -42,6 +43,7 @@ def store_preprocessed_task(
     processing_token: str | None = None,
     metadata_only: bool = False,
     batch_code: str | None = None,
+    before_complete=None,
 ) -> dict:
     """Insert or refresh a pending task with a draft version.
 
@@ -122,6 +124,8 @@ def store_preprocessed_task(
                             preprocessed_at=preprocessed_at,
                             category=category, extra=task_extra)
                 metadata_action = _sync_sources(task_id)
+                if before_complete is not None:
+                    before_complete()
                 if processing_token:
                     from annotation_metadata.processing import complete_processing
                     complete_processing(cur, task_id, processing_token)
@@ -164,11 +168,66 @@ def store_preprocessed_task(
         )
         _upsert_waveform(cur, task_id, waveform_payload)
         metadata_action = _sync_sources(task_id)
+        if before_complete is not None:
+            before_complete()
         if processing_token:
             from annotation_metadata.processing import complete_processing
             complete_processing(cur, task_id, processing_token)
         return {"action": "created", "task_id": str(task_id),
                 "metadata_action": metadata_action}
+
+
+def finalize_rejected_task(
+    conn: psycopg.Connection,
+    *,
+    rel_path: str,
+    filename: str,
+    folder: str,
+    duration: float,
+    segments: list[dict],
+    waveform_payload: bytes | None = None,
+    preprocessed_at: datetime | None = None,
+    processing_token: str | None = None,
+    reason: str,
+    asr_checkpoint_incomplete: bool = False,
+    delete_path: str | Path | None = None,
+) -> dict:
+    """Fence no-speech and content-inspection the same way.
+
+    Rechecks the processing token and human protection while the task
+    and draft version are locked. The task is marked ineligible and the
+    rejection is recorded before any optional local-file delete. The
+    delete runs in this short transaction, before the lease is released,
+    so a lost token never unlinks another worker's audio. An unlink
+    error rolls the DB write back; the file remains.
+    """
+
+    def _delete_if_requested():
+        if delete_path is None:
+            return
+        try:
+            Path(delete_path).unlink()
+        except FileNotFoundError:
+            pass
+
+    return store_preprocessed_task(
+        conn,
+        rel_path=rel_path,
+        filename=filename,
+        folder=folder,
+        duration=duration,
+        segments=segments,
+        waveform_payload=waveform_payload,
+        preprocessed_at=preprocessed_at,
+        skip_if_human_modified=True,
+        eligible=False,
+        task_extra={
+            "preprocess_rejection": reason,
+            "asr_checkpoint_incomplete": bool(asr_checkpoint_incomplete),
+        },
+        processing_token=processing_token,
+        before_complete=_delete_if_requested,
+    )
 
 
 def _replace_draft(cur, task_id, draft_vid, duration, segments) -> None:
