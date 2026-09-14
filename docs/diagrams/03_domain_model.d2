@@ -1,0 +1,108 @@
+direction: down
+
+annotators: "annotators｜标注员" {
+  shape: sql_table
+  id: UUID {constraint: primary_key}
+  username: TEXT {constraint: unique}
+  status: active／deactivated
+}
+
+sessions: "active_sessions｜登录会话" {
+  shape: sql_table
+  user_id: UUID {constraint: primary_key}
+  session_id: UUID {constraint: unique}
+  expires_at: TIMESTAMPTZ
+}
+
+tasks: "annotation_tasks｜任务" {
+  shape: sql_table
+  id: UUID {constraint: primary_key}
+  rel_path: TEXT {constraint: unique}
+  status: pending／annotated／skipped
+  eligible: BOOLEAN
+  allocation_order: BIGINT {constraint: unique}
+  current_published_version_id: UUID
+  baseline_version_id: UUID
+  baseline_quality: exact／reconstructed／reprocessed
+}
+
+versions: "annotation_versions｜标注版本" {
+  shape: sql_table
+  id: UUID {constraint: primary_key}
+  task_id: UUID {constraint: foreign_key}
+  version_no: INTEGER
+  lifecycle: baseline／draft／published／superseded／abandoned／revoked
+  revision: INTEGER
+  target_status: TEXT
+  revoked_by_admin_action_id: UUID
+}
+
+segments: "segments｜片段" {
+  shape: sql_table
+  version_id: UUID {constraint: foreign_key}
+  segment_id: INTEGER
+  start_s: DOUBLE
+  end_s: DOUBLE
+  asr_text: TEXT
+  text: TEXT
+  exclude_from_training: BOOLEAN
+}
+
+assignments: "assignments｜任务持有关系" {
+  shape: sql_table
+  user_id: UUID {constraint: primary_key}
+  task_id: UUID {constraint: unique}
+  working_version_id: UUID {constraint: unique}
+  mode: annotation／revision
+  lease_token: UUID {constraint: unique}
+}
+
+operations: "operations｜幂等操作" {
+  shape: sql_table
+  operation_id: UUID {constraint: primary_key}
+  route: TEXT
+  request_hash: TEXT
+  response: JSONB
+}
+
+events: "annotation_events｜审计事件" {
+  shape: sql_table
+  id: BIGSERIAL {constraint: primary_key}
+  operation_id: UUID {constraint: unique}
+  user_id: UUID
+  task_id: UUID
+  version_id: UUID
+  admin_action_id: UUID
+  event_type: TEXT
+}
+
+waveforms: "waveforms｜压缩波形" {
+  shape: sql_table
+  task_id: UUID {constraint: primary_key}
+  checksum: TEXT
+  payload: BYTEA
+}
+
+annotators.id -> sessions.user_id: "一个当前会话"
+annotators.id -> assignments.user_id: "每人最多一条"
+tasks.id -> assignments.task_id: "每任务最多一人"
+tasks.id -> versions.task_id: "1 : N"
+versions.id -> segments.version_id: "1 : N"
+assignments.working_version_id -> versions.id: "正在编辑"
+tasks.current_published_version_id -> versions.id: "当前有效成果"
+tasks.baseline_version_id -> versions.id: "不可变重置起点"
+tasks.id -> waveforms.task_id: "1 : 0..1"
+operations.operation_id -> events.operation_id: "动作与审计"
+events.task_id -> tasks.id
+events.version_id -> versions.id
+events.user_id -> annotators.id
+
+invariants: "数据库约束承载的核心不变量\n① 一人最多持有一条任务\n② 一条任务最多被一人持有\n③ 每任务最多一个基线、当前草稿和已发布版本\n④ 已发布指针决定当前有效语料\n⑤ 撤销从基线重建，不改写历史" {
+  style.fill: "#FFF7ED"
+  style.stroke: "#EA580C"
+  style.font-size: 16
+}
+
+invariants -> assignments: "唯一约束"
+invariants -> versions: "部分唯一索引"
+invariants -> tasks: "外键与状态约束"

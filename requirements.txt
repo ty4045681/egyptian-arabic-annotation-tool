@@ -1,0 +1,10 @@
+# Compatibility reference only. Do not install with pip.
+# Canonical environment: pyproject.toml + uv.lock
+# Install runtime + tests: uv sync --group dev
+# Install preprocessing stack: uv sync --group dev --group preprocess
+flask>=3.0
+gunicorn>=21.0
+psycopg[binary]>=3.2
+psycopg-pool>=3.2
+soundfile>=0.12
+openpyxl>=3.1

@@ -1,0 +1,48 @@
+direction: down
+
+classes: {
+  human: {
+    style.fill: "#FFF7ED"
+    style.stroke: "#EA580C"
+    style.stroke-width: 2
+    style.border-radius: 10
+  }
+  ai: {
+    style.fill: "#EEF2FF"
+    style.stroke: "#6366F1"
+    style.stroke-width: 2
+    style.border-radius: 10
+  }
+  evidence: {
+    style.fill: "#ECFDF5"
+    style.stroke: "#059669"
+    style.stroke-width: 2
+    style.border-radius: 10
+  }
+}
+
+human_context: "人：给出真实上下文\n目标、现状、边界、不变量、非目标" {class: human}
+ai_explore: "AI：先读仓库再回答\n建立事实基线，定位跨层影响" {class: ai}
+joint_design: "人 + AI：方案推演\n比较取舍，列出失败模式与验收标准" {class: human}
+ai_build: "AI：在受控范围内实现\n数据库结构、事务、API、前端、测试、文档" {class: ai}
+verify: "机器证据\n代码差异、静态检查、自动化测试\n迁移报告、恢复演练、冒烟测试" {class: evidence}
+human_accept: "人：审查与决策\n业务语义、数据风险、体验、上线时机" {class: human}
+
+human_context -> ai_explore -> joint_design -> ai_build -> verify -> human_accept
+human_accept -> human_context: "形成下一轮更准确的上下文" {
+  style.stroke: "#EA580C"
+  style.stroke-dash: 5
+}
+
+ai_strength: "AI 擅长\n快速展开候选方案\n保持跨文件一致性\n枚举边界条件\n生成可执行的验证资产" {
+  class: ai
+}
+
+human_duty: "人必须承担\n定义“正确”是什么\n识别领域与伦理风险\n决定是否迁移、发布、回滚\n对最终结果负责" {
+  class: human
+}
+
+ai_strength -> ai_explore: "放大分析带宽" {style.stroke-dash: 5}
+ai_strength -> ai_build: "加速落地" {style.stroke-dash: 5}
+human_duty -> human_context: "设定方向" {style.stroke-dash: 5}
+human_duty -> human_accept: "守住质量门" {style.stroke-dash: 5}

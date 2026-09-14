@@ -1,0 +1,92 @@
+direction: down
+
+classes: {
+  phase: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#64748B"
+    style.stroke-width: 2
+    style.border-radius: 10
+    style.font-size: 17
+  }
+  turning: {
+    style.fill: "#FFF7ED"
+    style.stroke: "#EA580C"
+    style.stroke-width: 2
+    style.border-radius: 10
+    style.font-size: 17
+  }
+  stable: {
+    style.fill: "#ECFDF5"
+    style.stroke: "#059669"
+    style.stroke-width: 2
+    style.border-radius: 10
+    style.font-size: 17
+  }
+  ai: {
+    style.fill: "#EEF2FF"
+    style.stroke: "#6366F1"
+    style.stroke-dash: 5
+    style.border-radius: 18
+    style.font-size: 14
+  }
+}
+
+prototype: "业务原型\nVAD + ASR + Flask + JSON\n先验证标注闭环" {
+  class: phase
+}
+
+collaboration: "多人协作版\n登录、文件锁、任务分配\n自动保存、排行榜" {
+  class: phase
+}
+
+pressure: "工程压力显现\n10 万级任务、并发领取\n版本、审计、恢复、迁移" {
+  class: turning
+}
+
+platform: "事务化平台 v5\nPostgreSQL 真源\n修订号 + 操作编号\n版本化标注" {
+  class: stable
+}
+
+delivery: "可运维交付\n测试、备份恢复、无损迁移\nNginx 音频代理、切换回滚" {
+  class: stable
+}
+
+governance: "可治理运营\n独立管理员身份域与管理看板\n不可变基线、可逆撤销与停用\n质量信号、审计和并发安全" {
+  class: stable
+}
+
+prototype -> collaboration: "从流程可用到团队可用"
+collaboration -> pressure: "规模放大隐含风险"
+pressure -> platform: "以不变量重构状态模型"
+platform -> delivery: "把上线与恢复纳入设计"
+delivery -> governance: "从可靠运行到可治理运营"
+
+ai_discovery: "AI：快速理解仓库\n补全场景与失败模式" {
+  class: ai
+}
+ai_design: "AI：比较方案、推演并发\n生成数据库结构 / API / 测试草案" {
+  class: ai
+}
+ai_delivery: "AI：跨层核对\n补齐迁移、运维与文档资产" {
+  class: ai
+}
+ai_governance: "AI：推演高风险管理动作\n补齐威胁模型、锁顺序与回归矩阵" {
+  class: ai
+}
+
+ai_discovery -> collaboration: "辅助复盘" {
+  style.stroke: "#6366F1"
+  style.stroke-dash: 5
+}
+ai_design -> platform: "辅助实现" {
+  style.stroke: "#6366F1"
+  style.stroke-dash: 5
+}
+ai_delivery -> delivery: "辅助闭环" {
+  style.stroke: "#6366F1"
+  style.stroke-dash: 5
+}
+ai_governance -> governance: "辅助治理设计" {
+  style.stroke: "#6366F1"
+  style.stroke-dash: 5
+}

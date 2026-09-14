@@ -1,0 +1,53 @@
+# 数据文件
+audio/
+annotations/
+annotations_copy/
+ar_audios/
+
+# 配置文件（含 API Key）
+/config.json
+
+# Python
+__pycache__/
+*.pyc
+
+# 环境
+.env
+*.log
+
+# 临时文件
+*.tmp
+__tmp_*
+tunnel_url.txt
+
+# VAD 工具输出
+vad_tool/input/
+vad_tool/output/
+
+# 运行时状态/锁文件
+.monitor_state
+.monitor_restarts
+.monitor.lock
+.~lock*
+
+# uv 虚拟环境（uv.lock 需要提交，.venv 不提交）
+.venv/
+
+# pgserver 测试数据库运行时目录
+.pgdata/
+
+# Local tool state and generated deliverables
+.pytest_cache/
+.worktrees/
+.commandcode/
+/exports/
+/doc.tar.gz
+/annotation_export.xlsx
+/deployment-code-manifest.json
+
+# Host-specific configuration and credentials
+/vad_tool/config.json
+.env.*
+!.env.example
+*.pem
+*.key

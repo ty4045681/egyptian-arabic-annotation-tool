@@ -1,0 +1,25 @@
+save_flow: "一次可靠保存与提交" {
+  shape: sequence_diagram
+
+  human: "标注员"
+  browser: "浏览器状态机"
+  api: "Flask API"
+  repo: "仓储层"
+  pg: "PostgreSQL"
+
+  human -> browser: "编辑文本、时间或质量标记"
+  browser -> browser: "合并未保存片段\n3 秒防抖；仅一个在途请求"
+  browser -> api: "PATCH 草稿\nlease_token + expected_revision + operation_id"
+  api -> repo: "校验输入并调用业务事务"
+  repo -> pg: "BEGIN；锁定持有关系 / 工作版本"
+  repo -> pg: "若 operation_id 已存在，读取原响应"
+  repo -> pg: "校验租约与修订号；更新片段"
+  repo -> pg: "修订号 + 1；记录幂等操作；COMMIT"
+  pg -> browser: "返回新修订号与已保存状态"
+  browser -> api: "响应丢失时：用同一 operation_id 安全重试"
+  api -> browser: "返回第一次操作的同一结果"
+  human -> browser: "标记完成 / 跳过任务"
+  browser -> api: "携带最后一批未保存片段提交"
+  repo -> pg: "同一事务：校验 → 发布版本\n更新任务状态 → 写事件 → 释放持有关系"
+  pg -> browser: "完成；进入空闲状态，由人决定是否再领取"
+}

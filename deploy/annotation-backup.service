@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up annotation PostgreSQL database and compatibility JSON
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=huawei
+Group=huawei
+UMask=0077
+Environment=ANNOTATION_BACKUP_ENV_FILE=/etc/annotation-tool-backup.env
+ExecStart=/home/cjg/annotation_tool/deploy/backup-postgres.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

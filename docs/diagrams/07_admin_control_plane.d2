@@ -1,0 +1,101 @@
+direction: down
+
+classes: {
+  boundary: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#CBD5E1"
+    style.stroke-width: 2
+    style.border-radius: 12
+  }
+  admin: {
+    style.fill: "#FFF7ED"
+    style.stroke: "#EA580C"
+    style.stroke-width: 2
+    style.border-radius: 10
+  }
+  security: {
+    style.fill: "#FEF2F2"
+    style.stroke: "#DC2626"
+    style.stroke-width: 2
+    style.border-radius: 10
+  }
+  service: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+    style.stroke-width: 2
+    style.border-radius: 10
+  }
+  data: {
+    style.fill: "#ECFDF5"
+    style.stroke: "#059669"
+    style.stroke-width: 2
+    style.border-radius: 10
+  }
+}
+
+entry: "独立管理入口" {
+  class: boundary
+  direction: right
+
+  human: "管理员浏览器\n原生响应式管理界面" {
+    shape: person
+    class: admin
+  }
+  edge: "Cloudflare + Nginx\nHTTPS / 登录限流 / 可信代理" {
+    class: service
+  }
+  auth: "独立管理员身份域\n高熵密钥只存 SHA-256\n会话 / CSRF 只存摘要\n空闲期限 + 绝对期限" {
+    class: security
+  }
+  api: "Flask /api/admin/*\nno-store / 权限与输入校验" {
+    class: service
+  }
+
+  human -> edge -> auth -> api
+}
+
+observe: "观察面｜先看清，再行动" {
+  class: boundary
+  direction: right
+
+  overview: "总览 / 时间序列\n当前有效语料 + 历史活动" {class: service}
+  annotators: "标注员 / 语料\n筛选、详情、游标式分页" {class: service}
+  quality: "质量信号\n超快任务、长期占用、排除比例\n只作人工复核线索" {class: admin}
+  audit: "活动日志\n成功、失败与认证事件" {class: service}
+
+  overview -> annotators -> quality -> audit
+}
+
+control: "控制面｜高风险动作必须可预览、可冲突、可重放" {
+  class: boundary
+  direction: right
+
+  preview: "影响预览\n目标、时长、冲突、任务持有关系" {class: service}
+  guard: "安全门\n原因 + 再次确认\nexpected_version_id + operation_id\n批量撤销 / 停用二次验密" {class: security}
+  tx: "单数据库事务\n固定锁顺序、批量全有或全无\n撤销 / 恢复 / 停用 / 释放" {class: service}
+
+  preview -> guard -> tx
+}
+
+state: "PostgreSQL 中的可逆治理结果" {
+  class: boundary
+  direction: right
+
+  baseline: "不可变基线\n精确保留 / 保守重建 / 重新处理" {class: data}
+  versions: "版本不删除\n已发布 ⇄ 已撤销\n新建干净待领取草稿" {class: data}
+  users: "标注员软停用\n注销会话、回收工作\n保留身份与历史" {class: data}
+  blocks: "task_annotator_blocks\n默认阻止原提交者重领" {class: data}
+  actions: "管理动作 + 逐项结果 + 标注事件\n动作摘要、逐项结果、失败审计" {class: data}
+
+  baseline -> versions
+  versions -> blocks
+  users -> actions
+  blocks -> actions
+}
+
+entry.api -> observe.overview: "只读查询"
+entry.api -> control.preview: "管理请求"
+observe.audit -> state.actions: "审计查询"
+control.tx -> state.versions: "撤销 / 恢复"
+control.tx -> state.users: "停用 / 回收"
+control.tx -> state.actions: "幂等与审计"

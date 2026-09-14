@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="referrer" content="same-origin">
+  <title>Admin Console · Annotation Tool</title>
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <a class="skip-link" href="#adminMain">Skip to dashboard</a>
+
+  <div class="boot-screen" id="bootScreen" role="status" aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Checking admin session…</span>
+  </div>
+
+  <main class="login-view" id="loginView" hidden>
+    <section class="login-card" aria-labelledby="loginTitle">
+      <div class="product-mark" aria-hidden="true">A</div>
+      <p class="eyebrow">Annotation Tool</p>
+      <h1 id="loginTitle">Admin console</h1>
+      <p class="login-copy">Use your administrator key to review corpus health and manage annotation work.</p>
+      <form id="loginForm" novalidate>
+        <label class="field-label" for="adminKey">Admin key</label>
+        <div class="password-field">
+          <input id="adminKey" name="admin_key" type="password" autocomplete="current-password" required
+                 aria-describedby="loginHint loginError" placeholder="Enter admin key">
+          <button class="icon-button show-key-button" id="showLoginKey" type="button" aria-label="Show admin key" aria-pressed="false">Show</button>
+        </div>
+        <p class="field-hint" id="loginHint">The key is sent only to this server and is never stored in your browser.</p>
+        <p class="form-error" id="loginError" role="alert" hidden></p>
+        <button class="button button-primary button-full" id="loginButton" type="submit">Continue</button>
+      </form>
+      <p class="login-footer"><a href="/login.html">Return to annotator sign in</a></p>
+    </section>
+  </main>
+
+  <div class="admin-app" id="adminApp" hidden>
+    <div class="sidebar-scrim" id="sidebarScrim" hidden></div>
+    <aside class="sidebar" id="sidebar" aria-label="Admin navigation">
+      <div class="sidebar-brand">
+        <span class="product-mark product-mark-small" aria-hidden="true">A</span>
+        <span><strong>Annotation</strong><small>Admin console</small></span>
+        <button class="icon-button sidebar-close" id="closeSidebarButton" type="button" aria-label="Close navigation">×</button>
+      </div>
+
+      <nav class="primary-nav" aria-label="Dashboard sections">
+        <button class="nav-item is-active" type="button" data-view="overview" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">⌂</span><span>Overview</span>
+        </button>
+        <button class="nav-item" type="button" data-view="annotators">
+          <span class="nav-icon" aria-hidden="true">◉</span><span>Annotators</span>
+        </button>
+        <button class="nav-item" type="button" data-view="corpus">
+          <span class="nav-icon" aria-hidden="true">▤</span><span>Tasks &amp; corpus</span>
+        </button>
+        <button class="nav-item" type="button" data-view="quality">
+          <span class="nav-icon" aria-hidden="true">◇</span><span>Quality</span>
+        </button>
+        <button class="nav-item" type="button" data-view="activity">
+          <span class="nav-icon" aria-hidden="true">↻</span><span>Activity log</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-section annotator-directory">
+        <div class="sidebar-section-head">
+          <h2>Annotators</h2>
+          <span class="count-pill" id="annotatorCount">—</span>
+        </div>
+        <label class="search-field" for="sidebarAnnotatorSearch">
+          <span aria-hidden="true">⌕</span>
+          <span class="sr-only">Search annotators</span>
+          <input id="sidebarAnnotatorSearch" type="search" placeholder="Search people" autocomplete="off">
+        </label>
+        <div class="sidebar-list" id="sidebarAnnotatorList" aria-live="polite">
+          <div class="sidebar-placeholder">Loading annotators…</div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span class="session-state"><i aria-hidden="true"></i><span id="sessionKeyId">Admin session</span></span>
+        <button class="text-button" id="logoutButton" type="button">Log out</button>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <div class="topbar-leading">
+        <button class="icon-button mobile-menu-button" id="openSidebarButton" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <div>
+          <p class="breadcrumb">Admin / <span id="breadcrumbView">Overview</span></p>
+          <h1 id="pageTitle">Overview</h1>
+        </div>
+      </div>
+      <div class="date-toolbar" aria-label="Dashboard date range">
+        <label class="compact-field">
+          <span class="sr-only">Quick date range</span>
+          <select id="dateRange">
+            <option value="7d">Last 7 days</option>
+            <option value="30d" selected>Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+            <option value="all">All time</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <div class="custom-dates" id="customDates" hidden>
+          <label class="compact-field"><span>From</span><input id="dateFrom" type="date"></label>
+          <span class="date-separator" aria-hidden="true">–</span>
+          <label class="compact-field"><span>To</span><input id="dateTo" type="date"></label>
+          <button class="button button-secondary button-small" id="applyDatesButton" type="button">Apply</button>
+        </div>
+        <button class="icon-button refresh-button" id="refreshButton" type="button" aria-label="Refresh dashboard" title="Refresh dashboard">↻</button>
+      </div>
+    </header>
+
+    <main class="dashboard-main" id="adminMain" tabindex="-1">
+      <div class="status-banner" id="statusBanner" role="status" hidden>
+        <span id="statusBannerText"></span>
+        <button class="text-button" id="statusRetryButton" type="button">Try again</button>
+      </div>
+
+      <section class="page-section" id="overviewView" data-page="overview" aria-labelledby="overviewHeading">
+        <div class="page-heading">
+          <div>
+            <h2 id="overviewHeading">Corpus overview</h2>
+            <p>Current usable data and historical annotation activity.</p>
+          </div>
+          <p class="updated-label">Updated <time id="overviewUpdatedAt">—</time></p>
+        </div>
+
+        <div class="kpi-grid" id="overviewKpis" aria-live="polite">
+          <article class="metric-card metric-card-featured">
+            <div class="metric-label"><span>Total audio</span><span class="metric-help" title="All imported audio tasks">i</span></div>
+            <strong class="metric-value" id="kpiTotalAudio">—</strong>
+            <p><span id="kpiTotalDuration">—</span> duration</p>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span>Annotated</span><span class="status-dot dot-success" aria-hidden="true"></span></div>
+            <strong class="metric-value" id="kpiAnnotated">—</strong>
+            <p><span id="kpiAnnotatedDuration">—</span> currently usable</p>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span>Pending</span><span class="status-dot dot-warning" aria-hidden="true"></span></div>
+            <strong class="metric-value" id="kpiPending">—</strong>
+            <p><span id="kpiPendingAvailable">—</span> available to claim</p>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span>Skipped</span><span class="status-dot dot-neutral" aria-hidden="true"></span></div>
+            <strong class="metric-value" id="kpiSkipped">—</strong>
+            <p><span id="kpiSkippedDuration">—</span> audio duration</p>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span>Trainable segments</span><span class="metric-help" title="Segments not excluded from training">i</span></div>
+            <strong class="metric-value" id="kpiTrainable">—</strong>
+            <p><span id="kpiTrainableDuration">—</span> clean duration</p>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label"><span>Active annotators</span><span class="metric-help" title="Unique annotators active within the selected range">i</span></div>
+            <strong class="metric-value" id="kpiActiveAnnotators">—</strong>
+            <p><span id="kpiDailyThroughput">—</span> tasks / day (7d)</p>
+          </article>
+        </div>
+
+        <div class="overview-grid">
+          <article class="panel panel-wide">
+            <div class="panel-heading">
+              <div><h3>Annotation activity</h3><p>Historical submissions by day</p></div>
+              <div class="chart-legend" aria-label="Chart legend">
+                <span><i class="legend-swatch swatch-annotated"></i>Annotated</span>
+                <span><i class="legend-swatch swatch-skipped"></i>Skipped</span>
+                <span><i class="legend-swatch swatch-revoked"></i>Revoked</span>
+              </div>
+            </div>
+            <div class="chart-wrap" id="activityChartWrap">
+              <canvas id="activityChart" role="img" aria-label="Daily annotated, skipped, and revoked task counts"></canvas>
+              <div class="chart-tooltip" id="activityTooltip" hidden></div>
+              <div class="empty-chart" id="activityChartEmpty" hidden>No annotation activity in this period.</div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading"><div><h3>Queue health</h3><p>Pending task availability</p></div></div>
+            <div class="donut-layout">
+              <canvas class="donut-chart" id="queueChart" width="180" height="180" role="img" aria-label="Pending queue distribution"></canvas>
+              <div class="donut-center" aria-hidden="true"><strong id="queueTotal">—</strong><span>pending</span></div>
+              <dl class="compact-legend" id="queueLegend"></dl>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading"><div><h3>Completion</h3><p>Current effective corpus</p></div></div>
+            <div class="completion-block">
+              <strong id="completionRate">—</strong>
+              <span>of all audio resolved</span>
+              <div class="progress-track" role="progressbar" id="completionProgress" aria-label="Corpus completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+              <dl class="summary-list">
+                <div><dt>Oldest pending</dt><dd id="oldestPending">—</dd></div>
+                <div><dt>Long-held assignments</dt><dd id="staleAssignments">—</dd></div>
+                <div><dt>Estimated finish</dt><dd id="estimatedFinish">—</dd></div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="panel panel-wide">
+            <div class="panel-heading"><div><h3>Corpus distribution</h3><p>Current effective tasks by category and skip reason</p></div></div>
+            <div class="distribution-grid">
+              <div><h4>Categories</h4><div class="bar-list" id="categoryDistribution"></div></div>
+              <div><h4>Skip reasons</h4><div class="bar-list" id="skipDistribution"></div></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page-section" id="annotatorsView" data-page="annotators" aria-labelledby="annotatorsHeading" hidden>
+        <div class="page-heading">
+          <div><h2 id="annotatorsHeading">Annotators</h2><p>Compare throughput, turnaround, label mix, and current contributions.</p></div>
+        </div>
+
+        <div class="annotator-empty-state" id="annotatorEmptyState">
+          <span class="empty-state-icon" aria-hidden="true">◉</span>
+          <h3>Select an annotator</h3>
+          <p>Choose a person from the sidebar to inspect their work and manage current annotations.</p>
+        </div>
+
+        <div id="annotatorDetail" hidden>
+          <article class="profile-header">
+            <div class="profile-identity">
+              <span class="avatar avatar-large" id="annotatorAvatar" aria-hidden="true">—</span>
+              <div><div class="profile-name-line"><h3 id="annotatorName">—</h3><span class="badge" id="annotatorStatus">—</span></div><p id="annotatorMeta">—</p></div>
+            </div>
+            <div class="profile-actions">
+              <button class="button button-secondary" id="exportAnnotatorButton" type="button">Export visible CSV</button>
+              <button class="button button-danger" id="deactivateAnnotatorButton" type="button">Deactivate annotator</button>
+            </div>
+          </article>
+
+          <div class="kpi-grid kpi-grid-compact">
+            <article class="metric-card"><div class="metric-label">Current contributions</div><strong class="metric-value" id="annotatorCurrent">—</strong><p id="annotatorCurrentDuration">—</p></article>
+            <article class="metric-card"><div class="metric-label">Historical submissions</div><strong class="metric-value" id="annotatorSubmitted">—</strong><p><span id="annotatorActiveDays">—</span> active days</p></article>
+            <article class="metric-card"><div class="metric-label">Median turnaround</div><strong class="metric-value" id="annotatorMedian">—</strong><p>P90 <span id="annotatorP90">—</span></p></article>
+            <article class="metric-card"><div class="metric-label">Admin revoke rate</div><strong class="metric-value" id="annotatorRevokeRate">—</strong><p><span id="annotatorRevoked">—</span> revoked submissions</p></article>
+          </div>
+
+          <div class="detail-grid">
+            <article class="panel panel-wide">
+              <div class="panel-heading"><div><h3>Daily output</h3><p>Tasks and submitted audio duration</p></div></div>
+              <div class="chart-wrap chart-wrap-small"><canvas id="annotatorChart" role="img" aria-label="Annotator daily output"></canvas><div class="empty-chart" id="annotatorChartEmpty" hidden>No activity in this period.</div></div>
+            </article>
+            <article class="panel">
+              <div class="panel-heading"><div><h3>Label mix</h3><p>Annotated and skipped tasks</p></div></div>
+              <div class="bar-list bar-list-spaced" id="annotatorLabelMix"></div>
+            </article>
+          </div>
+
+          <article class="panel table-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>Current annotations</h3>
+                <p id="annotationTableSummary">Select records to revoke in one transaction.</p>
+              </div>
+              <div class="table-actions">
+                <span class="selection-count" id="selectedTaskCount" hidden>0 selected</span>
+                <button class="button button-danger button-small" id="batchRevokeButton" type="button" disabled>Revoke selected</button>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr>
+                  <th class="checkbox-cell"><input id="selectAllTasks" type="checkbox" aria-label="Select all visible annotations"></th>
+                  <th>Audio</th><th>Status</th><th>Duration</th><th>Segments</th><th>Submitted</th><th>Turnaround</th><th class="actions-cell"><span class="sr-only">Actions</span></th>
+                </tr></thead>
+                <tbody id="annotatorTaskBody"></tbody>
+              </table>
+              <div class="table-state" id="annotatorTaskState">Select an annotator to load annotations.</div>
+            </div>
+            <div class="pagination-row"><button class="button button-secondary button-small" id="loadMoreAnnotatorTasks" type="button" hidden>Load more</button></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page-section" id="corpusView" data-page="corpus" aria-labelledby="corpusHeading" hidden>
+        <div class="page-heading">
+          <div><h2 id="corpusHeading">Tasks &amp; corpus</h2><p>Inspect current task state across the complete audio collection.</p></div>
+          <button class="button button-secondary" id="exportCorpusButton" type="button">Export visible CSV</button>
+        </div>
+        <article class="panel table-panel">
+          <form class="filter-bar" id="corpusFilterForm">
+            <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search audio tasks</span><input id="corpusSearch" type="search" placeholder="Search filename, folder, or category"></label>
+            <label class="compact-field"><span class="sr-only">Task status</span><select id="corpusStatus"><option value="">All statuses</option><option value="annotated">Annotated</option><option value="skipped">Skipped</option><option value="pending">Pending</option><option value="assigned">Assigned</option></select></label>
+            <button class="button button-secondary button-small" type="submit">Apply filters</button>
+          </form>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Audio</th><th>Annotator</th><th>Status</th><th>Duration</th><th>Category</th><th>Updated</th><th class="actions-cell"><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody id="corpusTaskBody"></tbody>
+            </table>
+            <div class="table-state" id="corpusTaskState">Loading tasks…</div>
+          </div>
+          <div class="pagination-row"><button class="button button-secondary button-small" id="loadMoreCorpusTasks" type="button" hidden>Load more</button></div>
+        </article>
+      </section>
+
+      <section class="page-section" id="qualityView" data-page="quality" aria-labelledby="qualityHeading" hidden>
+        <div class="page-heading"><div><h2 id="qualityHeading">Review &amp; quality</h2><p>Rule-based signals that help prioritize manual review.</p></div></div>
+        <div class="quality-grid">
+          <article class="signal-card"><span class="signal-icon signal-warning" aria-hidden="true">!</span><div><h3>Unusually fast tasks</h3><strong id="qualityFastCount">—</strong><p>Below the current turnaround threshold</p></div></article>
+          <article class="signal-card"><span class="signal-icon signal-warning" aria-hidden="true">!</span><div><h3>Stale assignments</h3><strong id="qualityStaleCount">—</strong><p>Held longer than the expected lease</p></div></article>
+          <article class="signal-card"><span class="signal-icon signal-neutral" aria-hidden="true">◇</span><div><h3>Bad quality segments</h3><strong id="qualityBadSegments">—</strong><p id="qualityBadShare">— of submitted segments</p></div></article>
+          <article class="signal-card"><span class="signal-icon signal-danger" aria-hidden="true">×</span><div><h3>Admin revocations</h3><strong id="qualityRevocations">—</strong><p>Within the selected period</p></div></article>
+        </div>
+        <article class="panel table-panel">
+          <div class="table-toolbar"><div><h3>Quality review queue</h3><p>Signals are indicators only; they are not automatic quality judgments.</p></div></div>
+          <form class="filter-bar" id="qualityFilterForm">
+            <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search quality review queue</span><input id="qualitySearch" type="search" placeholder="Search filename or path" autocomplete="off"></label>
+            <label class="compact-field"><span class="sr-only">Annotator</span><select id="qualityAnnotator"><option value="">All annotators</option></select></label>
+            <label class="compact-field"><span class="sr-only">Quality signal</span><select id="qualitySignal"><option value="">All signals</option><option value="unusually_fast">Unusually fast</option><option value="stale_assignment">Stale assignment</option></select></label>
+            <button class="button button-secondary button-small" type="submit">Apply filters</button>
+          </form>
+          <div class="table-scroll">
+            <table class="data-table"><thead><tr><th>Audio</th><th>Annotator</th><th>Signal</th><th>Value</th><th>Submitted</th><th class="actions-cell"><span class="sr-only">Actions</span></th></tr></thead><tbody id="qualityTaskBody"></tbody></table>
+            <div class="table-state" id="qualityTaskState">Loading quality signals…</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="page-section" id="activityView" data-page="activity" aria-labelledby="activityHeading" hidden>
+        <div class="page-heading"><div><h2 id="activityHeading">Activity log</h2><p>Security-sensitive and data-changing administrator actions.</p></div><button class="button button-secondary" id="exportAuditButton" type="button">Export visible CSV</button></div>
+        <article class="panel table-panel">
+          <form class="filter-bar" id="auditFilterForm">
+            <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search activity log</span><input id="auditSearch" type="search" placeholder="Search task, annotator, or key ID"></label>
+            <label class="compact-field"><span class="sr-only">Action type</span><select id="auditAction"><option value="">All actions</option><option value="revoke_annotations">Revoke</option><option value="restore_annotations">Restore</option><option value="deactivate_annotator">Deactivate annotator</option><option value="release_assignment">Release assignment</option><option value="admin_auth">Admin login</option></select></label>
+            <button class="button button-secondary button-small" type="submit">Apply filters</button>
+          </form>
+          <div class="table-scroll">
+            <table class="data-table"><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Admin key</th><th>Reason</th><th>Result</th></tr></thead><tbody id="auditBody"></tbody></table>
+            <div class="table-state" id="auditState">Loading activity…</div>
+          </div>
+          <div class="pagination-row"><button class="button button-secondary button-small" id="loadMoreAudit" type="button" hidden>Load more</button></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <dialog class="modal" id="revokeDialog" aria-labelledby="revokeTitle">
+    <form class="modal-card" id="revokeForm">
+      <div class="modal-heading">
+        <span class="danger-mark" aria-hidden="true">!</span>
+        <div><h2 id="revokeTitle">Revoke annotation</h2><p id="revokeDescription">This returns the task to the available pool.</p></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog="revokeDialog" aria-label="Close">×</button>
+      </div>
+      <div class="impact-box" id="revokePreview" aria-live="polite">
+        <span class="spinner spinner-small" aria-hidden="true"></span><span>Checking impact…</span>
+      </div>
+      <label class="field-label" for="revokeReason">Reason</label>
+      <textarea id="revokeReason" name="reason" rows="3" maxlength="500" required placeholder="Explain why these annotations should be revoked"></textarea>
+      <div id="revokeAdminKeyField" hidden>
+        <label class="field-label" for="revokeAdminKey">Re-enter admin key</label>
+        <input id="revokeAdminKey" type="password" autocomplete="current-password" aria-describedby="revokeKeyHint">
+        <p class="field-hint" id="revokeKeyHint">Required as an additional check for batch revocation.</p>
+      </div>
+      <label class="check-row"><input id="blockReclaim" type="checkbox" checked><span><strong>Prevent the original annotator from reclaiming these tasks</strong><small>Recommended to keep the next review independent.</small></span></label>
+      <p class="form-error" id="revokeError" role="alert" hidden></p>
+      <div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="revokeDialog">Cancel</button><button class="button button-danger-filled" id="confirmRevokeButton" type="submit" disabled>Revoke</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="deactivateDialog" aria-labelledby="deactivateTitle">
+    <form class="modal-card" id="deactivateForm">
+      <div class="modal-heading">
+        <span class="danger-mark" aria-hidden="true">!</span>
+        <div><h2 id="deactivateTitle">Deactivate annotator</h2><p id="deactivateDescription">The annotator will lose access and their current work will be returned safely.</p></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog="deactivateDialog" aria-label="Close">×</button>
+      </div>
+      <div class="impact-box" id="deactivatePreview" aria-live="polite"><span class="spinner spinner-small" aria-hidden="true"></span><span>Checking impact…</span></div>
+      <label class="field-label" for="deactivateReason">Reason</label>
+      <textarea id="deactivateReason" rows="3" maxlength="500" required placeholder="Explain why this annotator is being deactivated"></textarea>
+      <label class="field-label" for="confirmUsername">Type <strong id="confirmUsernameLabel">—</strong> to confirm</label>
+      <input id="confirmUsername" type="text" autocomplete="off" required>
+      <label class="field-label" for="deactivateAdminKey">Re-enter admin key</label>
+      <input id="deactivateAdminKey" type="password" autocomplete="current-password" required aria-describedby="deactivateKeyHint">
+      <p class="field-hint" id="deactivateKeyHint">Required as an additional check for this high-impact action.</p>
+      <p class="form-error" id="deactivateError" role="alert" hidden></p>
+      <div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="deactivateDialog">Cancel</button><button class="button button-danger-filled" id="confirmDeactivateButton" type="submit" disabled>Deactivate and return work</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal task-modal" id="taskDialog" aria-labelledby="taskDialogTitle">
+    <div class="modal-card modal-card-wide">
+      <div class="modal-heading">
+        <div><p class="eyebrow">Annotation record</p><h2 id="taskDialogTitle">Task details</h2></div>
+        <button class="icon-button modal-close" type="button" data-close-dialog="taskDialog" aria-label="Close">×</button>
+      </div>
+      <div class="task-detail" id="taskDetail"><div class="table-state"><span class="spinner spinner-small"></span> Loading task…</div></div>
+      <div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="taskDialog">Close</button><button class="button button-danger" id="revokeFromDetailButton" type="button" hidden>Revoke annotation</button></div>
+    </div>
+  </dialog>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+  <div class="sr-only" id="liveRegion" role="status" aria-live="polite"></div>
+  <script type="module" src="/admin.js"></script>
+</body>
+</html>

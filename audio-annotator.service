@@ -1,0 +1,28 @@
+[Unit]
+Description=Egyptian Arabic Annotation Tool (PostgreSQL)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=huawei
+Group=huawei
+WorkingDirectory=/home/cjg/annotation_tool
+EnvironmentFile=/etc/annotation-tool.env
+Environment=UV_NO_SYNC=1
+ExecStartPre=/home/huawei/.local/bin/uv run python manage_state.py schema
+ExecStart=/home/huawei/.local/bin/uv run gunicorn -c gunicorn_config.py server:app
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+StandardOutput=append:/home/cjg/annotation_tool/gunicorn.log
+StandardError=append:/home/cjg/annotation_tool/gunicorn.log
+
+# The app writes only logs; audio and frozen JSON archives stay read-only.
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

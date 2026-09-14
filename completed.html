@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Completed data · Egyptian Arabic Annotation Tool</title>
+<style>
+:root{
+  --bg:#13131f;--panel:#1e1e2e;--panel-2:#252536;--panel-3:#2a2a3c;
+  --text:#e7e8ef;--muted:#a3a6b8;--quiet:#73768a;--border:#343448;
+  --primary:#8b93ff;--success:#45d6a2;--warning:#f1bd5b;--danger:#f07878;
+  --focus:#c5c9ff;--radius:10px;--font:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+  --mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+}
+*{box-sizing:border-box}[hidden]{display:none!important}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:14px/1.5 var(--font)}
+button,input{font:inherit}button,a{touch-action:manipulation}:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.skip-link{position:fixed;inset-inline-start:-999px;top:12px;z-index:100;background:var(--primary);color:#151622;padding:8px 12px;border-radius:6px}.skip-link:focus{inset-inline-start:12px}
+header{min-height:58px;padding:9px 20px;display:flex;align-items:center;gap:16px;background:var(--panel);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20}
+.brand{font-weight:800;letter-spacing:.04em;color:#efd083;white-space:nowrap}.page-name{flex:1;color:var(--muted)}.user{font-weight:700;color:var(--primary);max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.btn,.link-btn{min-height:38px;border:1px solid transparent;border-radius:7px;padding:7px 14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;font-weight:650;cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.45;cursor:not-allowed}.btn-primary{background:var(--primary);color:#151622}.btn-secondary,.link-btn{background:transparent;border-color:var(--border);color:var(--text)}.btn-secondary:hover,.link-btn:hover{background:var(--panel-2)}
+main{max-width:1480px;margin:0 auto;padding:20px}
+h1{font-size:22px;margin:0 0 4px}.intro{color:var(--muted);margin:0 0 18px}
+.summary{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);margin-bottom:12px;overflow:hidden}
+.summary-item{padding:16px 18px}.summary-item+.summary-item{border-inline-start:1px solid var(--border)}.summary-item strong{display:block;font:700 22px/1.2 var(--mono);font-variant-numeric:tabular-nums}.summary-item span{display:block;margin-top:4px;color:var(--muted);font-size:12px}
+.toolbar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;padding:12px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0}
+.field{display:flex;flex-direction:column;gap:5px}.field label{color:var(--muted);font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.05em}.search{min-height:40px;min-width:260px;border:1px solid var(--border);border-radius:7px;background:var(--panel-2);color:var(--text);padding:8px 11px}
+.filters{display:flex;gap:5px}.filter{min-height:40px;padding:7px 13px;border:1px solid var(--border);border-radius:7px;background:var(--panel-2);color:var(--muted);cursor:pointer}.filter[aria-pressed="true"]{background:rgba(139,147,255,.14);border-color:var(--primary);color:#d8daff}
+.result-count{margin-inline-start:auto;color:var(--quiet);padding-bottom:9px}
+.table-wrap{border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius) var(--radius);background:var(--panel);overflow:auto;min-height:280px}
+table{width:100%;border-collapse:collapse;min-width:860px}th{position:sticky;top:0;background:var(--panel-2);color:var(--muted);font-size:11px;text-align:start;text-transform:uppercase;letter-spacing:.05em;padding:10px;border-bottom:1px solid var(--border)}td{padding:10px;border-bottom:1px solid var(--border);vertical-align:middle}tbody tr:hover td{background:rgba(255,255,255,.018)}
+.file{font-weight:650}.folder{color:var(--quiet);font-size:12px;overflow-wrap:anywhere}.number{font-family:var(--mono);font-variant-numeric:tabular-nums}.status{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:14px;font-size:12px}.status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.status.annotated{color:var(--success);background:rgba(69,214,162,.1)}.status.skipped{color:var(--warning);background:rgba(241,189,91,.1)}.actions{display:flex;gap:6px}.actions .btn{min-height:34px;padding:5px 10px;font-size:12px}
+.state{min-height:280px;display:flex;align-items:center;justify-content:center;text-align:center;padding:40px}.state-inner{max-width:480px}.state h2{margin:0 0 7px;font-size:18px}.state p{margin:0 0 16px;color:var(--muted)}.state.error h2{color:var(--danger)}.spinner{width:28px;height:28px;margin:0 auto 14px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.pager{display:flex;justify-content:center;padding:14px}.notice{display:none;margin-bottom:12px;padding:10px 12px;border:1px solid rgba(241,189,91,.45);border-radius:8px;background:rgba(241,189,91,.09);color:#ffdfa1}.notice.show{display:block}
+dialog{width:min(1040px,calc(100vw - 24px));max-height:calc(100vh - 32px);padding:0;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);color:var(--text);box-shadow:0 20px 80px rgba(0,0,0,.55)}dialog::backdrop{background:rgba(7,7,13,.76)}.dialog-head{position:sticky;top:0;z-index:2;display:flex;gap:12px;align-items:center;padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--border)}.dialog-head h2{margin:0;flex:1;font-size:17px}.dialog-body{padding:16px;overflow:auto}.detail-meta{display:flex;gap:12px;align-items:center;flex-wrap:wrap;color:var(--muted);margin-bottom:12px}.detail-audio{width:100%;margin-bottom:12px;filter:invert(.88) hue-rotate(180deg) brightness(1.1) saturate(.6)}.segments{overflow:auto;border:1px solid var(--border);border-radius:8px}.segments table{min-width:700px}.arabic{direction:rtl;text-align:right;font-size:15px;line-height:1.65}.bad{color:var(--danger);font-weight:650}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+.toast{position:fixed;inset-inline-end:16px;bottom:16px;z-index:100;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--panel-3);box-shadow:0 8px 30px rgba(0,0,0,.35)}.toast.success{border-color:rgba(69,214,162,.45);color:#bcffe5}.toast.error{border-color:rgba(240,120,120,.5);color:#ffcaca}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+@media(max-width:720px){header{flex-wrap:wrap;padding:10px 12px}.brand{width:100%}.page-name{display:none}.user{flex:1}main{padding:12px}.summary{grid-template-columns:1fr}.summary-item+.summary-item{border-inline-start:0;border-top:1px solid var(--border)}.toolbar{align-items:stretch}.field,.search{width:100%;min-width:0}.filters{overflow:auto}.search,.filter,.btn,.link-btn{min-height:44px}.result-count{margin-inline-start:0;padding:4px 0}.dialog-body{padding:10px}}
+@media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.5s}}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to completed records</a>
+<header>
+  <div class="brand">◈ Egyptian Arabic Annotation Tool</div>
+  <div class="page-name">Completed data</div>
+  <span class="user" id="currentUser">—</span>
+  <a class="link-btn" href="/">Annotation workspace</a>
+  <button class="btn btn-secondary" id="logoutButton" type="button">Log out</button>
+</header>
+<main id="main" tabindex="-1">
+  <h1>Your completed data</h1>
+  <p class="intro">Review tasks you submitted. Corrections are available only when you have no unfinished task.</p>
+  <div class="notice" id="assignmentNotice">You have an unfinished task. You may review records here, but return to the workspace before starting a correction.</div>
+  <section class="summary" aria-label="Your annotation summary">
+    <div class="summary-item"><strong id="doneCount">0</strong><span>Completed tasks</span></div>
+    <div class="summary-item"><strong id="skipCount">0</strong><span>Skipped tasks</span></div>
+    <div class="summary-item"><strong id="timeCount">0 h 00 min</strong><span>Completed audio time</span></div>
+  </section>
+  <section aria-labelledby="recordsTitle">
+    <h2 id="recordsTitle" class="sr-only">Completed records</h2>
+    <div class="toolbar">
+      <div class="field"><label for="searchInput">Search file or folder</label><input class="search" id="searchInput" type="search" placeholder="e.g. interview_014.wav"></div>
+      <div class="field"><span id="statusLabel">Status</span><div class="filters" aria-labelledby="statusLabel">
+        <button class="filter" type="button" data-status="all" aria-pressed="true">All</button>
+        <button class="filter" type="button" data-status="annotated" aria-pressed="false">Completed</button>
+        <button class="filter" type="button" data-status="skipped" aria-pressed="false">Skipped</button>
+      </div></div>
+      <div class="result-count" id="resultCount" role="status">Loading records…</div>
+    </div>
+    <div class="table-wrap" id="records"><div class="state"><div class="state-inner"><div class="spinner"></div><h2>Loading your records</h2><p>Retrieving your latest submissions.</p></div></div></div>
+    <div class="pager"><button class="btn btn-secondary" id="loadMoreButton" type="button" hidden>Load more</button></div>
+  </section>
+</main>
+<dialog id="detailDialog" aria-labelledby="detailTitle">
+  <div class="dialog-head"><h2 id="detailTitle" tabindex="-1">Task details</h2><button class="btn btn-secondary" id="closeTopButton" type="button">Close</button></div>
+  <div class="dialog-body" id="detailBody"></div>
+  <div class="dialog-actions"><button class="btn btn-secondary" id="closeBottomButton" type="button">Close</button><button class="btn btn-primary" id="correctButton" type="button">Correct this task</button></div>
+</dialog>
+<div class="sr-only" id="liveStatus" role="status" aria-live="polite"></div><div id="toastRoot"></div>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);let currentUser="",statusFilter="all",query="",cursor=null,hasAssignment=false,loading=false,currentDetail=null,searchTimer=null,lastTrigger=null;
+class ApiError extends Error{constructor(message,status,body){super(message);this.status=status;this.body=body||{}}}
+async function api(url,{method="GET",body}={}){let r;try{r=await fetch(url,{method,headers:body?{"Content-Type":"application/json"}:undefined,body:body?JSON.stringify(body):undefined})}catch(_){throw new ApiError("Network connection failed. Try again.",0,{})}let d={};try{d=await r.json()}catch(_){throw new ApiError("The server returned an unreadable response.",r.status,{})}if(r.status===401){location.href="/login.html";throw new ApiError("Session expired",401,d)}if(!r.ok)throw new ApiError(d.error||"Request failed",r.status,d);return d}
+function esc(value){const node=document.createElement("div");node.textContent=String(value??"");return node.innerHTML.replaceAll('"',"&quot;").replaceAll("'","&#39;")}function audioUrl(taskId){return"/api/audio/"+encodeURIComponent(String(taskId))}function uuid(){return crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==="x"?r:(r&3|8);return v.toString(16)})}
+function formatHoursMinutes(seconds){const total=Math.max(0,Math.round(Number(seconds||0)/60));return Math.floor(total/60)+" h "+String(total%60).padStart(2,"0")+" min"}function formatTime(seconds){const m=Math.floor(Number(seconds||0)/60),s=(Number(seconds||0)%60).toFixed(3);return String(m).padStart(2,"0")+":"+String(s).padStart(6,"0")}function formatDate(value){if(!value)return"—";return new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value))}
+function announce(message){$("liveStatus").textContent="";requestAnimationFrame(()=>{$("liveStatus").textContent=message})}function toast(message,type="success",sticky=false){$("toastRoot").innerHTML="";const node=document.createElement("div");node.className="toast "+type;node.textContent=message;$("toastRoot").appendChild(node);announce(message);if(!sticky)setTimeout(()=>node.remove(),2800)}
+function showState(title,text,error=false){$("records").innerHTML='<div class="state '+(error?"error":"")+'"><div class="state-inner"><h2>'+esc(title)+'</h2><p>'+esc(text)+'</p>'+(error?'<button class="btn btn-primary" type="button" id="retryButton">Try again</button>':"")+'</div></div>';const retry=$("retryButton");if(retry)retry.addEventListener("click",()=>loadRecords(true))}
+async function initialize(){try{const me=await api("/api/current-user");currentUser=me.user;$("currentUser").textContent=me.user;await loadRecords(true)}catch(error){showState("Records unavailable",error.message,true)}}
+async function loadRecords(reset){if(loading)return;loading=true;if(reset){cursor=null;showState("Loading your records","Retrieving your latest submissions.")}$("loadMoreButton").disabled=true;try{const params=new URLSearchParams({status:statusFilter,q:query,limit:"25"});if(cursor)params.set("cursor",cursor);const data=await api("/api/completed?"+params.toString());hasAssignment=Boolean(data.has_assignment);$("assignmentNotice").classList.toggle("show",hasAssignment);$("doneCount").textContent=data.summary.annotated;$("skipCount").textContent=data.summary.skipped;$("timeCount").textContent=formatHoursMinutes(data.summary.duration_seconds);renderRecords(data.items||[],reset);cursor=data.next_cursor||null;$("loadMoreButton").hidden=!cursor;$("resultCount").textContent=(reset?data.items.length:document.querySelectorAll("#records tbody tr").length)+" shown"}catch(error){if(reset)showState("Could not load records",error.message,true);else toast(error.message,"error",true)}finally{loading=false;$("loadMoreButton").disabled=false}}
+function renderRecords(items,reset){if(reset&&!items.length){showState("No records found",query?"No submitted files match your search.":"Completed and skipped tasks will appear here after you submit them.");return}const rows=items.map(item=>'<tr><td><div class="file">'+esc(item.filename)+'</div><div class="folder">'+esc(item.folder||"Root folder")+'</div></td><td><span class="status '+item.status+'">'+(item.status==="annotated"?"Completed":"Skipped")+'</span></td><td class="number">'+item.segment_count+'</td><td class="number">'+Number(item.duration||0).toFixed(1)+' s</td><td>'+esc(formatDate(item.submitted_at))+'</td><td><div class="actions"><button class="btn btn-secondary" type="button" data-view="'+item.task_id+'">View</button><button class="btn btn-secondary" type="button" data-correct="'+item.task_id+'" '+(hasAssignment?"disabled title=\"Finish your current task first\"":"")+'>Correct</button></div></td></tr>').join("");if(reset)$("records").innerHTML='<table><thead><tr><th>File</th><th>Status</th><th>Segments</th><th>Duration</th><th>Submitted</th><th>Actions</th></tr></thead><tbody>'+rows+'</tbody></table>';else $("records").querySelector("tbody").insertAdjacentHTML("beforeend",rows);bindRows()}
+function bindRows(){for(const button of document.querySelectorAll("[data-view]"))if(!button.dataset.bound){button.dataset.bound="1";button.addEventListener("click",()=>openDetail(button.dataset.view,button))}for(const button of document.querySelectorAll("[data-correct]"))if(!button.dataset.bound){button.dataset.bound="1";button.addEventListener("click",()=>reopen(button.dataset.correct))}}
+async function openDetail(taskId,trigger){lastTrigger=trigger;trigger.disabled=true;try{const detail=await api("/api/completed/"+encodeURIComponent(taskId));currentDetail=detail;$("detailTitle").textContent=detail.filename;$("detailBody").innerHTML='<div class="detail-meta"><span class="status '+detail.status+'">'+(detail.status==="annotated"?"Completed":"Skipped")+'</span><span>'+Number(detail.duration||0).toFixed(1)+' s</span><span>'+detail.segments.length+' segments</span><span>'+esc(formatDate(detail.submitted_at))+'</span></div><audio class="detail-audio" controls preload="metadata" src="'+audioUrl(detail.task_id)+'"></audio><div class="segments"><table><thead><tr><th>#</th><th>Time</th><th>ASR</th><th>Submitted text</th><th>Quality</th></tr></thead><tbody>'+detail.segments.map(s=>'<tr><td class="number">'+s.id+'</td><td class="number">'+formatTime(s.start)+'–'+formatTime(s.end)+'</td><td class="arabic">'+esc(s.asr_text||"—")+'</td><td class="arabic">'+esc(s.text||"—")+'</td><td>'+(s.exclude_from_training?'<span class="bad">Bad quality</span>':"Included")+'</td></tr>').join("")+'</tbody></table></div>';$("correctButton").disabled=hasAssignment;$("correctButton").title=hasAssignment?"Finish your current task before starting a correction":"";$("detailDialog").showModal();$("detailTitle").focus()}catch(error){toast(error.message,"error",true)}finally{trigger.disabled=false}}
+function closeDialog(){$("detailDialog").close();if(lastTrigger)lastTrigger.focus()}async function reopen(taskId){if(hasAssignment){toast("Return to the workspace and finish or abandon your current task first.","error",true);return}if(!confirm("Start correcting this completed task? It will become your active task until you submit or abandon the correction."))return;try{await api("/api/completed/"+encodeURIComponent(taskId)+"/reopen",{method:"POST",body:{operation_id:uuid()}});location.href="/"}catch(error){toast(error.message,"error",true)}}
+for(const button of document.querySelectorAll(".filter"))button.addEventListener("click",()=>{statusFilter=button.dataset.status;for(const b of document.querySelectorAll(".filter"))b.setAttribute("aria-pressed",String(b===button));loadRecords(true)});$("searchInput").addEventListener("input",()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{query=$("searchInput").value.trim();loadRecords(true)},350)});$("loadMoreButton").addEventListener("click",()=>loadRecords(false));$("closeTopButton").addEventListener("click",closeDialog);$("closeBottomButton").addEventListener("click",closeDialog);$("correctButton").addEventListener("click",()=>{if(currentDetail)reopen(currentDetail.task_id)});$("detailDialog").addEventListener("cancel",event=>{event.preventDefault();closeDialog()});$("logoutButton").addEventListener("click",async()=>{try{await api("/api/logout",{method:"POST",body:{}})}catch(_){}location.href="/login.html"});initialize();
+</script>
+</body>
+</html>

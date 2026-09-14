@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" data-d2-version="v0.7.1" preserveAspectRatio="xMinYMin meet" viewBox="0 0 1290 926"><svg class="d2-3447577204 d2-svg" width="1290" height="926" viewBox="-41 -41 1290 926"><rect x="-41.000000" y="-41.000000" width="1290.000000" height="926.000000" rx="0.000000" fill="#FFFFFF" class=" fill-N7" stroke-width="0" /><style type="text/css"><![CDATA[
+.d2-3447577204 .text-bold {
+	font-family: "d2-3447577204-font-bold";
+}
+@font-face {
+	font-family: d2-3447577204-font-bold;
+	src: url("data:application/font-woff;base64,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");
+}
+.d2-3447577204 .text-italic {
+	font-family: "d2-3447577204-font-italic";
+}
+@font-face {
+	font-family: d2-3447577204-font-italic;
+	src: url("data:application/font-woff;base64,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");
+}]]></style><style type="text/css"><![CDATA[.shape {
+  shape-rendering: geometricPrecision;
+  stroke-linejoin: round;
+}
+.connection {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.blend {
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+		.d2-3447577204 .fill-N1{fill:#0A0F25;}
+		.d2-3447577204 .fill-N2{fill:#676C7E;}
+		.d2-3447577204 .fill-N3{fill:#9499AB;}
+		.d2-3447577204 .fill-N4{fill:#CFD2DD;}
+		.d2-3447577204 .fill-N5{fill:#DEE1EB;}
+		.d2-3447577204 .fill-N6{fill:#EEF1F8;}
+		.d2-3447577204 .fill-N7{fill:#FFFFFF;}
+		.d2-3447577204 .fill-B1{fill:#0D32B2;}
+		.d2-3447577204 .fill-B2{fill:#0D32B2;}
+		.d2-3447577204 .fill-B3{fill:#E3E9FD;}
+		.d2-3447577204 .fill-B4{fill:#E3E9FD;}
+		.d2-3447577204 .fill-B5{fill:#EDF0FD;}
+		.d2-3447577204 .fill-B6{fill:#F7F8FE;}
+		.d2-3447577204 .fill-AA2{fill:#4A6FF3;}
+		.d2-3447577204 .fill-AA4{fill:#EDF0FD;}
+		.d2-3447577204 .fill-AA5{fill:#F7F8FE;}
+		.d2-3447577204 .fill-AB4{fill:#EDF0FD;}
+		.d2-3447577204 .fill-AB5{fill:#F7F8FE;}
+		.d2-3447577204 .stroke-N1{stroke:#0A0F25;}
+		.d2-3447577204 .stroke-N2{stroke:#676C7E;}
+		.d2-3447577204 .stroke-N3{stroke:#9499AB;}
+		.d2-3447577204 .stroke-N4{stroke:#CFD2DD;}
+		.d2-3447577204 .stroke-N5{stroke:#DEE1EB;}
+		.d2-3447577204 .stroke-N6{stroke:#EEF1F8;}
+		.d2-3447577204 .stroke-N7{stroke:#FFFFFF;}
+		.d2-3447577204 .stroke-B1{stroke:#0D32B2;}
+		.d2-3447577204 .stroke-B2{stroke:#0D32B2;}
+		.d2-3447577204 .stroke-B3{stroke:#E3E9FD;}
+		.d2-3447577204 .stroke-B4{stroke:#E3E9FD;}
+		.d2-3447577204 .stroke-B5{stroke:#EDF0FD;}
+		.d2-3447577204 .stroke-B6{stroke:#F7F8FE;}
+		.d2-3447577204 .stroke-AA2{stroke:#4A6FF3;}
+		.d2-3447577204 .stroke-AA4{stroke:#EDF0FD;}
+		.d2-3447577204 .stroke-AA5{stroke:#F7F8FE;}
+		.d2-3447577204 .stroke-AB4{stroke:#EDF0FD;}
+		.d2-3447577204 .stroke-AB5{stroke:#F7F8FE;}
+		.d2-3447577204 .background-color-N1{background-color:#0A0F25;}
+		.d2-3447577204 .background-color-N2{background-color:#676C7E;}
+		.d2-3447577204 .background-color-N3{background-color:#9499AB;}
+		.d2-3447577204 .background-color-N4{background-color:#CFD2DD;}
+		.d2-3447577204 .background-color-N5{background-color:#DEE1EB;}
+		.d2-3447577204 .background-color-N6{background-color:#EEF1F8;}
+		.d2-3447577204 .background-color-N7{background-color:#FFFFFF;}
+		.d2-3447577204 .background-color-B1{background-color:#0D32B2;}
+		.d2-3447577204 .background-color-B2{background-color:#0D32B2;}
+		.d2-3447577204 .background-color-B3{background-color:#E3E9FD;}
+		.d2-3447577204 .background-color-B4{background-color:#E3E9FD;}
+		.d2-3447577204 .background-color-B5{background-color:#EDF0FD;}
+		.d2-3447577204 .background-color-B6{background-color:#F7F8FE;}
+		.d2-3447577204 .background-color-AA2{background-color:#4A6FF3;}
+		.d2-3447577204 .background-color-AA4{background-color:#EDF0FD;}
+		.d2-3447577204 .background-color-AA5{background-color:#F7F8FE;}
+		.d2-3447577204 .background-color-AB4{background-color:#EDF0FD;}
+		.d2-3447577204 .background-color-AB5{background-color:#F7F8FE;}
+		.d2-3447577204 .color-N1{color:#0A0F25;}
+		.d2-3447577204 .color-N2{color:#676C7E;}
+		.d2-3447577204 .color-N3{color:#9499AB;}
+		.d2-3447577204 .color-N4{color:#CFD2DD;}
+		.d2-3447577204 .color-N5{color:#DEE1EB;}
+		.d2-3447577204 .color-N6{color:#EEF1F8;}
+		.d2-3447577204 .color-N7{color:#FFFFFF;}
+		.d2-3447577204 .color-B1{color:#0D32B2;}
+		.d2-3447577204 .color-B2{color:#0D32B2;}
+		.d2-3447577204 .color-B3{color:#E3E9FD;}
+		.d2-3447577204 .color-B4{color:#E3E9FD;}
+		.d2-3447577204 .color-B5{color:#EDF0FD;}
+		.d2-3447577204 .color-B6{color:#F7F8FE;}
+		.d2-3447577204 .color-AA2{color:#4A6FF3;}
+		.d2-3447577204 .color-AA4{color:#EDF0FD;}
+		.d2-3447577204 .color-AA5{color:#F7F8FE;}
+		.d2-3447577204 .color-AB4{color:#EDF0FD;}
+		.d2-3447577204 .color-AB5{color:#F7F8FE;}.appendix text.text{fill:#0A0F25}.md{--color-fg-default:#0A0F25;--color-fg-muted:#676C7E;--color-fg-subtle:#9499AB;--color-canvas-default:#FFFFFF;--color-canvas-subtle:#EEF1F8;--color-border-default:#0D32B2;--color-border-muted:#0D32B2;--color-neutral-muted:#EEF1F8;--color-accent-fg:#0D32B2;--color-accent-emphasis:#0D32B2;--color-attention-subtle:#676C7E;--color-danger-fg:red;}.sketch-overlay-B1{fill:url(#streaks-darker-d2-3447577204);mix-blend-mode:lighten}.sketch-overlay-B2{fill:url(#streaks-darker-d2-3447577204);mix-blend-mode:lighten}.sketch-overlay-B3{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-B4{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-B5{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-B6{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-AA2{fill:url(#streaks-dark-d2-3447577204);mix-blend-mode:overlay}.sketch-overlay-AA4{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-AA5{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-AB4{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-AB5{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-N1{fill:url(#streaks-darker-d2-3447577204);mix-blend-mode:lighten}.sketch-overlay-N2{fill:url(#streaks-dark-d2-3447577204);mix-blend-mode:overlay}.sketch-overlay-N3{fill:url(#streaks-normal-d2-3447577204);mix-blend-mode:color-burn}.sketch-overlay-N4{fill:url(#streaks-normal-d2-3447577204);mix-blend-mode:color-burn}.sketch-overlay-N5{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-N6{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.sketch-overlay-N7{fill:url(#streaks-bright-d2-3447577204);mix-blend-mode:darken}.light-code{display: block}.dark-code{display: none}]]></style><g class="aHVtYW5fY29udGV4dA== human"><g class="shape" ><rect x="1.000000" y="280.000000" width="367.000000" height="82.000000" rx="10.000000" stroke="#EA580C" fill="#FFF7ED" style="stroke-width:2;" /></g><text x="184.500000" y="318.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="184.500000" dy="0.000000">人：给出真实上下文</tspan><tspan x="184.500000" dy="18.500000">目标、现状、边界、不变量、非目标</tspan></text></g><g class="YWlfZXhwbG9yZQ== ai"><g class="shape" ><rect x="1.000000" y="506.000000" width="306.000000" height="82.000000" rx="10.000000" stroke="#6366F1" fill="#EEF2FF" style="stroke-width:2;" /></g><text x="154.000000" y="544.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="154.000000" dy="0.000000">AI：先读仓库再回答</tspan><tspan x="154.000000" dy="18.500000">建立事实基线，定位跨层影响</tspan></text></g><g class="am9pbnRfZGVzaWdu human"><g class="shape" ><rect x="370.000000" y="506.000000" width="367.000000" height="82.000000" rx="10.000000" stroke="#EA580C" fill="#FFF7ED" style="stroke-width:2;" /></g><text x="553.500000" y="544.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="553.500000" dy="0.000000">人 + AI：方案推演</tspan><tspan x="553.500000" dy="18.500000">比较取舍，列出失败模式与验收标准</tspan></text></g><g class="YWlfYnVpbGQ= ai"><g class="shape" ><rect x="338.000000" y="738.000000" width="431.000000" height="82.000000" rx="10.000000" stroke="#6366F1" fill="#EEF2FF" style="stroke-width:2;" /></g><text x="553.500000" y="776.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="553.500000" dy="0.000000">AI：在受控范围内实现</tspan><tspan x="553.500000" dy="18.500000">数据库结构、事务、API、前端、测试、文档</tspan></text></g><g class="dmVyaWZ5 evidence"><g class="shape" ><rect x="861.000000" y="730.000000" width="347.000000" height="98.000000" rx="10.000000" stroke="#059669" fill="#ECFDF5" style="stroke-width:2;" /></g><text x="1034.500000" y="768.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="1034.500000" dy="0.000000">机器证据</tspan><tspan x="1034.500000" dy="17.666667">代码差异、静态检查、自动化测试</tspan><tspan x="1034.500000" dy="17.666667">迁移报告、恢复演练、冒烟测试</tspan></text></g><g class="aHVtYW5fYWNjZXB0 human"><g class="shape" ><rect x="493.000000" y="369.000000" width="387.000000" height="82.000000" rx="10.000000" stroke="#EA580C" fill="#FFF7ED" style="stroke-width:2;" /></g><text x="686.500000" y="407.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="686.500000" dy="0.000000">人：审查与决策</tspan><tspan x="686.500000" dy="18.500000">业务语义、数据风险、体验、上线时机</tspan></text></g><g class="YWlfc3RyZW5ndGg= ai"><g class="shape" ><rect x="0.000000" y="714.000000" width="246.000000" height="130.000000" rx="10.000000" stroke="#6366F1" fill="#EEF2FF" style="stroke-width:2;" /></g><text x="123.000000" y="752.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="123.000000" dy="0.000000">AI 擅长</tspan><tspan x="123.000000" dy="17.000000">快速展开候选方案</tspan><tspan x="123.000000" dy="17.000000">保持跨文件一致性</tspan><tspan x="123.000000" dy="17.000000">枚举边界条件</tspan><tspan x="123.000000" dy="17.000000">生成可执行的验证资产</tspan></text></g><g class="aHVtYW5fZHV0eQ== human"><g class="shape" ><rect x="247.000000" y="0.000000" width="286.000000" height="130.000000" rx="10.000000" stroke="#EA580C" fill="#FFF7ED" style="stroke-width:2;" /></g><text x="390.000000" y="38.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px"><tspan x="390.000000" dy="0.000000">人必须承担</tspan><tspan x="390.000000" dy="17.000000">定义“正确”是什么</tspan><tspan x="390.000000" dy="17.000000">识别领域与伦理风险</tspan><tspan x="390.000000" dy="17.000000">决定是否迁移、发布、回滚</tspan><tspan x="390.000000" dy="17.000000">对最终结果负责</tspan></text></g><g class="KGh1bWFuX2NvbnRleHQgLSZndDsgYWlfZXhwbG9yZSlbMF0="><marker id="mk-d2-3447577204-3488378134" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#0D32B2" class="connection fill-B1" stroke-width="2" /> </marker><path d="M 154.000000 364.000000 L 154.000000 502.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3447577204-3488378134)" mask="url(#d2-3447577204)" /></g><g class="KGFpX2V4cGxvcmUgLSZndDsgam9pbnRfZGVzaWduKVswXQ=="><path d="M 309.000000 547.000000 L 366.000000 547.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3447577204-3488378134)" mask="url(#d2-3447577204)" /></g><g class="KGpvaW50X2Rlc2lnbiAtJmd0OyBhaV9idWlsZClbMF0="><path d="M 553.000000 590.000000 L 553.000000 734.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3447577204-3488378134)" mask="url(#d2-3447577204)" /></g><g class="KGFpX2J1aWxkIC0mZ3Q7IHZlcmlmeSlbMF0="><path d="M 771.000000 779.000000 L 857.000000 779.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3447577204-3488378134)" mask="url(#d2-3447577204)" /></g><g class="KHZlcmlmeSAtJmd0OyBodW1hbl9hY2NlcHQpWzBd"><path d="M 1044.000000 728.000000 L 1044.000000 420.000000 S 1044.000000 410.000000 1034.000000 410.000000 L 884.000000 410.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3447577204-3488378134)" mask="url(#d2-3447577204)" /></g><g class="KGh1bWFuX2FjY2VwdCAtJmd0OyBodW1hbl9jb250ZXh0KVswXQ=="><marker id="mk-d2-3447577204-4260110530" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#EA580C" class="connection" stroke-width="2" /> </marker><path d="M 491.000000 410.000000 L 271.000000 410.000000 S 261.000000 410.000000 261.000000 400.000000 L 261.000000 366.000000" stroke="#EA580C" fill="none" class="connection" style="stroke-width:2;stroke-dasharray:10.000000,9.865639;" marker-end="url(#mk-d2-3447577204-4260110530)" mask="url(#d2-3447577204)" /><text x="353.500000" y="432.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">形成下一轮更准确的上下文</text></g><g class="KGFpX3N0cmVuZ3RoIC0mZ3Q7IGFpX2V4cGxvcmUpWzBd"><marker id="mk-d2-3447577204-2177206569" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#0D32B2" class="connection fill-B2" stroke-width="2" /> </marker><path d="M 123.000000 712.000000 L 123.000000 592.000000" stroke="#0D32B2" fill="none" class="connection stroke-B2" style="stroke-width:2;stroke-dasharray:10.000000,9.865639;" marker-end="url(#mk-d2-3447577204-2177206569)" mask="url(#d2-3447577204)" /><text x="59.000000" y="657.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">放大分析带宽</text></g><g class="KGFpX3N0cmVuZ3RoIC0mZ3Q7IGFpX2J1aWxkKVswXQ=="><path d="M 248.000000 779.000000 L 334.000000 779.000000" stroke="#0D32B2" fill="none" class="connection stroke-B2" style="stroke-width:2;stroke-dasharray:10.000000,9.865639;" marker-end="url(#mk-d2-3447577204-2177206569)" mask="url(#d2-3447577204)" /><text x="292.500000" y="768.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">加速落地</text></g><g class="KGh1bWFuX2R1dHkgLSZndDsgaHVtYW5fY29udGV4dClbMF0="><path d="M 307.000000 132.000000 L 307.000000 276.000000" stroke="#0D32B2" fill="none" class="connection stroke-B2" style="stroke-width:2;stroke-dasharray:10.000000,9.865639;" marker-end="url(#mk-d2-3447577204-2177206569)" mask="url(#d2-3447577204)" /><text x="351.500000" y="211.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">设定方向</text></g><g class="KGh1bWFuX2R1dHkgLSZndDsgaHVtYW5fYWNjZXB0KVswXQ=="><path d="M 513.000000 132.000000 L 513.000000 365.000000" stroke="#0D32B2" fill="none" class="connection stroke-B2" style="stroke-width:2;stroke-dasharray:10.000000,9.865639;" marker-end="url(#mk-d2-3447577204-2177206569)" mask="url(#d2-3447577204)" /><text x="567.500000" y="255.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">守住质量门</text></g><mask id="d2-3447577204" maskUnits="userSpaceOnUse" x="-41" y="-41" width="1290" height="926">
+<rect x="-41" y="-41" width="1290" height="926" fill="white"></rect>
+<rect x="236.000000" y="416.000000" width="235" height="21" fill="rgba(0,0,0,0.75)"></rect>
+<rect x="-1.000000" y="641.000000" width="120" height="21" fill="rgba(0,0,0,0.75)"></rect>
+<rect x="252.000000" y="752.000000" width="81" height="21" fill="rgba(0,0,0,0.75)"></rect>
+<rect x="311.000000" y="195.000000" width="81" height="21" fill="rgba(0,0,0,0.75)"></rect>
+<rect x="517.000000" y="239.000000" width="101" height="21" fill="rgba(0,0,0,0.75)"></rect>
+</mask><text x="604.000000" y="422.000000" style="text-anchor:middle;font-size:80px;fill:black;opacity:0.3">UNLICENSED COPY</text></svg></svg>

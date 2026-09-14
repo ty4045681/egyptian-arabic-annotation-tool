@@ -1,0 +1,80 @@
+direction: down
+
+classes: {
+  action: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+    style.border-radius: 8
+  }
+  gate: {
+    shape: diamond
+    style.fill: "#FFF7ED"
+    style.stroke: "#EA580C"
+    style.stroke-width: 2
+  }
+  success: {
+    style.fill: "#ECFDF5"
+    style.stroke: "#059669"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  failure: {
+    style.fill: "#FEF2F2"
+    style.stroke: "#DC2626"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+}
+
+prepare: "阶段一｜冻结与盘点" {
+  direction: right
+  style.fill: "#F8FAFC"
+  style.stroke: "#CBD5E1"
+  style.border-radius: 12
+
+  freeze: "停止旧服务\n冻结 JSON 写入" {class: action}
+  snapshot: "只读快照\n文件清单 + SHA-256" {class: action}
+  inspect: "盘点是否干净？\n损坏、碰撞、缺音频\n异常任务持有关系" {class: gate}
+  freeze -> snapshot -> inspect
+}
+
+transfer: "阶段二｜迁移与一致性证明" {
+  direction: right
+  style.fill: "#F8FAFC"
+  style.stroke: "#CBD5E1"
+  style.border-radius: 12
+
+  manifest: "生成迁移清单\n记录源文件与语义哈希" {class: action}
+  migrate: "整批事务导入\n可重入批次审计" {class: action}
+  verify: "逐条语义一致？\n数据库重建 JSON 对比" {class: gate}
+  roundtrip: "兼容 JSON 回导\n二次比对" {class: action}
+  manifest -> migrate -> verify
+}
+
+release: "阶段三｜恢复验证与上线" {
+  direction: right
+  style.fill: "#F8FAFC"
+  style.stroke: "#CBD5E1"
+  style.border-radius: 12
+
+  restore: "备份可恢复？\npg_dump → 空库恢复" {class: gate}
+  switch: "切换生产分支与服务\n保留旧版 main" {class: action}
+  smoke: "并发、保存、恢复、权限\nRange 等冒烟测试" {class: gate}
+  live: "上线并持续监控\n健康检查 + 可审计运维" {class: success}
+  switch -> smoke
+}
+
+block: "阻断切换\n修复导入器 / 数据库结构 / 配置后\n从只读快照重新演练" {class: failure}
+rollback: "自动回滚到旧服务\n恢复分支、配置与入口" {class: failure}
+
+prepare.inspect -> transfer.manifest: "无错误、无警告" {style.stroke: "#059669"}
+prepare.inspect -> block: "发现问题" {style.stroke: "#DC2626"}
+transfer.verify -> transfer.roundtrip: "差异数 = 0" {style.stroke: "#059669"}
+transfer.verify -> block: "不一致" {style.stroke: "#DC2626"}
+transfer.roundtrip -> release.restore
+release.restore -> release.switch: "恢复验证通过" {style.stroke: "#059669"}
+release.restore -> block: "不可恢复" {style.stroke: "#DC2626"}
+release.switch -> rollback: "启动或配置失败" {style.stroke: "#DC2626"}
+release.smoke -> release.live: "验收通过" {style.stroke: "#059669"}
+release.smoke -> rollback: "验收失败" {style.stroke: "#DC2626"}
+block -> prepare.snapshot: "修复后重跑"

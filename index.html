@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Annotate · Egyptian Arabic Annotation Tool</title>
+<style>
+:root{
+  --bg:#13131f;--panel:#1e1e2e;--panel-2:#252536;--panel-3:#2a2a3c;
+  --text:#e7e8ef;--muted:#a3a6b8;--quiet:#73768a;--border:#343448;
+  --primary:#8b93ff;--success:#45d6a2;--warning:#f1bd5b;--danger:#f07878;
+  --radius:10px;--focus:#c5c9ff;--mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  --font:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+  --arabic:"Noto Naskh Arabic","Noto Sans Arabic","Segoe UI","Tahoma","Arial",sans-serif;
+  --transcript-size:18px;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:14px/1.5 var(--font)}
+button,input,textarea{font:inherit}
+button,a{touch-action:manipulation}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.skip-link{position:fixed;inset-inline-start:-999px;top:12px;z-index:1000;background:var(--primary);color:#111222;padding:8px 12px;border-radius:6px}
+.skip-link:focus{inset-inline-start:12px}
+.app-header{min-height:56px;padding:8px 16px;display:flex;align-items:center;gap:16px;background:var(--panel);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20}
+.brand{font-weight:800;letter-spacing:.04em;white-space:nowrap;color:#efd083}
+.assignment-line{min-width:0;flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.metric{min-width:62px;padding-inline:12px;border-inline-start:1px solid var(--border);text-align:center}
+.metric strong{display:block;font:700 17px/1.1 var(--mono);font-variant-numeric:tabular-nums}
+.metric span{display:block;margin-top:2px;color:var(--quiet);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.user{color:var(--primary);font-weight:700;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn,.link-btn{min-height:36px;border:1px solid transparent;border-radius:7px;padding:7px 14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;cursor:pointer;font-weight:650;white-space:nowrap}
+.btn:disabled{cursor:not-allowed;opacity:.46}
+.btn-primary{background:var(--primary);color:#141522}
+.btn-success{background:var(--success);color:#102019}
+.btn-secondary,.link-btn{background:transparent;color:var(--text);border-color:var(--border)}
+.btn-secondary:hover,.link-btn:hover{background:var(--panel-2)}
+.btn-danger{background:transparent;color:var(--danger);border-color:rgba(240,120,120,.45)}
+.btn-danger:hover{background:rgba(240,120,120,.1)}
+.app-shell{display:grid;grid-template-columns:minmax(0,1fr) 252px;min-height:calc(100vh - 56px)}
+main{min-width:0;padding:12px 16px 20px}
+aside{border-inline-start:1px solid var(--border);background:var(--panel);padding:16px 12px;overflow:auto}
+.workspace{display:flex;flex-direction:column;gap:8px;min-height:calc(100vh - 88px)}
+.taskbar{display:none;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px;gap:12px;align-items:center;flex-wrap:wrap}
+.taskbar.show{display:flex}
+.task-meta{min-width:180px;flex:1}
+.task-meta h1{font-size:15px;line-height:1.3;margin:0;overflow-wrap:anywhere}
+.task-meta p{margin:3px 0 0;color:var(--muted);font-size:12px}
+.task-actions,.skip-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.divider{width:1px;height:32px;background:var(--border)}
+.reason{min-height:34px;padding:5px 11px;border:1px solid var(--border);border-radius:18px;background:var(--panel-2);color:var(--muted);cursor:pointer}
+.reason[aria-pressed="true"]{border-color:var(--danger);background:rgba(240,120,120,.13);color:#ffc2c2}
+.save-state{min-width:88px;color:var(--quiet);font-size:12px;text-align:end}
+.save-state[data-state="dirty"],.save-state[data-state="saving"]{color:var(--warning)}
+.save-state[data-state="saved"]{color:var(--success)}
+.save-state[data-state="error"]{color:var(--danger)}
+.audio-wrap{flex:1;max-width:420px;min-width:220px}
+audio{width:100%;height:36px;filter:invert(.88) hue-rotate(180deg) brightness(1.1) saturate(.6)}
+.review-banner{display:none;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgba(139,147,255,.42);background:rgba(139,147,255,.08);border-radius:var(--radius);color:#cdd0ff}
+.review-banner.show{display:flex}
+.review-banner span{flex:1}
+.wave-panel{display:none;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.wave-panel.show{display:block}
+.panel-head{padding:7px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.wave-scroll{overflow-x:auto;background:#151620;scrollbar-color:var(--primary) var(--panel-2)}
+.wave-scroll canvas{display:block;height:220px;cursor:pointer}
+.table-panel{min-height:320px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:auto}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;z-index:2;background:var(--panel-2);color:var(--muted);font-size:11px;text-align:start;padding:9px 8px;border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.04em}
+td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:hover td{background:rgba(255,255,255,.018)}
+tbody tr.selected td{background:rgba(139,147,255,.09)}
+.play-cell{width:176px;min-width:160px}
+.seg-play{display:flex;align-items:center;gap:8px;min-width:150px}
+.play{width:34px;height:34px;flex:0 0 34px;border:1px solid var(--border);border-radius:50%;background:var(--panel-2);color:var(--primary);cursor:pointer}
+.play[aria-pressed="true"]{background:var(--primary);color:#141522;border-color:var(--primary)}
+.seg-seek{flex:1;min-width:86px;display:flex;flex-direction:column;gap:2px}
+.seg-progress{width:100%;height:16px;margin:0;accent-color:var(--primary);cursor:pointer}
+.seg-clock{font:11px/1.2 var(--mono);color:var(--quiet);font-variant-numeric:tabular-nums}
+.seg-id,.duration{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:center;color:var(--muted)}
+.time-input{width:92px;border:1px solid var(--border);border-radius:5px;background:var(--panel-2);color:var(--text);padding:5px 6px;text-align:center;font:13px var(--mono)}
+.transcript{width:100%;min-width:240px;min-height:calc(var(--transcript-size) * 2.8);border:1px solid var(--border);border-radius:6px;background:var(--panel-2);color:var(--text);padding:8px 10px;font-family:var(--arabic);font-size:var(--transcript-size);line-height:1.85;direction:rtl;text-align:right;resize:vertical}
+.transcript.has-text{border-color:rgba(69,214,162,.35)}
+.transcript:read-only,.time-input:read-only{color:var(--muted);background:#1a1a27}
+.quality{min-height:32px;padding:4px 9px;border-radius:16px;border:1px solid var(--border);background:var(--panel-2);color:var(--muted);cursor:pointer;white-space:nowrap}
+.quality[aria-pressed="true"]{color:#ffc2c2;border-color:var(--danger);background:rgba(240,120,120,.12)}
+.state{min-height:420px;padding:56px 20px;display:flex;align-items:center;justify-content:center;text-align:center}
+.state-inner{max-width:520px}
+.state h1{margin:0 0 8px;font-size:21px}
+.state p{margin:0 0 20px;color:var(--muted)}
+.state.error h1{color:var(--danger)}
+.state.success h1{color:var(--success)}
+.spinner{width:28px;height:28px;margin:0 auto 16px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.side-title{margin:0 0 12px;font-size:13px}
+.leaderboard{font-size:12px}
+.leaderboard th{position:static;padding:6px 4px;font-size:10px}
+.leaderboard td{padding:6px 4px;color:var(--muted)}
+.leaderboard .me td{background:rgba(139,147,255,.09);color:var(--text)}
+.leaderboard .num{text-align:end;font-family:var(--mono)}
+.side-empty{color:var(--quiet);font-size:12px;padding:16px 4px}
+.toast{position:fixed;inset-inline-end:16px;bottom:16px;z-index:100;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--panel-3);box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.toast.success{border-color:rgba(69,214,162,.45);color:#bcffe5}
+.toast.error{border-color:rgba(240,120,120,.5);color:#ffcaca}
+.font-ctrl{display:flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2)}
+.font-ctrl-label{color:var(--quiet);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-inline-end:2px;white-space:nowrap}
+.font-btn{width:28px;height:28px;min-height:28px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text);cursor:pointer;font-weight:700}
+.font-btn:hover{background:var(--panel-3)}
+.font-btn:disabled{opacity:.35;cursor:not-allowed}
+.font-size-label{min-width:34px;text-align:center;font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+@media(max-width:1050px){.app-shell{grid-template-columns:1fr}aside{border-inline-start:0;border-top:1px solid var(--border)}.leaderboard{max-width:560px}.metric{display:none}}
+@media(max-width:700px){.app-header{align-items:flex-start;flex-wrap:wrap}.brand{width:100%}.assignment-line{order:3;width:100%;flex-basis:100%}.app-shell{min-height:calc(100vh - 104px)}main{padding:8px}.taskbar{align-items:stretch}.task-meta,.audio-wrap{min-width:100%;max-width:none}.task-actions,.skip-actions{width:100%}.divider{display:none}.btn,.link-btn,.reason{min-height:44px}.table-panel{overflow:auto}.transcript{min-width:220px}.time-input{font-size:16px}.play-cell{width:150px}.wave-scroll canvas{height:180px}.user{max-width:90px}}
+@media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.5s}.toast{transition:none}}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to annotation workspace</a>
+<header class="app-header">
+  <div class="brand">◈ Egyptian Arabic Annotation Tool</div>
+  <div class="assignment-line" id="assignmentLine">Checking your task…</div>
+  <div class="header-actions">
+    <a class="link-btn" href="/completed.html">Completed data</a>
+    <div class="font-ctrl" role="group" aria-label="Arabic transcript font size">
+      <span class="font-ctrl-label">عربي</span>
+      <button class="font-btn" id="fontDown" type="button" aria-label="Decrease Arabic font size">A−</button>
+      <span class="font-size-label" id="fontSizeLabel">18</span>
+      <button class="font-btn" id="fontUp" type="button" aria-label="Increase Arabic font size">A+</button>
+    </div>
+    <span class="user" id="currentUser">—</span>
+    <button class="btn btn-secondary" id="logoutButton" type="button">Log out</button>
+    <div class="metric"><strong id="annotatedCount">0</strong><span>Confirmed</span></div>
+    <div class="metric"><strong id="skippedCount">0</strong><span>Skipped</span></div>
+    <div class="metric"><strong id="pendingCount">0</strong><span>Pending</span></div>
+    <div class="metric"><strong id="totalCount">0</strong><span>Total</span></div>
+  </div>
+</header>
+<div class="app-shell">
+<main id="main" tabindex="-1">
+  <div class="workspace">
+    <section class="review-banner" id="reviewBanner" aria-live="polite">
+      <span id="reviewText">Viewing a completed task. Your unfinished task is still reserved.</span>
+      <button class="btn btn-secondary" id="newerHistoryButton" type="button">Newer</button>
+      <button class="btn btn-secondary" id="olderHistoryButton" type="button">Older</button>
+      <button class="btn btn-secondary" id="returnButton" type="button">Return to current task</button>
+    </section>
+    <section class="taskbar" id="taskbar" aria-label="Current task controls">
+      <div class="task-meta"><h1 id="taskName">—</h1><p id="taskInfo">—</p></div>
+      <div class="audio-wrap"><audio id="audio" controls preload="metadata"></audio></div>
+      <div class="skip-actions" id="skipActions" aria-label="Skip reason">
+        <button class="reason" type="button" data-reason="noisy" aria-pressed="false">Noisy</button>
+        <button class="reason" type="button" data-reason="not_egyptian" aria-pressed="false">Not Egyptian</button>
+        <button class="reason" type="button" data-reason="poor_quality" aria-pressed="false">Poor quality</button>
+        <button class="btn btn-secondary" id="skipButton" type="button">Skip task</button>
+      </div>
+      <div class="task-actions" id="taskActions">
+        <button class="btn btn-secondary" id="historyButton" type="button">Previous completed</button>
+        <button class="btn btn-secondary" id="saveButton" type="button">Save draft</button>
+        <button class="btn btn-success" id="completeButton" type="button">Mark done</button>
+        <button class="btn btn-danger" id="abandonButton" type="button">Abandon</button>
+      </div>
+      <div class="save-state" id="saveState" data-state="saved">Saved</div>
+    </section>
+    <section class="wave-panel" id="wavePanel" aria-label="Audio waveform">
+      <div class="panel-head"><span>Waveform</span><span id="waveStatus">Click a segment to play</span></div>
+      <div class="wave-scroll" id="waveScroll"><canvas id="waveCanvas" height="220"></canvas></div>
+    </section>
+    <section class="table-panel" id="tablePanel" aria-label="Annotation segments">
+      <div class="state"><div class="state-inner"><div class="spinner"></div><h1>Loading workspace</h1><p>Checking your saved assignment and progress.</p></div></div>
+    </section>
+  </div>
+</main>
+<aside aria-labelledby="leaderboardTitle">
+  <h2 class="side-title" id="leaderboardTitle">Annotation dashboard</h2>
+  <div class="side-empty" id="leaderboardEmpty">Loading contributions…</div>
+  <table class="leaderboard" id="leaderboardTable" hidden>
+    <thead><tr><th>#</th><th>User</th><th class="num">Done</th><th class="num">Time</th></tr></thead>
+    <tbody id="leaderboardBody"></tbody>
+  </table>
+</aside>
+</div>
+<div class="sr-only" id="liveStatus" role="status" aria-live="polite"></div>
+<div id="toastRoot"></div>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+class ApiError extends Error{constructor(message,status,body){super(message);this.status=status;this.body=body||{}}}
+const FONT_MIN=14,FONT_MAX=32,FONT_STEP=2,FONT_DEFAULT=18,FONT_KEY="annotator.transcriptFontSize";
+const state={
+  user:"",assignment:null,task:null,segments:[],waveform:[],waveMax:1e-6,duration:0,
+  selected:-1,playing:-1,pxPerSecond:40,dirty:new Set(),saveTimer:null,savePromise:null,pendingSave:null,pendingComplete:null,
+  queued:false,saveBlocked:false,review:false,history:[],historyIndex:-1,submitting:false,pendingAbandon:null,
+  transcriptSize:FONT_DEFAULT
+};
+function uuid(){return crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==="x"?r:(r&3|8);return v.toString(16)})}
+async function api(url,{method="GET",body,keepalive=false}={}){
+  let response;
+  try{response=await fetch(url,{method,headers:body?{"Content-Type":"application/json"}:undefined,body:body?JSON.stringify(body):undefined,keepalive})}
+  catch(error){reportError("network",url+" :: "+error.message);throw new ApiError("Network connection failed. Your last confirmed save is still safe.",0,{})}
+  let data={};
+  try{data=await response.json()}catch(error){throw new ApiError("The server returned an unreadable response.",response.status,{})}
+  if(response.status===401){location.href="/login.html";throw new ApiError("Session expired",401,data)}
+  if(!response.ok)throw new ApiError(data.error||("Request failed ("+response.status+")"),response.status,data);
+  return data
+}
+function reportError(type,message){try{fetch("/api/clientlog",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type,message:String(message),url:location.href}),keepalive:true})}catch(_){}}
+function escapeHtml(value){const node=document.createElement("div");node.textContent=String(value??"");return node.innerHTML.replaceAll('"',"&quot;").replaceAll("'","&#39;")}
+function audioUrl(taskId){return "/api/audio/"+encodeURIComponent(String(taskId))}
+function announce(message){$("liveStatus").textContent="";requestAnimationFrame(()=>{$("liveStatus").textContent=message})}
+function toast(message,type="success",sticky=false){const root=$("toastRoot");root.innerHTML="";const node=document.createElement("div");node.className="toast "+type;node.textContent=message;root.appendChild(node);announce(message);if(!sticky)setTimeout(()=>node.remove(),2600)}
+function setSaveState(label,status){const node=$("saveState");node.textContent=label;node.dataset.state=status}
+function formatHoursMinutes(seconds){const total=Math.max(0,Math.round(Number(seconds||0)/60));return Math.floor(total/60)+" h "+String(total%60).padStart(2,"0")+" min"}
+function formatTime(seconds){const m=Math.floor(seconds/60),s=(seconds%60).toFixed(3);return String(m).padStart(2,"0")+":"+String(s).padStart(6,"0")}
+function formatWave(seconds){return Math.floor(seconds/60)+":"+String(Math.floor(seconds%60)).padStart(2,"0")}
+function parseTime(value){const parts=value.trim().split(":");const result=parts.length===2?Number(parts[0])*60+Number(parts[1]):Number(value);return Number.isFinite(result)?result:null}
+function setBusy(busy){state.submitting=busy;for(const id of ["completeButton","skipButton","saveButton","abandonButton"]){$(id).disabled=busy||state.review}}
+function stateView(title,description,actions="",kind=""){$("taskbar").classList.remove("show");$("wavePanel").classList.remove("show");$("tablePanel").innerHTML='<div class="state '+kind+'"><div class="state-inner"><h1>'+escapeHtml(title)+'</h1><p>'+escapeHtml(description)+'</p>'+actions+'</div></div>'}
+function clampFontSize(value){const n=Number(value);return Number.isFinite(n)?Math.min(FONT_MAX,Math.max(FONT_MIN,Math.round(n))):FONT_DEFAULT}
+function applyTranscriptFont(size,persist){
+  state.transcriptSize=clampFontSize(size);
+  document.documentElement.style.setProperty("--transcript-size",state.transcriptSize+"px");
+  const label=$("fontSizeLabel");if(label)label.textContent=String(state.transcriptSize);
+  $("fontDown").disabled=state.transcriptSize<=FONT_MIN;
+  $("fontUp").disabled=state.transcriptSize>=FONT_MAX;
+  if(persist!==false){try{localStorage.setItem(FONT_KEY,String(state.transcriptSize))}catch(_){}}
+}
+function loadTranscriptFont(){
+  let stored=FONT_DEFAULT;
+  try{stored=clampFontSize(localStorage.getItem(FONT_KEY)||FONT_DEFAULT)}catch(_){stored=FONT_DEFAULT}
+  applyTranscriptFont(stored,false)
+}
+async function initialize(){
+  loadTranscriptFont();
+  try{
+    const me=await api("/api/current-user");state.user=me.user;$("currentUser").textContent=me.user;
+    await refreshDashboard();await loadAssignment()
+  }catch(error){stateView("Workspace unavailable",error.message,'<button class="btn btn-primary" type="button" onclick="location.reload()">Try again</button>',"error")}
+}
+async function refreshDashboard(){
+  try{
+    const data=await api("/api/dashboard"),s=data.stats;
+    $("annotatedCount").textContent=s.annotated;$("skippedCount").textContent=s.skipped;$("pendingCount").textContent=s.pending;$("totalCount").textContent=s.total;
+    renderLeaderboard(data.leaderboard||[])
+  }catch(error){reportError("dashboard",error.message)}
+}
+function renderLeaderboard(rows){
+  if(!rows.length){$("leaderboardEmpty").textContent="No completed annotations yet.";$("leaderboardTable").hidden=true;return}
+  $("leaderboardEmpty").hidden=true;$("leaderboardTable").hidden=false;
+  $("leaderboardBody").innerHTML=rows.map((row,index)=>'<tr class="'+(row.user===state.user?"me":"")+'"><td>'+(index+1)+'</td><td title="'+escapeHtml(row.user)+'">'+escapeHtml(row.user)+'</td><td class="num">'+row.annotated+'</td><td class="num">'+formatHoursMinutes(row.duration_seconds)+'</td></tr>').join("")
+}
+async function loadAssignment(){
+  state.review=false;state.historyIndex=-1;$("reviewBanner").classList.remove("show");
+  stateView("Checking your task","Looking for an unfinished assignment.");
+  try{
+    const data=await api("/api/assignment");
+    if(data.assigned){state.assignment=data;loadTask(data,false);return}
+    state.assignment=null;showIdle(data.pool)
+  }catch(error){stateView("Could not load your task",error.message,'<button class="btn btn-primary" type="button" onclick="loadAssignment()">Try again</button>',"error")}
+}
+function showIdle(pool,successMessage=""){
+  const reason=pool?.reason||"available";let title="Ready for another task",description="Your previous task is complete. Claim a task when you are ready.";
+  if(reason==="all_completed"){title="All tasks are complete";description="There are no pending tasks in the current dataset."}
+  else if(reason==="temporarily_all_assigned"){title="All pending tasks are reserved";description="Other annotators are currently working on the remaining tasks. Check again later."}
+  else if(reason==="temporarily_busy"){title="Task pool is busy";description="Another task claim is being processed. Check again in a moment."}
+  else if(reason==="no_preprocessed"){title="No tasks available";description="Preprocessed audio has not been imported yet."}
+  if(successMessage){title=successMessage}
+  let actions='<a class="link-btn" href="/completed.html">View completed data</a>';
+  if(reason==="available")actions='<button class="btn btn-primary" id="claimButton" type="button">Claim next task</button> '+actions;
+  else if(reason==="temporarily_busy")actions='<button class="btn btn-primary" id="refreshPoolButton" type="button">Check again</button> '+actions;
+  stateView(title,description,actions,successMessage?"success":"");$("assignmentLine").textContent=description;
+  const claim=$("claimButton");if(claim)claim.addEventListener("click",claimTask)
+  const refresh=$("refreshPoolButton");if(refresh)refresh.addEventListener("click",loadAssignment)
+}
+async function claimTask(){
+  const button=$("claimButton");if(button){button.disabled=true;button.textContent="Claiming task…"}
+  try{const data=await api("/api/assignment/claim",{method:"POST",body:{}});state.assignment=data;loadTask(data,false);await refreshDashboard()}
+  catch(error){const pool=error.body?.pool;if(pool)showIdle(pool);else stateView("Task claim failed",error.message,'<button class="btn btn-primary" type="button" onclick="claimTask()">Try again</button>',"error")}
+}
+function loadTask(data,review){
+  stopSegmentPlayback(true);state.review=review;state.task=data;state.segments=(data.segments||[]).map(s=>({...s}));state.duration=Number(data.duration||0);state.selected=-1;state.playing=-1;state.dirty.clear();state.saveBlocked=false;clearTimeout(state.saveTimer);
+  state.waveform=decodeWaveform(data.waveform_b64);state.waveMax=state.waveform.reduce((m,v)=>Math.max(m,Math.abs(v)),1e-6);
+  $("taskbar").classList.add("show");$("wavePanel").classList.toggle("show",state.waveform.length>0);$("taskName").textContent=data.filename||data.rel_path;$("taskInfo").textContent=state.duration.toFixed(1)+" s · "+state.segments.length+" segments";
+  $("audio").src=audioUrl(data.task_id);$("assignmentLine").textContent=review?"Reviewing completed task: "+data.filename:(data.resumed?"Resumed: ":"Assigned: ")+data.filename;
+  for(const button of document.querySelectorAll(".reason")){button.setAttribute("aria-pressed",String((data.skip_reasons||[]).includes(button.dataset.reason)))}
+  $("skipActions").hidden=review;$("taskActions").hidden=review;$("saveState").hidden=review;
+  if(review){$("reviewBanner").classList.add("show");$("reviewText").textContent="Viewing "+data.filename+" in read-only mode. Your unfinished task remains reserved."}
+  else{$("reviewBanner").classList.remove("show");setSaveState("Saved","saved")}
+  renderSegments();drawWave();setBusy(false)
+}
+function decodeWaveform(encoded){if(!encoded)return[];try{const raw=atob(encoded),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return Array.from(new Int16Array(bytes.buffer),v=>v/32767)}catch(error){reportError("waveform",error.message);return[]}}
+function segmentLength(seg){return Math.max(.001,Number(seg.end)-Number(seg.start))}
+function formatClock(seconds){const total=Math.max(0,seconds),m=Math.floor(total/60),s=Math.floor(total%60);return String(m)+":"+String(s).padStart(2,"0")}
+function progressEl(index){return document.querySelector('[data-progress="'+index+'"]')}
+function clockEl(index){return document.querySelector('[data-clock="'+index+'"]')}
+function updateSegmentClock(index,offset){
+  const seg=state.segments[index];if(!seg)return;
+  const length=segmentLength(seg),pos=Math.min(length,Math.max(0,offset));
+  const clock=clockEl(index);if(clock)clock.textContent=formatClock(pos)+" / "+formatClock(length);
+  const slider=progressEl(index);if(slider&&document.activeElement!==slider)slider.value=String(Math.round(pos*1000/length))
+}
+function resetSegmentProgress(index){
+  const slider=progressEl(index);if(slider)slider.value="0";
+  updateSegmentClock(index,0)
+}
+function refreshPlayButtons(){
+  for(const button of document.querySelectorAll("[data-play]")){
+    const index=Number(button.dataset.play),active=state.playing===index&&!$("audio").paused;
+    button.textContent=active?"⏸":"▶";
+    button.setAttribute("aria-pressed",String(active));
+    button.setAttribute("aria-label",(active?"Pause":"Play")+" segment "+(state.segments[index]?.id??index+1))
+  }
+}
+function stopSegmentPlayback(resetCurrent){
+  const audio=$("audio");
+  const current=state.playing;
+  if(!audio.paused)audio.pause();
+  audio.dataset.stop="";
+  state.playing=-1;
+  if(resetCurrent&&current>=0)resetSegmentProgress(current);
+  refreshPlayButtons()
+}
+function seekWithinSegment(index,ratio,andPlay){
+  const seg=state.segments[index];if(!seg)return;
+  if(state.playing>=0&&state.playing!==index)resetSegmentProgress(state.playing);
+  const length=segmentLength(seg),clamped=Math.min(.999,Math.max(0,ratio));
+  const time=seg.start+clamped*length;
+  const audio=$("audio");
+  selectSegment(index);
+  state.playing=index;
+  audio.dataset.stop=String(seg.end);
+  audio.currentTime=time;
+  updateSegmentClock(index,time-seg.start);
+  if(andPlay)audio.play().catch(error=>toast("Audio could not play: "+error.message,"error"));
+  refreshPlayButtons();
+  drawWave()
+}
+function renderSegments(){
+  if(!state.segments.length){stateView("No segments","This task has no speech segments and cannot be annotated.");return}
+  let html='<table><thead><tr><th>Play</th><th>#</th><th>Start</th><th>End</th><th>Duration</th><th>Transcript</th><th>Quality</th></tr></thead><tbody>';
+  state.segments.forEach((seg,index)=>{
+    const read=state.review?" readonly":"",disabled=state.review?" disabled":"",length=segmentLength(seg);
+    html+='<tr data-index="'+index+'"><td class="play-cell"><div class="seg-play"><button class="play" type="button" data-play="'+index+'" aria-pressed="false" aria-label="Play segment '+seg.id+'">▶</button><div class="seg-seek"><input class="seg-progress" type="range" min="0" max="1000" value="0" step="1" data-progress="'+index+'" aria-label="Segment '+seg.id+' playback position"><span class="seg-clock" data-clock="'+index+'">'+formatClock(0)+' / '+formatClock(length)+'</span></div></div></td><td class="seg-id">'+seg.id+'</td><td><input class="time-input" data-time="start" data-index="'+index+'" value="'+formatTime(seg.start)+'" aria-label="Segment '+seg.id+' start"'+read+'></td><td><input class="time-input" data-time="end" data-index="'+index+'" value="'+formatTime(seg.end)+'" aria-label="Segment '+seg.id+' end"'+read+'></td><td class="duration">'+Number(seg.duration).toFixed(1)+' s</td><td><textarea class="transcript '+((seg.text||"").trim()?"has-text":"")+'" data-text="'+index+'" aria-label="Segment '+seg.id+' transcript" placeholder="'+escapeHtml(seg.asr_text||"Enter Arabic transcript")+'"'+read+'>'+escapeHtml(seg.text||"")+'</textarea></td><td><button class="quality" type="button" data-quality="'+index+'" aria-pressed="'+String(Boolean(seg.exclude_from_training))+'"'+disabled+'>Bad quality</button></td></tr>'
+  });
+  html+='</tbody></table>';$("tablePanel").innerHTML=html;
+  for(const button of document.querySelectorAll("[data-play]"))button.addEventListener("click",()=>toggleSegment(Number(button.dataset.play)));
+  for(const slider of document.querySelectorAll("[data-progress]")){
+    slider.addEventListener("pointerdown",()=>{slider.dataset.dragging="1"});
+    slider.addEventListener("input",()=>seekWithinSegment(Number(slider.dataset.progress),Number(slider.value)/1000,false));
+    slider.addEventListener("change",()=>{slider.dataset.dragging="";seekWithinSegment(Number(slider.dataset.progress),Number(slider.value)/1000,true)});
+  }
+  for(const input of document.querySelectorAll("[data-time]"))input.addEventListener("change",()=>changeTime(input));
+  for(const area of document.querySelectorAll("[data-text]")){area.addEventListener("focus",()=>selectSegment(Number(area.dataset.text)));area.addEventListener("input",()=>{const i=Number(area.dataset.text);state.segments[i].text=area.value;area.classList.toggle("has-text",Boolean(area.value.trim()));markDirty(i)});area.addEventListener("blur",scheduleSave)}
+  for(const button of document.querySelectorAll("[data-quality]"))button.addEventListener("click",()=>{const i=Number(button.dataset.quality);state.segments[i].exclude_from_training=!state.segments[i].exclude_from_training;button.setAttribute("aria-pressed",String(state.segments[i].exclude_from_training));markDirty(i)})
+}
+function selectSegment(index){state.selected=index;for(const row of document.querySelectorAll("tbody tr"))row.classList.toggle("selected",Number(row.dataset.index)===index);drawWave()}
+function bounds(index){return{min:index?state.segments[index-1].end:0,max:index<state.segments.length-1?state.segments[index+1].start:state.duration}}
+function changeTime(input){const index=Number(input.dataset.index),field=input.dataset.time,seg=state.segments[index],value=parseTime(input.value),b=bounds(index);if(value===null){input.value=formatTime(seg[field]);return}let next=value;if(field==="start")next=Math.max(b.min,Math.min(next,seg.end-.001));else next=Math.min(b.max,Math.max(next,seg.start+.001));seg[field]=Math.round(next*1000)/1000;seg.duration=Math.round((seg.end-seg.start)*1000)/1000;input.value=formatTime(seg[field]);input.closest("tr").querySelector(".duration").textContent=seg.duration.toFixed(1)+" s";if(state.playing===index){$("audio").dataset.stop=String(seg.end);const audio=$("audio");updateSegmentClock(index,Math.min(segmentLength(seg),Math.max(0,audio.currentTime-seg.start)))}else updateSegmentClock(index,0);markDirty(index);drawWave()}
+function segmentPayload(index){const s=state.segments[index];return{id:s.id,start:s.start,end:s.end,duration:s.duration,text:s.text||"",exclude_from_training:Boolean(s.exclude_from_training)}}
+function markDirty(index){if(state.review||state.saveBlocked)return;state.pendingComplete=null;state.dirty.add(index);setSaveState("Unsaved","dirty");scheduleSave()}
+function scheduleSave(){if(state.review||state.saveBlocked)return;clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>flushDirty(),3000)}
+async function flushDirty(){
+  clearTimeout(state.saveTimer);if(state.review||state.saveBlocked||!state.assignment)return state.savePromise;
+  if(state.savePromise){state.queued=true;return state.savePromise}
+  if(!state.pendingSave){
+    if(!state.dirty.size)return null;
+    const indices=Array.from(state.dirty);indices.forEach(i=>state.dirty.delete(i));
+    state.pendingSave={indices,body:{lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,operation_id:uuid(),segments:indices.map(segmentPayload)}};
+  }
+  const batch=state.pendingSave;setSaveState("Saving…","saving");
+  state.savePromise=api("/api/assignment/current",{method:"PATCH",body:batch.body}).then(result=>{state.assignment.revision=result.revision;state.pendingSave=null;setSaveState(state.dirty.size?"Unsaved":"Saved",state.dirty.size?"dirty":"saved")}).catch(error=>{if(error.status===409){state.saveBlocked=true;setSaveState("Conflict","error");toast("This task changed elsewhere. Reload before editing further.","error",true)}else{setSaveState("Save failed","error");toast(error.message,"error",true);scheduleRetry()}throw error}).finally(()=>{state.savePromise=null;if(state.queued){state.queued=false;if((state.dirty.size||state.pendingSave)&&!state.saveBlocked)flushDirty().catch(()=>{})}});
+  return state.savePromise
+}
+function scheduleRetry(){clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>{if((state.dirty.size||state.pendingSave)&&!state.saveBlocked)flushDirty().catch(()=>{})},8000)}
+async function manualSave(){try{await flushDirty();if(!state.dirty.size&&!state.savePromise)toast("Draft saved") }catch(_){}}
+function selectedReasons(){return Array.from(document.querySelectorAll(".reason[aria-pressed='true']"),b=>b.dataset.reason)}
+async function submitTask(status){
+  if(state.submitting||state.review||!state.assignment)return;
+  const reasons=status==="skipped"?selectedReasons():[];
+  if(status==="skipped"&&!reasons.length){toast("Select at least one skip reason.","error");return}
+  if(status==="annotated"){const empty=state.segments.filter(s=>!(s.text||"").trim()&&!s.exclude_from_training).map(s=>s.id);if(empty.length){toast("Add text or mark Bad quality for segments: "+empty.join(", "),"error",true);return}}
+  setBusy(true);clearTimeout(state.saveTimer);
+  try{
+    if(state.savePromise)await state.savePromise;
+    if(state.pendingSave)await flushDirty();
+    if(!state.pendingComplete){state.pendingComplete={lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,target_status:status,skip_reasons:reasons,operation_id:uuid(),segments:state.segments.map((_,index)=>segmentPayload(index))}}
+    const body=state.pendingComplete;
+    let result;
+    try{result=await api("/api/assignment/current/complete",{method:"POST",body})}
+    catch(firstError){if(firstError.status!==0)throw firstError;await new Promise(resolve=>setTimeout(resolve,1000));result=await api("/api/assignment/current/complete",{method:"POST",body})}
+    state.pendingComplete=null;state.dirty.clear();state.assignment=null;state.task=null;await refreshDashboard();const current=await api("/api/assignment");showIdle(current.pool,status==="annotated"?"Task completed":"Task skipped");toast(status==="annotated"?"Task completed":"Task skipped")
+  }catch(error){toast(error.message,"error",true);if(error.status===409&&error.body?.conflict==="revision"){state.saveBlocked=true;setSaveState("Conflict","error")}}
+  finally{setBusy(false)}
+}
+async function abandonTask(){if(!state.assignment||state.review||state.submitting)return;if(!confirm("Release this task? Your saved draft will remain, but another annotator may claim it."))return;setBusy(true);try{if(state.dirty.size||state.pendingSave)await flushDirty();if(!state.pendingAbandon)state.pendingAbandon={lease_token:state.assignment.lease_token,operation_id:uuid(),confirm:true};const result=await api("/api/assignment/current/abandon",{method:"POST",body:state.pendingAbandon});state.pendingAbandon=null;state.assignment=null;state.task=null;await refreshDashboard();showIdle(result.pool||{reason:"available"});toast("Task released") }catch(error){toast(error.message,"error",true)}finally{setBusy(false)}}
+async function loadHistory(){try{if(state.savePromise)await state.savePromise;if(state.dirty.size||state.pendingSave)await flushDirty();const data=await api("/api/history/recent?limit=50");state.history=data.items||[];if(!state.history.length){toast("No completed tasks in your history.","error");return}state.historyIndex=0;await showHistoryItem()}catch(error){toast(error.message,"error",true)}}
+async function showHistoryItem(){const item=state.history[state.historyIndex];if(!item)return;try{const detail=await api("/api/completed/"+encodeURIComponent(item.task_id));loadTask(detail,true);$("reviewText").textContent="Viewing "+detail.filename+" ("+(state.historyIndex+1)+" of "+state.history.length+"). Your unfinished task remains reserved.";$("newerHistoryButton").disabled=state.historyIndex===0;$("olderHistoryButton").disabled=state.historyIndex>=state.history.length-1}catch(error){toast(error.message,"error",true)}}
+async function moveHistory(delta){const next=state.historyIndex+delta;if(next<0||next>=state.history.length)return;state.historyIndex=next;await showHistoryItem()}
+async function returnToTask(){await loadAssignment()}
+function isSeeking(index){const slider=progressEl(index);return Boolean(slider&&(slider.dataset.dragging==="1"||document.activeElement===slider))}
+function clearSeekDrag(){for(const slider of document.querySelectorAll("[data-progress]"))slider.dataset.dragging=""}
+function toggleSegment(index){
+  const seg=state.segments[index],audio=$("audio");if(!seg)return;
+  if(state.playing===index&&!audio.paused){audio.pause();refreshPlayButtons();return}
+  if(state.playing===index&&audio.currentTime>=seg.start&&audio.currentTime<seg.end-.02){
+    audio.dataset.stop=String(seg.end);
+    audio.play().catch(error=>toast("Audio could not play: "+error.message,"error"));
+    refreshPlayButtons();
+    return
+  }
+  const slider=progressEl(index),ratio=slider?Number(slider.value)/1000:0;
+  seekWithinSegment(index,ratio>=.995?0:ratio,true)
+}
+$("audio").addEventListener("timeupdate",()=>{
+  const audio=$("audio"),stop=Number(audio.dataset.stop||0),playing=state.playing;
+  if(playing>=0){
+    const seg=state.segments[playing];
+    if(seg&&(audio.currentTime>=seg.end-.02||(stop&&audio.currentTime>=stop))){
+      audio.pause();audio.dataset.stop="";state.playing=-1;
+      updateSegmentClock(playing,segmentLength(seg));refreshPlayButtons();drawWave();return
+    }
+    if(seg&&!isSeeking(playing))updateSegmentClock(playing,audio.currentTime-seg.start)
+  }else{
+    const found=state.segments.findIndex(s=>audio.currentTime>=s.start&&audio.currentTime<=s.end);
+    if(found>=0&&!isSeeking(found))updateSegmentClock(found,audio.currentTime-state.segments[found].start)
+  }
+  const found=state.segments.findIndex(s=>audio.currentTime>=s.start&&audio.currentTime<=s.end);
+  if(found>=0&&found!==state.selected)selectSegment(found);
+  drawWave()
+});
+$("audio").addEventListener("play",refreshPlayButtons);
+$("audio").addEventListener("pause",refreshPlayButtons);
+$("audio").addEventListener("ended",()=>{if(state.playing>=0){const seg=state.segments[state.playing];if(seg)updateSegmentClock(state.playing,segmentLength(seg))}state.playing=-1;$("audio").dataset.stop="";refreshPlayButtons()});
+function drawWave(){if(!state.waveform.length||!state.duration)return;const canvas=$("waveCanvas"),scroll=$("waveScroll"),dpr=Math.max(1,window.devicePixelRatio||1),cssHeight=220,width=Math.max(800,Math.min(50000,state.duration*state.pxPerSecond));canvas.style.width=width+"px";canvas.style.height=cssHeight+"px";canvas.width=Math.round(width*dpr);canvas.height=Math.round(cssHeight*dpr);const ctx=canvas.getContext("2d");ctx.scale(dpr,dpr);ctx.fillStyle="#151620";ctx.fillRect(0,0,width,cssHeight);ctx.strokeStyle="rgba(255,255,255,.04)";ctx.lineWidth=1;for(let t=0;t<state.duration;t+=(state.pxPerSecond>=50?1:2)){const x=t/state.duration*width;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,cssHeight);ctx.stroke();ctx.fillStyle="#73768a";ctx.font="10px sans-serif";ctx.fillText(formatWave(t),x+4,12)}state.segments.forEach((seg,index)=>{const x1=seg.start/state.duration*width,x2=seg.end/state.duration*width;ctx.fillStyle=index===state.selected?"rgba(139,147,255,.2)":"rgba(139,147,255,.06)";ctx.fillRect(x1,0,Math.max(1,x2-x1),cssHeight);ctx.strokeStyle=index===state.selected?"rgba(197,201,255,.7)":"rgba(255,255,255,.08)";ctx.strokeRect(x1+.5,.5,Math.max(1,x2-x1-1),cssHeight-1);ctx.fillStyle="rgba(255,255,255,.5)";ctx.fillText("#"+seg.id,x1+5,cssHeight-8)});const mid=cssHeight/2,step=Math.max(1,Math.floor(state.waveform.length/width));ctx.beginPath();for(let i=0;i<state.waveform.length;i+=step){let sum=0,count=0;for(let j=0;j<step&&i+j<state.waveform.length;j++){sum+=state.waveform[i+j];count++}const v=(sum/count)/state.waveMax*mid*.72,x=i/state.waveform.length*width,y=mid-v;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}for(let i=state.waveform.length-1;i>=0;i-=step){let sum=0,count=0;for(let j=0;j<step&&i-j>=0;j++){sum+=state.waveform[i-j];count++}const v=(sum/count)/state.waveMax*mid*.72,x=i/state.waveform.length*width,y=mid+v;ctx.lineTo(x,y)}ctx.closePath();ctx.fillStyle="rgba(139,147,255,.42)";ctx.fill();const pos=$("audio").currentTime;if(pos>0){const x=pos/state.duration*width;ctx.strokeStyle="#f07878";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,cssHeight);ctx.stroke()}}
+$("waveCanvas").addEventListener("click",event=>{if(!state.duration)return;const rect=event.currentTarget.getBoundingClientRect(),time=(event.clientX-rect.left)/rect.width*state.duration,index=state.segments.findIndex(s=>time>=s.start&&time<=s.end);if(index>=0)seekWithinSegment(index,(time-state.segments[index].start)/segmentLength(state.segments[index]),true);else{stopSegmentPlayback(false);$("audio").currentTime=time;$("audio").play()}});
+document.addEventListener("pointerup",clearSeekDrag,{passive:true});
+for(const button of document.querySelectorAll(".reason"))button.addEventListener("click",()=>button.setAttribute("aria-pressed",String(button.getAttribute("aria-pressed")!=="true")));
+$("fontDown").addEventListener("click",()=>applyTranscriptFont(state.transcriptSize-FONT_STEP));
+$("fontUp").addEventListener("click",()=>applyTranscriptFont(state.transcriptSize+FONT_STEP));
+$("saveButton").addEventListener("click",manualSave);$("completeButton").addEventListener("click",()=>submitTask("annotated"));$("skipButton").addEventListener("click",()=>submitTask("skipped"));$("abandonButton").addEventListener("click",abandonTask);$("historyButton").addEventListener("click",loadHistory);$("newerHistoryButton").addEventListener("click",()=>moveHistory(-1));$("olderHistoryButton").addEventListener("click",()=>moveHistory(1));$("returnButton").addEventListener("click",returnToTask);
+$("logoutButton").addEventListener("click",async()=>{try{if(state.dirty.size&&!state.saveBlocked)await flushDirty();await api("/api/logout",{method:"POST",body:{}})}catch(_){}location.href="/login.html"});
+document.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();manualSave()}if((event.ctrlKey||event.metaKey)&&event.key==="Enter"&&!state.review){event.preventDefault();submitTask("annotated")}});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&state.dirty.size&&!state.saveBlocked)flushDirty().catch(()=>{})});
+window.addEventListener("beforeunload",event=>{if(state.dirty.size||state.savePromise){event.preventDefault();event.returnValue=""}});
+window.addEventListener("resize",()=>{if(state.waveform.length)drawWave()});
+setInterval(()=>{fetch("/api/heartbeat").catch(()=>{})},120000);setInterval(()=>{if(!document.hidden)refreshDashboard()},30000);
+window.onerror=(message,source,line,column)=>{reportError("js_error",message+" @ "+source+":"+line+":"+column);return false};
+initialize();
+</script>
+</body>
+</html>

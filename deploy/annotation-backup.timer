@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily annotation PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=900
+Unit=annotation-backup.service
+
+[Install]
+WantedBy=timers.target

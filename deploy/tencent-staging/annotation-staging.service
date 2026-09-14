@@ -1,0 +1,31 @@
+[Unit]
+Description=Annotation platform staging (Tencent Cloud)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=annotation
+Group=annotation
+WorkingDirectory=/opt/annotation_tool
+EnvironmentFile=/etc/annotation-staging.env
+Environment=UV_NO_SYNC=1
+Environment=UV_PYTHON_INSTALL_DIR=/opt/annotation-python
+Environment=UV_CACHE_DIR=/var/cache/annotation-staging
+ExecStartPre=/usr/local/bin/uv run --no-sync python manage_state.py schema
+ExecStart=/usr/local/bin/uv run --no-sync gunicorn -c gunicorn_config.py --workers 2 --threads 4 server:app
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=330
+CacheDirectory=annotation-staging
+LogsDirectory=annotation-staging
+UMask=0027
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

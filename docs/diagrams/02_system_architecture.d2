@@ -1,0 +1,116 @@
+direction: down
+
+classes: {
+  boundary: {
+    style.fill: "#F8FAFC"
+    style.stroke: "#CBD5E1"
+    style.stroke-width: 2
+    style.border-radius: 12
+  }
+  service: {
+    style.fill: "#EFF6FF"
+    style.stroke: "#2563EB"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  data: {
+    style.fill: "#ECFDF5"
+    style.stroke: "#059669"
+    style.stroke-width: 2
+  }
+  external: {
+    style.fill: "#FFF7ED"
+    style.stroke: "#EA580C"
+    style.border-radius: 8
+  }
+}
+
+offline: "离线智能预处理" {
+  class: boundary
+  direction: down
+
+  source: "原始埃及方言音频" {
+    shape: cylinder
+    class: data
+  }
+  vad: "Silero VAD\n语音检测与断句" {
+    class: service
+  }
+  asr: "Qwen3.5-Omni\n阿语预转写" {
+    class: external
+  }
+  guard: "断点续跑与人工数据保护" {
+    class: service
+  }
+
+  source -> vad -> asr -> guard
+}
+
+online: "在线标注与管理" {
+  class: boundary
+  direction: right
+
+  annotator: "标注员浏览器\nHTML / CSS / JavaScript" {
+    shape: person
+    class: service
+  }
+  admin: "管理员浏览器\nadmin.html / CSS / JavaScript" {
+    shape: person
+    class: external
+  }
+  tunnel: "Cloudflare Tunnel\nHTTPS 入口" {
+    class: external
+  }
+  nginx: "Nginx\n反向代理 / Range / sendfile" {
+    class: service
+  }
+  flask: "Gunicorn + Flask\n标注 API / 管理员 API\n会话、CSRF、媒体授权" {
+    class: service
+  }
+  repository: "仓储层\n标注事务 + 管理事务\n统计、不变量、权限规则" {
+    class: service
+  }
+
+  annotator -> tunnel -> nginx -> flask -> repository
+  admin -> tunnel
+}
+
+storage: "数据与审计真源" {
+  class: boundary
+  direction: down
+
+  postgres: "PostgreSQL\n任务 / 基线 / 版本 / 片段\n持有关系 / 幂等操作 / 事件\n管理员会话 / 动作 / 重领阻断" {
+    shape: cylinder
+    class: data
+  }
+  audio: "只读音频目录" {
+    shape: cylinder
+    class: data
+  }
+}
+
+delivery: "交付与运维" {
+  class: boundary
+  direction: down
+
+  export: "Excel / 兼容 JSON 导出" {
+    class: service
+  }
+  backup: "自定义格式备份\n恢复验证 + SHA-256" {
+    class: service
+  }
+  monitor: "健康检查与服务监控" {
+    class: service
+  }
+}
+
+offline.guard -> storage.postgres: "基线 / 草稿 / 波形"
+online.repository -> storage.postgres: "标注与治理事务"
+online.flask -> storage.audio: "鉴权与路径校验"
+online.nginx -> storage.audio: "X-Accel-Redirect\n实际传输" {
+  style.stroke: "#059669"
+}
+storage.postgres -> delivery.export: "当前已发布版本"
+storage.postgres -> delivery.backup: "可恢复备份"
+delivery.monitor -> online.nginx: "探活"
+delivery.monitor -> storage.postgres: "数据库结构健康"
