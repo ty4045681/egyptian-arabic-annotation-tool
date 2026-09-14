@@ -17,6 +17,7 @@ def test_compound_filters_use_same_evidence_and_unique_counts(database, seed_tas
         "source_confidence": "high",
         "batch_code": "batch-a-2026-09-14",
     })
+    assert {row["scene_code"] for row in overview["source_scenes"]} == {"airport"}
     assert overview["totals"]["total_audio_count"] == 1
     assert overview["totals"]["total_audio_duration_seconds"] == pytest_duration(other)
     tasks = repo.admin_tasks({

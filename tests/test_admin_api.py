@@ -626,3 +626,80 @@ def test_admin_audit_api_records_revoke(admin_client, database, seed_tasks):
         for item in audit.json["items"]
     )
     assert audit.headers["Cache-Control"] == "no-store"
+
+
+def test_admin_facets_are_vocabulary_not_counts(admin_client, database, seed_tasks):
+    seed_tasks(1)
+    _admin_login(admin_client)
+    response = admin_client.get("/api/admin/metadata/facets")
+    assert response.status_code == 200
+    body = response.json
+    assert "scenes" in body and "batches" in body
+    assert "confidences" in body and "review_statuses" in body
+    assert "source_scenes" not in body
+    assert "source_batches" not in body
+    assert "task_count" not in str(body.get("definitions", {}))
+    assert "vocabulary" in body["definitions"]["facets"]
+
+
+def test_admin_overview_http_includes_batch_and_review_groups(
+        admin_client, database, seed_tasks):
+    from tests.test_regression_admin_metadata import source
+
+    task = seed_tasks(1)[0]
+    source(task, "airport", "medium", "http-overview-airport")
+    _admin_login(admin_client)
+    response = admin_client.get(
+        "/api/admin/overview",
+        query_string={"source_scene": "airport"},
+    )
+    assert response.status_code == 200
+    body = response.json
+    assert body["source_scenes"][0]["scene_code"] == "airport"
+    assert body["source_batches"][0]["batch_code"] == "http-overview-airport"
+    assert "review_statuses" in body
+    assert body["as_of"] == body["updated_at"]
+    assert body["applied_filters"]["source_scene"] == "airport"
+
+
+def test_admin_scene_scope_requires_csrf_and_replays(admin_client, database):
+    alice = _make_user("alice")
+    _, headers = _admin_login(admin_client)
+    body = {
+        "operation_id": str(uuid.uuid4()),
+        "expected_revision": 0,
+        "mode": "restricted",
+        "scene_codes": ["airport"],
+        "allow_unknown": False,
+        "reason": "limit airport via api",
+    }
+    missing = admin_client.put(
+        f"/api/admin/annotators/{alice['id']}/scene-scope", json=body,
+    )
+    assert missing.status_code == 403
+    created = admin_client.put(
+        f"/api/admin/annotators/{alice['id']}/scene-scope",
+        json=body, headers=headers,
+    )
+    assert created.status_code == 200, created.json
+    assert created.json["scope"]["mode"] == "restricted"
+    replay = admin_client.put(
+        f"/api/admin/annotators/{alice['id']}/scene-scope",
+        json=body, headers=headers,
+    )
+    assert replay.status_code == 200
+    assert replay.json["idempotent_replay"] is True
+
+
+def test_admin_tasks_stale_cursor_is_invalid(admin_client, database, seed_tasks):
+    seed_tasks(3)
+    _admin_login(admin_client)
+    first = admin_client.get("/api/admin/tasks", query_string={"q": "audio-", "limit": 1})
+    assert first.status_code == 200
+    assert first.json["next_cursor"]
+    stale = admin_client.get(
+        "/api/admin/tasks",
+        query_string={"q": "audio-002", "limit": 1,
+                      "cursor": first.json["next_cursor"]},
+    )
+    assert stale.status_code == 400

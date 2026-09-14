@@ -212,10 +212,18 @@ uv run python server.py --port 8081
 完整测试：
 
 ```bash
-uv run pytest -q
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q --ignore=tests/browser
 ```
 
-测试通过范围包括：并发领取、同名登录竞态、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、baseline 回填、JSON round-trip、Excel 和音频 Range。
+默认使用测试夹具里的隔离 PostgreSQL（当前机器上的 pgserver 为 16.x）。浏览器回归属于单独的 UI 验收，不要用 skip 掩盖失败。若本机安装了 PostgreSQL 18 服务器二进制，可用仓库内脚本指定版本：
+
+```bash
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
+  scripts/run_pytest_with_postgres.py /usr/lib/postgresql/18/bin \
+  -q --ignore=tests/browser
+```
+
+测试通过范围包括：并发领取、同名登录竞态、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、管理员来源筛选/统计、场景范围锁顺序、baseline 回填、JSON round-trip、Excel 和音频 Range。
 
 ## 标注工作流
 

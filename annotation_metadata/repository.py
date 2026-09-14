@@ -11,9 +11,11 @@ from typing import Any, Iterable
 
 from psycopg.types.json import Json
 
-from annotation_metadata.contracts import MediaIdentity, NormalizedSource
-from annotation_metadata.queries import SceneScope, load_scope
-from annotation_metadata.taxonomy import SCENE_BY_CODE, SCENE_CODES, scene_label
+from annotation_metadata.contracts import MediaIdentity, NormalizedSource, TaskFilter
+from annotation_metadata.queries import SceneScope, load_scope, source_row_match_sql
+from annotation_metadata.taxonomy import (
+    CONFIDENCE_RANK, SCENE_BY_CODE, SCENE_CODES, scene_label,
+)
 from annotation_repository import ConflictError, ValidationError
 
 
@@ -184,38 +186,58 @@ def sync_source_record(cur, *, task_id, batch_id,
     return action
 
 
+_SOURCE_COLUMNS = """
+s.id, s.scene_code, s.confidence, s.confidence_basis,
+s.provider, s.video_id, s.source_url, b.batch_code,
+s.source_type, s.channel_title, s.is_current, s.revision,
+s.record_key, s.channel_id
+""".strip()
+
+
+def _source_from_row(row) -> dict:
+    return {
+        "id": str(row[0]),
+        "scene_code": row[1],
+        "scene_label": scene_label(row[1]),
+        "confidence": row[2],
+        "confidence_basis": row[3] or "",
+        "provider": row[4],
+        "video_id": row[5],
+        "source_url": row[6],
+        "batch_code": row[7],
+        "source_type": row[8] or "",
+        "channel_title": row[9],
+        "is_current": bool(row[10]),
+        "revision": int(row[11]),
+        "record_key": row[12],
+        "channel_id": row[13],
+    }
+
+
 def list_current_sources(cur, task_id) -> list[dict]:
     rows = cur.execute(
-        """SELECT s.id, s.scene_code, s.confidence, s.confidence_basis,
-                  s.provider, s.video_id, s.source_url, b.batch_code,
-                  s.source_type, s.channel_title, s.is_current, s.revision,
-                  s.record_key, s.channel_id
+        f"""SELECT {_SOURCE_COLUMNS}
            FROM task_sources s
            JOIN source_batches b ON b.id = s.batch_id
            WHERE s.task_id = %s AND s.is_current
            ORDER BY s.scene_code NULLS LAST, s.id""",
         (task_id,),
     ).fetchall()
-    items = []
-    for row in rows:
-        items.append({
-            "id": str(row[0]),
-            "scene_code": row[1],
-            "scene_label": scene_label(row[1]),
-            "confidence": row[2],
-            "confidence_basis": row[3] or "",
-            "provider": row[4],
-            "video_id": row[5],
-            "source_url": row[6],
-            "batch_code": row[7],
-            "source_type": row[8] or "",
-            "channel_title": row[9],
-            "is_current": bool(row[10]),
-            "revision": int(row[11]),
-            "record_key": row[12],
-            "channel_id": row[13],
-        })
-    return items
+    return [_source_from_row(row) for row in rows]
+
+
+def get_source(cur, source_id) -> dict | None:
+    """Load one source row by id, including historical (non-current) evidence."""
+    if source_id in (None, ""):
+        return None
+    row = cur.execute(
+        f"""SELECT {_SOURCE_COLUMNS}
+           FROM task_sources s
+           JOIN source_batches b ON b.id = s.batch_id
+           WHERE s.id = %s""",
+        (source_id,),
+    ).fetchone()
+    return _source_from_row(row) if row else None
 
 
 def list_source_history(cur, task_id) -> list[dict]:
@@ -399,11 +421,13 @@ def assignment_claim_context(cur, user_id) -> dict | None:
     }
 
 
-def list_active_scenes(cur) -> list[dict]:
-    rows = cur.execute(
-        """SELECT code, label_zh, label_en, active, sort_order
-           FROM scenes ORDER BY sort_order, code"""
-    ).fetchall()
+def list_active_scenes(cur, *, active_only: bool = False) -> list[dict]:
+    sql = """SELECT code, label_zh, label_en, active, sort_order
+             FROM scenes"""
+    if active_only:
+        sql += " WHERE active"
+    sql += " ORDER BY sort_order, code"
+    rows = cur.execute(sql).fetchall()
     return [
         {"code": row[0], "label_zh": row[1], "label_en": row[2],
          "active": bool(row[3]), "sort_order": int(row[4])}
@@ -462,16 +486,24 @@ def replace_scope(cur, user_id, *, mode: str, scene_codes: list[str],
     return load_scope(cur, user_id)
 
 
-def metadata_summaries(cur, task_ids: list) -> dict[str, dict]:
+def metadata_summaries(cur, task_ids: list,
+                       filters: TaskFilter | None = None) -> dict[str, dict]:
+    """Matched source summary for list/stats rows.
+
+    Scene, confidence, and batch come from the same matching evidence rows
+    as the list filter. Full provenance stays on detailed task metadata.
+    """
     if not task_ids:
         return {}
+    task_filter = filters if filters is not None else TaskFilter()
+    match_sql, match_params = source_row_match_sql(task_filter, src_alias="s")
     source_rows = cur.execute(
-        """SELECT s.task_id, s.scene_code, s.confidence, b.batch_code
+        f"""SELECT s.task_id, s.scene_code, s.confidence, b.batch_code
            FROM task_sources s
            JOIN source_batches b ON b.id = s.batch_id
-           WHERE s.task_id = ANY(%s) AND s.is_current
-           ORDER BY s.task_id, s.scene_code NULLS LAST""",
-        (list(task_ids),),
+           WHERE s.task_id = ANY(%s) AND {match_sql}
+           ORDER BY s.task_id, s.scene_code NULLS LAST, b.batch_code, s.id""",
+        (list(task_ids), *match_params),
     ).fetchall()
     grouped: dict[str, dict] = {}
     for task_id, scene_code, confidence, batch_code in source_rows:
@@ -485,9 +517,8 @@ def metadata_summaries(cur, task_ids: list) -> dict[str, dict]:
             item["source_scenes"].append(scene_code)
         if batch_code and batch_code not in item["batch_codes"]:
             item["batch_codes"].append(batch_code)
-        rank = {"high": 1, "medium": 2, "low": 3, "unknown": 4}
-        current = rank.get(item["source_confidence"], 4)
-        candidate = rank.get(confidence or "unknown", 4)
+        current = CONFIDENCE_RANK.get(item["source_confidence"], 4)
+        candidate = CONFIDENCE_RANK.get(confidence or "unknown", 4)
         if candidate < current:
             item["source_confidence"] = confidence or "unknown"
     review_rows = cur.execute(

@@ -98,6 +98,31 @@ def _source_row_clauses(filters: TaskFilter, *, src_alias: str = "src") -> tuple
     return clauses, params
 
 
+def source_row_match_sql(filters: TaskFilter, *, src_alias: str = "src") -> tuple[str, list]:
+    """AND-joined predicates that identify one current matching evidence row."""
+    clauses, params = _source_row_clauses(filters, src_alias=src_alias)
+    return " AND ".join(clauses), params
+
+
+def published_review_status_sql(*, task_alias: str = "t") -> str:
+    """Mutually exclusive published-review bucket for one task.
+
+    Draft reviews on unpublished or correction versions are ignored: the
+    status is taken from the current published version only. No published
+    version is ``unreviewed_unpublished``.
+    """
+    published = f"{task_alias}.current_published_version_id"
+    latest = (
+        "(SELECT sr.status FROM scene_reviews sr "
+        f"WHERE sr.version_id = {published} AND NOT sr.superseded "
+        "ORDER BY sr.review_no DESC LIMIT 1)"
+    )
+    return (
+        f"CASE WHEN {published} IS NULL THEN 'unreviewed_unpublished' "
+        f"ELSE COALESCE({latest}, 'pending') END"
+    )
+
+
 def source_exists_sql(filters: TaskFilter, *, task_alias: str = "t") -> tuple[str, list]:
     """EXISTS predicate: every source condition hits the same current row.
 

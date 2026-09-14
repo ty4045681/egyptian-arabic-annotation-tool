@@ -10,6 +10,7 @@ from annotation_metadata.predictions import (
 )
 from annotation_metadata.repository import (
     assignment_claim_context,
+    get_source,
     latest_prediction,
     latest_review,
     list_current_sources,
@@ -46,32 +47,42 @@ def public_source(item: dict) -> dict:
     }
 
 
+def _distinct_source_scene_count(sources: list[dict]) -> int:
+    return len({(item.get("scene_code") or "unknown") for item in sources})
+
+
+def _claim_primary_source(claim: dict | None) -> dict | None:
+    """Exact claimed evidence, not the first current row with the same scene."""
+    if not claim:
+        return None
+    selected = claim.get("source")
+    if selected:
+        return selected
+    if claim.get("scene_code") or claim.get("confidence"):
+        return {
+            "scene_code": claim.get("scene_code"),
+            "scene_label": scene_label(claim.get("scene_code")),
+            "confidence": claim.get("confidence") or "unknown",
+        }
+    return None
+
+
 def headline(metadata: dict) -> str:
     sources = metadata.get("sources") or []
     review = metadata.get("scene_review") or {}
     claim = metadata.get("claim_context") or {}
-    primary = None
-    if claim.get("scene_code"):
-        primary = next(
-            (item for item in sources if item.get("scene_code") == claim.get("scene_code")),
-            None,
-        )
-        if primary is None:
-            primary = {
-                "scene_code": claim.get("scene_code"),
-                "scene_label": scene_label(claim.get("scene_code")),
-                "confidence": claim.get("confidence") or "unknown",
-            }
-    elif len(sources) == 1:
+    primary = _claim_primary_source(claim)
+    if primary is None and len(sources) == 1:
         primary = sources[0]
+    distinct_scenes = _distinct_source_scene_count(sources)
     if not sources and primary is None:
         scene_part = "来源场景未知"
         conf_part = "来源置信度未知"
     elif primary is not None:
         scene_part = primary.get("scene_label") or scene_label(primary.get("scene_code"))
-        conf_part = confidence_label(primary.get("confidence"))
-        if len(sources) > 1:
-            scene_part = f"{scene_part}（{len(sources)} 个来源场景）"
+        conf_part = confidence_label(primary.get("confidence") or claim.get("confidence"))
+        if distinct_scenes > 1:
+            scene_part = f"{scene_part}（{distinct_scenes} 个来源场景）"
     else:
         labels = [
             f"{item.get('scene_label') or scene_label(item.get('scene_code'))}·"
@@ -98,7 +109,9 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
     working_review = latest_review(cur, version_id) if version_id else None
     claim_context = None
     if assignment_user_id is not None:
-        claim_context = assignment_claim_context(cur, assignment_user_id)
+        claim_context = _serialize_claim_context(
+            cur, assignment_claim_context(cur, assignment_user_id), sources,
+        )
     stale_prediction = False
     if prediction and version_id:
         stale_prediction = prediction_is_stale(
@@ -151,14 +164,7 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
         "scene_review": scene_review,
         "draft_review": draft_review,
         "reference_review": published_review if correcting else None,
-        "claim_context": (
-            None if not claim_context else {
-                "scene_code": claim_context.get("scene_code"),
-                "confidence": claim_context.get("confidence"),
-                "policy": claim_context.get("policy"),
-                "source_id": claim_context.get("source_id"),
-            }
-        ),
+        "claim_context": claim_context,
         "headline": "",
         "unknown": {
             "source_scene": not sources,
@@ -174,6 +180,50 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
     else:
         payload["ui_enabled"] = True
     return payload
+
+
+def _serialize_claim_context(cur, claim_context: dict | None,
+                             sources: list[dict]) -> dict | None:
+    if not claim_context:
+        return None
+    source_id = claim_context.get("source_id")
+    selected = None
+    source_is_current = False
+    current_evidence = None
+    if source_id:
+        selected = next(
+            (item for item in sources if item.get("id") == str(source_id)),
+            None,
+        )
+        if selected is not None:
+            source_is_current = True
+        else:
+            historical = get_source(cur, source_id)
+            selected = public_source(historical) if historical else None
+            current_evidence = [
+                item for item in sources
+                if item.get("scene_code") == claim_context.get("scene_code")
+            ]
+    if selected is None and (
+            claim_context.get("scene_code") or claim_context.get("confidence")
+    ):
+        selected = {
+            "scene_code": claim_context.get("scene_code"),
+            "scene_label": scene_label(claim_context.get("scene_code")),
+            "confidence": claim_context.get("confidence") or "unknown",
+        }
+    scene_code = claim_context.get("scene_code") or (selected or {}).get("scene_code")
+    confidence = claim_context.get("confidence") or (selected or {}).get("confidence")
+    return {
+        "scene_code": scene_code,
+        "confidence": confidence or "unknown",
+        "policy": claim_context.get("policy"),
+        "source_id": source_id,
+        "source_is_current": source_is_current,
+        "source": selected,
+        "current_evidence": current_evidence,
+        "historical": bool(source_id) and not source_is_current,
+    }
 
 
 def attach_metadata(cur, payload: dict, task_id, **kwargs) -> dict:

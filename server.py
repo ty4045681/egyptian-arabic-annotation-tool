@@ -1221,6 +1221,8 @@ register_metadata_routes(
     login_required=login_required,
     admin_required=admin_required,
     admin_write_required=admin_write_required,
+    json_object=json_object,
+    admin_query_filters=admin_query_filters,
 )
 
 _init_app_config()

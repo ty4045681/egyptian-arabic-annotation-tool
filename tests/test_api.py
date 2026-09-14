@@ -273,3 +273,38 @@ def test_query_validation_and_abandon_returns_pool(client, seed_tasks):
     assert abandoned.status_code == 200
     assert abandoned.json["pool"]["available"] == 1
     assert client.get("/api/assignment").json["assigned"] is False
+
+
+def test_scenes_api_exposes_review_taxonomy_separately_from_claim_scenes(
+        client, database):
+    import db
+
+    login(client, "restricted-reviewer")
+    with db.db_conn() as conn:
+        uid = conn.execute(
+            "SELECT id FROM annotators WHERE username = %s",
+            ("restricted-reviewer",),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE annotator_scene_scopes SET mode = 'restricted' WHERE user_id = %s",
+            (uid,),
+        )
+        conn.execute(
+            "INSERT INTO annotator_scene_access(user_id, scene_code) VALUES (%s, 'airport')",
+            (uid,),
+        )
+    response = client.get("/api/scenes")
+    assert response.status_code == 200
+    body = response.json
+    assert [item["code"] for item in body["scenes"]] == ["airport"]
+    assert body["claim_scenes"] == body["scenes"]
+    taxonomy = {item["code"] for item in body["review_taxonomy"]}
+    assert "airport" in taxonomy
+    assert "shopping" in taxonomy
+    assert body["features"]["scene_scope_enforced"] is True
+    assert "claim_policy" in body["features"]
+
+
+def test_scenes_api_requires_login(client, database):
+    response = client.get("/api/scenes")
+    assert response.status_code == 401
