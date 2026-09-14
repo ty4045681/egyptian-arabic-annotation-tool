@@ -197,37 +197,52 @@ def finalize_rejected_task(
     Rechecks the processing token and human protection while the task
     and draft version are locked. The task is marked ineligible and the
     rejection is recorded before any optional local-file delete. The
-    delete runs in this short transaction, before the lease is released,
-    so a lost token never unlinks another worker's audio. An unlink
-    error rolls the DB write back; the file remains.
+    file is parked in the same short transaction, before the lease is
+    released, so a lost token never unlinks another worker's audio. A
+    later commit/unlink failure restores the original path when the DB
+    write does not land.
     """
+    source = Path(delete_path) if delete_path is not None else None
+    parked = None
 
-    def _delete_if_requested():
-        if delete_path is None:
+    def _park_if_requested():
+        nonlocal parked
+        if source is None:
             return
-        try:
-            Path(delete_path).unlink()
-        except FileNotFoundError:
-            pass
+        if not source.exists():
+            return
+        parked = source.with_name(source.name + f".rejecting-{uuid.uuid4().hex}")
+        source.replace(parked)
 
-    return store_preprocessed_task(
-        conn,
-        rel_path=rel_path,
-        filename=filename,
-        folder=folder,
-        duration=duration,
-        segments=segments,
-        waveform_payload=waveform_payload,
-        preprocessed_at=preprocessed_at,
-        skip_if_human_modified=True,
-        eligible=False,
-        task_extra={
-            "preprocess_rejection": reason,
-            "asr_checkpoint_incomplete": bool(asr_checkpoint_incomplete),
-        },
-        processing_token=processing_token,
-        before_complete=_delete_if_requested,
-    )
+    try:
+        result = store_preprocessed_task(
+            conn,
+            rel_path=rel_path,
+            filename=filename,
+            folder=folder,
+            duration=duration,
+            segments=segments,
+            waveform_payload=waveform_payload,
+            preprocessed_at=preprocessed_at,
+            skip_if_human_modified=True,
+            eligible=False,
+            task_extra={
+                "preprocess_rejection": reason,
+                "asr_checkpoint_incomplete": bool(asr_checkpoint_incomplete),
+            },
+            processing_token=processing_token,
+            before_complete=_park_if_requested,
+        )
+    except Exception:
+        if parked is not None and source is not None and parked.exists() and not source.exists():
+            parked.replace(source)
+        raise
+    if parked is not None:
+        try:
+            parked.unlink()
+        except OSError:
+            pass
+    return result
 
 
 def _replace_draft(cur, task_id, draft_vid, duration, segments) -> None:

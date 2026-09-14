@@ -195,14 +195,14 @@ def test_rejected_delete_fs_failure_rolls_back_eligibility(seed_tasks, tmp_path,
     task = seed_tasks(1)[0]
     path = wav(tmp_path)
     monkeypatch.setattr(preprocess, "run_vad", lambda *args: ([], np.zeros(16000), 16000, 16000))
-    real_unlink = Path.unlink
+    real_replace = Path.replace
 
-    def boom(self, *args, **kwargs):
+    def boom(self, target):
         if self.resolve() == path.resolve():
             raise OSError("disk full")
-        return real_unlink(self, *args, **kwargs)
+        return real_replace(self, target)
 
-    monkeypatch.setattr(Path, "unlink", boom)
+    monkeypatch.setattr(Path, "replace", boom)
     with pytest.raises(OSError, match="disk full"):
         preprocess.process_audio_with_asr(
             path, {"audio_dir": str(tmp_path)}, delete_rejected=True,

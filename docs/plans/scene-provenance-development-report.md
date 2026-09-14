@@ -15,7 +15,7 @@ Backend-only. Admin UI polish, scene-only save, export, and performance work sta
 1. **Preprocess identity.** One video in airport and shopping manifests yields one task, two current source rows, one VAD/ASR invocation, one eligible task. Alias copies and hardlinks collapse to a unique work list keyed by canonical task identity and inode. Subsequent scans of the same aliases do not recreate tasks. Manifest metadata import still runs before skip guards. Human-modified / assigned / published tasks skip VAD and are not overwritten.
 2. **Classification provenance.** `classify --model` is persisted as `model_name`. Version, revision, prepared inference text, digest, and prompt version are frozen **before** the external call and written as-is. Digest is the inference input, not the output label. Serializer freshness uses the same snapshot contract: matching draft or published input is `stale=false`; a same-version edit is `stale=true`. `score` stays null when the model returns only a label. Source rows and human reviews are not written by classify.
 3. **Processing leases.** Canonical placeholder + lease are taken before VAD/ASR. A heartbeat thread renews the lease during long waits. Checkpoint and final writes go through `require_processing_token`. A missing token cannot bypass an active lease. An expired holder cannot store after takeover. Exceptions release a still-held lease so a successor can acquire. Database transactions are not held across VAD/ASR.
-4. **`--delete-rejected` followup.** The explicit delete path used the same fenced rejection helper as keep-file no-speech and content-inspection. Token and human protection are rechecked while the task/draft rows are locked; a successful delete marks the task ineligible and records the rejection; sources and human work stay; a lost lease or live assignment never unlinks audio; an unlink error rolls the DB write back. Default remains false.
+4. **`--delete-rejected` followup.** The explicit delete path used the same fenced rejection helper as keep-file no-speech and content-inspection. Token and human protection are rechecked while the task/draft rows are locked; a successful delete marks the task ineligible and records the rejection; sources and human work stay; a lost lease or live assignment never unlinks audio. The file is parked before commit and restored if the transaction rolls back; a park/unlink error does not leave an eligible task without audio. Default remains false.
 
 ## Earlier stages (still true; not re-closed here)
 
@@ -57,27 +57,28 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python -m compileall -q \
 # After identity/snapshot/lease commits (70ee9fd, 5c7a1ca, 2b1c274):
 # 117 passed, PG16 18.72s / independently confirmed native PG18 117 passed 20.76s
 
-# --delete-rejected followup (this commit):
+# --delete-rejected followup:
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q \
   tests/test_regression_preprocess_deletion.py \
+  tests/test_regression_rejection_rollback.py \
   tests/test_preprocess_worklist.py \
   tests/test_processing_lease.py \
   tests/test_regression_preprocess_identity.py \
   tests/test_regression_processing_races.py
-# 22 passed (pgserver PostgreSQL 16.2)
-# 22 passed (native PostgreSQL 18.6)
+# 23 passed (pgserver PostgreSQL 16.2)
+# 23 passed (native PostgreSQL 18.6)
 
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q --ignore=tests/browser
-# 126 passed in 20.04s  (pgserver PostgreSQL 16.2)
+# 127 passed in 19.74s  (pgserver PostgreSQL 16.2)
 
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
   /home/ubuntu/annotation-development/scene-provenance/verify-postgres.py \
   /usr/lib/postgresql/18/bin -q --ignore=tests/browser
 # ACCEPTANCE DATABASE BINARY: postgres (PostgreSQL) 18.6
-# 126 passed in 22.54s
+# 127 passed in 21.12s
 ```
 
-Prior independent claim/import/review checks (19) were already green before this pass. The in-repo `tests/test_source_import.py`, `tests/test_scene_claims.py`, and `tests/test_scene_reviews.py` are included in the 126. Browser remains `--ignore=tests/browser`.
+Prior independent claim/import/review checks (19) were already green before this pass. The in-repo `tests/test_source_import.py`, `tests/test_scene_claims.py`, and `tests/test_scene_reviews.py` are included in the 127. Browser remains `--ignore=tests/browser`.
 
 ## Limitations / still unfinished
 
