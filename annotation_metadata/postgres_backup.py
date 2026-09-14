@@ -1,8 +1,9 @@
 """PostgreSQL custom dump/restore helpers for disposable verification.
 
-Use same-major binaries as the running server (pgserver bundled 16 or
+Use same-major client binaries (pgserver bundled 16 or
 /usr/lib/postgresql/18/bin). Never point these at a live staging database.
 DSN passwords are passed via PGPASSWORD, never on the process command line.
+Non-password libpq options (sslmode, options, hostaddr, ...) are preserved.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import uuid
 from pathlib import Path
 
 import psycopg
-from psycopg.conninfo import conninfo_to_dict
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 
 def running_postgres_bindir(explicit: str | Path | None = None) -> Path:
@@ -35,19 +36,18 @@ def running_postgres_bindir(explicit: str | Path | None = None) -> Path:
     return path
 
 
+def client_version(bindir: Path) -> str:
+    return subprocess.check_output(
+        [str(bindir / "pg_dump"), "--version"], text=True,
+    ).strip()
+
+
 def _client_command(bindir: Path, tool: str, dsn: str, extra: list[str]) -> tuple[list[str], dict]:
     info = conninfo_to_dict(dsn)
-    password = info.get("password")
-    argv = [str(bindir / tool)]
-    if info.get("host"):
-        argv.extend(["--host", str(info["host"])])
-    if info.get("port"):
-        argv.extend(["--port", str(info["port"])])
-    if info.get("user"):
-        argv.extend(["--username", str(info["user"])])
-    if info.get("dbname"):
-        argv.extend(["--dbname", str(info["dbname"])])
-    argv.extend(extra)
+    password = info.pop("password", None)
+    cleaned = {key: value for key, value in info.items() if value is not None}
+    conninfo = make_conninfo(**cleaned)
+    argv = [str(bindir / tool), "--dbname", conninfo, *extra]
     env = os.environ.copy()
     if password:
         env["PGPASSWORD"] = str(password)
@@ -73,15 +73,28 @@ def dump_database(dsn: str, output: Path, *, bindir: Path | None = None) -> dict
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
-    version = subprocess.check_output(
-        [str(bindir / "postgres"), "--version"], text=True,
-    ).strip()
+    version = client_version(bindir)
     return {
         "path": str(output),
         "size": output.stat().st_size,
         "bindir": str(bindir),
+        "pg_dump": version,
         "postgres": version,
     }
+
+
+def _user_schema_objects(conn) -> list[str]:
+    rows = conn.execute(
+        """SELECT n.nspname || '.' || c.relname
+           FROM pg_catalog.pg_class c
+           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+             AND n.nspname NOT LIKE 'pg\\_temp%'
+             AND n.nspname NOT LIKE 'pg\\_toast_temp%'
+             AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+           ORDER BY 1"""
+    ).fetchall()
+    return [row[0] for row in rows]
 
 
 def restore_database(dump: Path, target_dsn: str, *, bindir: Path | None = None) -> dict:
@@ -90,22 +103,17 @@ def restore_database(dump: Path, target_dsn: str, *, bindir: Path | None = None)
     if not dump.is_file():
         raise RuntimeError(f"dump not found: {dump}")
     with psycopg.connect(target_dsn) as conn:
-        exists = conn.execute(
-            """SELECT 1 FROM information_schema.tables
-               WHERE table_schema = 'public' AND table_name = 'annotation_tasks'"""
-        ).fetchone()
-        if exists:
-            count = conn.execute("SELECT count(*) FROM annotation_tasks").fetchone()[0]
-            if count:
-                raise RuntimeError(
-                    "target database already has annotation_tasks; "
-                    "restore only into a newly created empty database"
-                )
+        existing = _user_schema_objects(conn)
+        if existing:
+            raise RuntimeError(
+                "target database already has user schema objects; "
+                "restore only into a newly created empty database: "
+                + ", ".join(existing[:20])
+            )
     argv, env = _client_command(
         bindir, "pg_restore", target_dsn,
         ["--no-owner", "--no-acl", "--exit-on-error", str(dump)],
     )
-    # pg_restore --dbname is the target database name; keep extra flags after.
     result = subprocess.run(
         argv, check=False, capture_output=True, text=True, env=env,
     )

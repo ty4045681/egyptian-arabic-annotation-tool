@@ -19,6 +19,16 @@ Metadata export/import, training/Excel sidecars, dump/restore, and compatibility
 5. **Restore tests.** Synthetic old+new tasks cover cross-scene/cross-batch source revisions, two predictions, draft/published/admin-corrected reviews, scopes, identities, and audit history. Export → wipe/import on matching IDs → re-export compares histories; clone into a fresh migrated DB; explicit UUID mapping; idempotent repeat; bad mapping/conflict rollback. A separate test runs real `pg_dump --format=custom` / `pg_restore` into a disposable database and checks task/version/segment/assignment/source/review/audit counts and relationships. Binaries are the running same-major tools (pgserver 16 or `/usr/lib/postgresql/18/bin`).
 6. **Compatibility flags.** Checking out `5567209` after migration 003 is not rollback. The same new-schema build with `ANNOTATION_METADATA_UI=0`, `ANNOTATION_METADATA_WRITE=0`, `ANNOTATION_SCENE_REVIEW_WRITE=0`, `ANNOTATION_CLAIM_POLICY=fifo` can health, read old+new tasks, resume an assignment, and export preserved metadata. Scope is still enforced. Omitting `scene_review` on save/complete keeps review history. Prohibited writes raise clearly. Tables are not dropped. Commands with placeholders are in `DEPLOY.md` §16. Actual production data migration remains deferred.
 
+### Phase D closing review (this follow-up)
+
+Typed validation, full same-ID comparison, explicit transaction ownership, module split, and production backup runtime. Reviewer assertions are preserved. Phase E performance work is still pending.
+
+1. **Typed document contract.** `annotation_metadata/export_contract.py` uses Pydantic `StrictModel` plus `SceneReviewInput` / confidence literals. `verify-metadata` and import share `parse_metadata_document` (containers, UUIDs, timestamps, revisions, enums, finite score range, review cardinality, duplicate IDs/natural keys, declared history links including cross-task version ownership). Database identity checks stay in import preflight. Unknown contract versions and malformed records raise `MetadataImportError`, not SQL/type accidents.
+2. **Complete same-ID replay.** Existing UUIDs are unchanged only when the mapped persisted record agrees on source URL/video/channel/provider/raw/current/batch/timestamps as well as scene/confidence/basis/digest; prediction input version/revision/prompt/scene/score meaning/time as well as label/model/digest; review labels/authorship/previous/superseded/operation/time as well as status/note. Batch, import-run (including checkpoint), media-identity, admin-action, and audit payloads conflict when they differ. Scope replacement stays `--replace-scopes`.
+3. **Transactions.** Export/import require an idle connection (they start REPEATABLE READ) or an already-open REPEATABLE READ/SERIALIZABLE transaction. Open READ COMMITTED is refused with a clear error; caller work is never committed. CLI uses a fresh idle `db_conn()`. Exact-ID export → restore → re-export compares `comparable_document` (drops only `exported_at`) and requires a nonempty import checkpoint.
+4. **Modules.** Public facade `export_metadata.py` stays stable. Typed models/validation live in `export_contract.py`; named-field planning/persistence in `export_import.py`. No plugin/event framework.
+5. **Backup runtime.** No mandatory `pgserver` import. Passwords stay in `PGPASSWORD`; `sslmode`/`options` and other non-password libpq keys remain on `--dbname`. Client version comes from `pg_dump --version`. Restore refuses any non-system user schema object before invoking `pg_restore`. Reports omit credentials.
+
 ## Phase C — done (preserved)
 
 Annotator and administrator UI plus genuine browser acceptance. Phases A/B backend contracts are preserved. Metadata restore/export and scale benchmarks stay for later passes. This pass does **not** complete the overall project.
@@ -124,32 +134,32 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
 
 Phase B non-browser results (153 passed on PG16/PG18 with `--ignore=tests/browser`) remain valid for the backend of that pass.
 
-## Test commands and results (Phase D, 2026-09-14)
+## Test commands and results (Phase D closing review, 2026-09-14)
 
 Disposable pgserver PostgreSQL 16.2 and native 18.6. Isolated disposable DBs, synthetic WAV only. No sudo/apt. No live `/opt/annotation_tool` mutation.
 
 ```bash
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python -m compileall -q \
-  annotation_metadata annotation_repository.py server.py manage_state.py export.py
+  annotation_metadata
 # COMPILE_OK
 
 # Bundled pgserver PostgreSQL 16.2 — full non-browser:
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q --ignore=tests/browser
-# 190 passed in 33.07s
+# 210 passed in 32.62s
 
 # Bundled PG16 — affected browser (review reference copy + flags/save queue):
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q --tb=line \
   tests/browser/test_scene_workflow.py \
   tests/browser/test_regression_review_only_save.py \
   tests/browser/test_regression_review_save_queue.py
-# 8 passed in 21.75s
+# 8 passed in 21.30s
 
 # Native PostgreSQL 18 — full non-browser:
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
   scripts/run_pytest_with_postgres.py /usr/lib/postgresql/18/bin -q --tb=line \
   --ignore=tests/browser
 # ACCEPTANCE DATABASE BINARY: postgres (PostgreSQL) 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
-# 190 passed in 37.56s
+# 210 passed in 35.99s
 
 # Native PG18 — same affected browser files:
 UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
@@ -158,12 +168,12 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
   tests/browser/test_regression_review_only_save.py \
   tests/browser/test_regression_review_save_queue.py
 # ACCEPTANCE DATABASE BINARY: postgres (PostgreSQL) 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
-# 8 passed in 22.62s
+# 8 passed in 21.49s
 ```
 
-Non-browser total is **190** (Phase C's 156 plus export/import, dump/restore, flag fallback, Excel/training sidecar, backup-runtime, checkpoint, restore-integrity, transaction-boundary, and domain-validation cases). Existing reviewer assertions in those regression files were preserved. `pg_dump`/`pg_restore` used the running same-major binaries; DSN passwords stay in `PGPASSWORD`, not argv. Export/import helpers do not commit a caller's open transaction.
+Non-browser total is **210**. Reviewer regressions for domain validation, history conflicts, offline contract, transaction boundary, backup runtime, restore-empty-target, checkpoint, and restore integrity passed without skips or xfails. Real custom dump/restore and training CLI round-trips remain.
 
-Remaining after this pass: 100k-task capacity benchmark, whole-suite certification/matrix, and real data migration.
+Remaining after this pass: Phase E 100k-task capacity benchmark, whole-suite certification/matrix, and real data migration.
 
 ## Limitations / still unfinished
 
@@ -171,4 +181,4 @@ Remaining after this pass: 100k-task capacity benchmark, whole-suite certificati
 - Whole-suite certification after the capacity pass is still outstanding.
 - Staging `/opt/annotation_tool` was not migrated (out of bounds). Schema `[1,2,3]` applies only after `manage_state.py apply-migrations` on a target database.
 - Real ASR and production crawler audio were not used; fixtures are synthetic WAV/JSONL.
-- Overall scene-provenance delivery is **not** complete until the final benchmark/matrix/review pass finishes.
+- Overall scene-provenance delivery is **not** complete until Phase E benchmark/matrix and reviewer certification finish.

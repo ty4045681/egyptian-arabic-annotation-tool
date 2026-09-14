@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
+from types import SimpleNamespace
 
 import psycopg
+import pytest
 
 import db
 from annotation_metadata.postgres_backup import (
@@ -77,3 +80,38 @@ def test_pg_dump_restore_preserves_provenance_graph(database, seed_tasks, pg_ser
                 (name,),
             )
             conn.execute(f'DROP DATABASE "{name}"')
+
+
+def test_dump_preserves_non_password_libpq_options(monkeypatch, tmp_path):
+    from annotation_metadata import postgres_backup as backup
+    secret = "synthetic-secret-must-never-be-printed"
+    dsn = (
+        f"postgresql://fixture_owner:{secret}@127.0.0.1:5432/fixture_database"
+        "?sslmode=require&options=-csearch_path%3Dpublic"
+    )
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(list(argv))
+        if "--file" in argv:
+            Path(argv[argv.index("--file") + 1]).write_bytes(b"fixture")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(backup, "running_postgres_bindir", lambda explicit=None: tmp_path)
+    monkeypatch.setattr(backup.subprocess, "run", run)
+    monkeypatch.setattr(
+        backup.subprocess, "check_output",
+        lambda *args, **kwargs: "pg_dump (PostgreSQL) 16.2",
+    )
+    backup.dump_database(dsn, tmp_path / "fixture.dump", bindir=tmp_path)
+    joined = " ".join(calls[0])
+    assert secret not in joined
+    assert "sslmode=require" in joined or "sslmode" in joined
+    assert "search_path" in joined or "options" in joined
+
+
+def test_restore_refuses_existing_user_schema(database, tmp_path):
+    dump_path = tmp_path / "empty.dump"
+    dump_path.write_bytes(b"not-a-real-dump")
+    with pytest.raises(RuntimeError, match="user schema objects"):
+        restore_database(dump_path, database)

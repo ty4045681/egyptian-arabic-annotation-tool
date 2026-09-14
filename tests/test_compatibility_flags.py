@@ -48,6 +48,7 @@ def test_flags_off_fifo_reads_old_and_new_and_refuses_writes(
             "task_sources", "scene_reviews", "task_scene_predictions",
             "annotator_scene_scopes", "task_media_identities",
         }.issubset(tables)
+        conn.commit()
         exported = export_metadata(conn, tmp_path / "flag-export")
         assert exported["tasks"] == 3
         assert conn.execute("SELECT count(*) FROM scene_reviews").fetchone()[0] == before_reviews

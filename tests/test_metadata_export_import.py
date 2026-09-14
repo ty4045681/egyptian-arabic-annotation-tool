@@ -139,6 +139,7 @@ def test_metadata_round_trip_exact_ids_and_idempotent(database, seed_tasks, tmp_
         dry = import_metadata(conn, first["path"], dry_run=True)
         assert dry["dry_run"] is True
         assert conn.execute("SELECT count(*) FROM task_sources").fetchone()[0] == 0
+        conn.commit()
         applied = import_metadata(conn, first["path"])
         assert applied["applied"] is True
         repeat = import_metadata(conn, first["path"])
@@ -158,8 +159,11 @@ def test_metadata_round_trip_exact_ids_and_idempotent(database, seed_tasks, tmp_
         ).fetchone()[0]
     assert text_before == text_after
     assert status_before == status_after == "annotated"
-    assert _histories(original) == _histories(restored)
-    assert comparable_document(original)["tasks"]
+    assert comparable_document(original) == comparable_document(restored)
+    assert any(
+        (run.get("checkpoint") or {})
+        for run in original.get("import_runs") or []
+    ), "round-trip must include nonempty import checkpoints"
     rich = next(task for task in restored["tasks"] if task["task_id"] == fixture["rich_id"])
     history = rich["source_history"]
     assert len(history) >= 3
@@ -274,6 +278,7 @@ def test_explicit_mapping_and_conflict_rollback(database, seed_tasks, pg_server,
                     mapping_path=_write(tmp_path / "bad-user.json", {"usernames": {"a": "b"}}),
                 )
             before = conn.execute("SELECT count(*) FROM task_sources").fetchone()[0]
+            conn.commit()
             bad_map = tmp_path / "dangling.json"
             bad_map.write_text(json.dumps({
                 "tasks": {fixture["rich_id"]: str(uuid.uuid4())},
@@ -333,6 +338,19 @@ def test_unknown_format_and_filter_context(database, seed_tasks, tmp_path):
         "format": "not-metadata", "schema_version": 1, "tasks": [], "scopes": [],
     }), encoding="utf-8")
     with pytest.raises(MetadataImportError, match="unknown metadata format"):
+        verify_metadata_file(bogus)
+    bogus.write_text(json.dumps({
+        "format": "annotation_metadata", "schema_version": 1, "contract_version": 1,
+        "tasks": [{
+            "task_id": str(uuid.uuid4()),
+            "source_history": [{
+                "id": str(uuid.uuid4()), "record_key": "k", "revision": 1,
+                "confidence": "highest", "content_digest": "aa" * 32,
+                "batch_code": "acceptance-invalid",
+            }],
+        }],
+    }), encoding="utf-8")
+    with pytest.raises(MetadataImportError):
         verify_metadata_file(bogus)
     from annotation_metadata.contracts import TaskFilter
     with db.db_conn() as conn:

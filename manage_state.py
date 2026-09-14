@@ -1094,6 +1094,7 @@ def _add_task_filter_arguments(parser: argparse.ArgumentParser) -> None:
 def command_export_metadata(args) -> None:
     from annotation_metadata.export_metadata import export_metadata
     filters = _task_filter_from_args(args)
+    # Idle connection: export_metadata starts REPEATABLE READ itself.
     with db_conn() as conn:
         result = export_metadata(
             conn, Path(args.output).expanduser().resolve(), filters=filters,
@@ -1104,6 +1105,7 @@ def command_export_metadata(args) -> None:
 def command_import_metadata(args) -> None:
     from annotation_metadata.export_metadata import import_metadata
     mapping = Path(args.mapping).expanduser().resolve() if args.mapping else None
+    # Idle connection: import_metadata starts REPEATABLE READ itself.
     with db_conn() as conn:
         result = import_metadata(
             conn,

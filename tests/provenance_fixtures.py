@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 
 from psycopg.types.json import Json
@@ -240,6 +241,15 @@ def build_rich_provenance(seed_tasks):
         finish_import_run(
             cur, run_id, status="completed",
             counts={"created": 1, "revised": 1}, error_report=[], processed=2,
+        )
+        cur.execute(
+            """UPDATE source_import_runs
+               SET checkpoint = %s::jsonb WHERE id = %s""",
+            (json.dumps({
+                "processed_bytes": 128,
+                "last_complete_line": 2,
+                "last_record_key": "youtube:vid-rich-1:airport",
+            }), run_id),
         )
         draft = cur.execute(
             """SELECT id, revision FROM annotation_versions
