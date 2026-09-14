@@ -51,13 +51,8 @@ def store_preprocessed_task(
     """
     task_eligible = bool(segments) if eligible is None else bool(eligible)
     with conn.transaction(), conn.cursor() as cur:
-        cur.execute(
-            """SELECT id, current_published_version_id, status,
-                      baseline_version_id
-               FROM annotation_tasks WHERE rel_path = %s FOR UPDATE""",
-            (rel_path,),
-        )
-        row = cur.fetchone()
+        from annotation_metadata.ingestion import find_task_row_for_audio_path
+        row = find_task_row_for_audio_path(cur, rel_path)
 
         def _sync_sources(task_id):
             if not sources and identity is None and not pcm_sha256:
@@ -74,7 +69,15 @@ def store_preprocessed_task(
             return apply_store_side_effects(cur, task_id, payload)
 
         if row is not None:
-            task_id, published_vid, status, baseline_vid = row
+            task_id, published_vid, status, baseline_vid = row[0], row[1], row[2], row[3]
+            canonical_rel = row[4] if len(row) > 4 else rel_path
+            if canonical_rel != rel_path:
+                names = cur.execute(
+                    "SELECT filename, folder FROM annotation_tasks WHERE id = %s",
+                    (task_id,),
+                ).fetchone()
+                if names:
+                    filename, folder = names
             if not metadata_only:
                 from annotation_metadata.processing import require_processing_token
                 require_processing_token(cur, task_id, processing_token)
@@ -250,9 +253,9 @@ def _touch_task(cur, task_id, *, filename, folder, duration, eligible,
 
 
 def ingestion_states(conn: psycopg.Connection) -> dict[str, dict]:
-    """Return preprocessing state keyed by audio path."""
+    """Return preprocessing state keyed by canonical and alias audio paths."""
     rows = conn.execute(
-        """SELECT t.rel_path,
+        """SELECT t.id, t.rel_path,
                   t.current_published_version_id IS NOT NULL AS published,
                   EXISTS (SELECT 1 FROM assignments a WHERE a.task_id = t.id) AS assigned,
                   EXISTS (
@@ -261,20 +264,47 @@ def ingestion_states(conn: psycopg.Connection) -> dict[str, dict]:
                       AND v.human_modified
                   ) AS human_modified,
                   t.eligible,
-                  t.extra->>'preprocess_rejection' AS rejection
+                  t.extra->>'preprocess_rejection' AS rejection,
+                  t.extra->'path_aliases' AS path_aliases
            FROM annotation_tasks t"""
     ).fetchall()
-    return {
-        row[0]: {
-            "protected": bool(row[1] or row[2] or row[3]),
-            "published": bool(row[1]),
-            "assigned": bool(row[2]),
-            "human_modified": bool(row[3]),
-            "eligible": bool(row[4]),
-            "rejection": row[5],
+    by_id: dict = {}
+    by_path: dict[str, dict] = {}
+    for row in rows:
+        state = {
+            "task_id": str(row[0]),
+            "canonical_rel_path": row[1],
+            "protected": bool(row[2] or row[3] or row[4]),
+            "published": bool(row[2]),
+            "assigned": bool(row[3]),
+            "human_modified": bool(row[4]),
+            "eligible": bool(row[5]),
+            "rejection": row[6],
         }
-        for row in rows
-    }
+        by_id[row[0]] = state
+        if row[1]:
+            by_path[row[1]] = state
+        aliases = row[7] or []
+        if isinstance(aliases, str):
+            aliases = [aliases]
+        for alias in aliases:
+            if alias and alias not in by_path:
+                by_path[alias] = state
+    source_paths = conn.execute(
+        """SELECT task_id,
+                  raw_record->>'relative_path',
+                  raw_record->>'rel_path',
+                  raw_record->>'audio_path'
+           FROM task_sources WHERE is_current"""
+    ).fetchall()
+    for task_id, *paths in source_paths:
+        state = by_id.get(task_id)
+        if not state:
+            continue
+        for path in paths:
+            if path and path not in by_path:
+                by_path[path] = state
+    return by_path
 
 
 def load_draft_segments(conn: psycopg.Connection, rel_path: str) -> list[dict]:

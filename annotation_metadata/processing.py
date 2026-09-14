@@ -7,13 +7,16 @@ lease, and an expired holder cannot finalise after a successor has taken over.
 
 from __future__ import annotations
 
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
 
 from annotation_repository import ConflictError, ValidationError
 
 
 DEFAULT_LEASE_SECONDS = 30 * 60
+DEFAULT_HEARTBEAT_SECONDS = 60
 
 
 def _lease_active(token, until, now) -> bool:
@@ -108,3 +111,44 @@ def complete_processing(cur, task_id, token: str | None) -> None:
            WHERE id = %s AND processing_token = %s""",
         (task_id, token_uuid),
     )
+
+
+def try_release_processing_lease(cur, task_id, token: str | None) -> bool:
+    """Drop a lease this worker still holds. False if a successor owns it."""
+    if not token:
+        return False
+    try:
+        complete_processing(cur, task_id, token)
+        return True
+    except ConflictError:
+        return False
+
+
+@contextmanager
+def processing_heartbeat(renew_fn, *, interval: float = DEFAULT_HEARTBEAT_SECONDS,
+                         enabled: bool = True):
+    """Call renew_fn in short transactions until the context exits.
+
+    renew_fn must open its own connection; this helper never holds a DB
+    transaction across VAD/ASR. A lost lease stops the thread; the caller
+    still fails later when a fenced write sees the successor's token.
+    """
+    if not enabled or interval is None or interval <= 0:
+        yield
+        return
+    stop = threading.Event()
+
+    def loop():
+        while not stop.wait(interval):
+            try:
+                renew_fn()
+            except Exception:
+                return
+
+    thread = threading.Thread(target=loop, daemon=True, name="processing-heartbeat")
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=min(2.0, max(0.1, float(interval) + 0.5)))

@@ -12,6 +12,8 @@ from pathlib import Path
 from db import db_conn
 from preprocess_store import ingestion_states, load_draft_segments, store_preprocessed_task
 
+PROCESSING_HEARTBEAT_SECONDS = 60
+
 SCRIPT_DIR = Path(__file__).parent.resolve()
 CONFIG_PATH = SCRIPT_DIR / "config.json"
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".webm", ".opus", ".wma", ".aac"}
@@ -23,6 +25,70 @@ class AsrInterrupted(RuntimeError):
 
 class AsrArrearage(AsrInterrupted):
     """DashScope account is overdue; stop the whole batch immediately."""
+
+
+def _identity_from_sidecar(audio_path: Path):
+    try:
+        from annotation_metadata.adapters import adapt_crawler_record, load_sidecar
+        raw = load_sidecar(Path(audio_path))
+        if not raw:
+            return None
+        return adapt_crawler_record(raw).identity
+    except Exception:
+        return None
+
+
+def collect_pending_audio(audio_files, audio_dir, known, *, force=False,
+                          retry_rejected=False):
+    """Unique work list keyed by canonical task identity and inode."""
+    pending = []
+    seen_tasks = set()
+    seen_inodes = set()
+    audio_dir = Path(audio_dir)
+    for af in audio_files:
+        rel = af.relative_to(audio_dir).as_posix()
+        try:
+            st = af.stat()
+            inode = (st.st_dev, st.st_ino)
+        except OSError:
+            inode = None
+        state = known.get(rel)
+        task_key = (state or {}).get("task_id")
+        if task_key and task_key in seen_tasks:
+            continue
+        if inode is not None and inode in seen_inodes:
+            if task_key:
+                seen_tasks.add(task_key)
+            continue
+        if task_key:
+            seen_tasks.add(task_key)
+        if inode is not None:
+            seen_inodes.add(inode)
+        if state:
+            if state["protected"]:
+                reasons = []
+                if state.get("assigned"):
+                    reasons.append("已分配")
+                if state.get("human_modified"):
+                    reasons.append("人工修改")
+                if state.get("published"):
+                    reasons.append("已发布")
+                print(f"⏭️  {'/'.join(reasons)}，跳过: {rel}")
+                continue
+            if state.get("rejection") and not retry_rejected:
+                print(f"⏭️  已记录为不可领取 ({state['rejection']})，跳过: {rel}")
+                continue
+            if state["eligible"] and not force:
+                print(f"⏭️  已预处理，跳过: {rel}")
+                continue
+            if not state["eligible"]:
+                print(f"↻ 恢复未完成 ASR checkpoint: {rel}")
+            canonical_rel = state.get("canonical_rel_path") or rel
+            candidate = audio_dir / canonical_rel
+            pending.append(candidate if candidate.is_file() else af)
+        else:
+            pending.append(af)
+    return pending
 
 
 # ============================================================
@@ -208,25 +274,87 @@ def process_audio_with_asr(audio_path, config, *, delete_rejected=False):
     # 限流/异常状态只针对当前文件；自动降并发恢复时必须重新开启请求。
     global _quota_exhausted
     _quota_exhausted = False
-    fname = Path(audio_path).name
+    audio_path = Path(audio_path)
     audio_dir = Path(config["audio_dir"])
-    rel_path = Path(audio_path).relative_to(audio_dir).as_posix()
+    rel_path = audio_path.relative_to(audio_dir).as_posix()
+    fname = Path(rel_path).name
     folder = Path(rel_path).parent.as_posix()
     if folder == ".":
         folder = ""
     processing_token = None
+    task_id = None
+    lease_done = False
+    from annotation_metadata.ingestion import begin_audio_processing
+    from annotation_metadata.processing import (
+        processing_heartbeat, renew_processing_lease, try_release_processing_lease,
+    )
+    from annotation_repository import ConflictError
+    try:
+        identity = _identity_from_sidecar(audio_path)
+        try:
+            with db_conn() as conn:
+                started = begin_audio_processing(
+                    conn, rel_path=rel_path, filename=fname, folder=folder,
+                    identity=identity,
+                )
+        except ConflictError:
+            print(f"  ⏭️  其他进程正在预处理，跳过: {rel_path}")
+            return {"status": "busy", "rel_path": rel_path}
+        processing_token = started["token"]
+        task_id = started["task_id"]
+        canonical_rel = started["rel_path"]
+        if started.get("protected"):
+            print(f"     ⏭️  已有人工标注，未覆盖: {rel_path}")
+            return {"status": "skipped_human", "rel_path": rel_path}
+        if canonical_rel != rel_path:
+            canonical_path = audio_dir / canonical_rel
+            if canonical_path.is_file():
+                audio_path = canonical_path
+                rel_path = canonical_rel
+                fname = Path(rel_path).name
+                folder = Path(rel_path).parent.as_posix()
+                if folder == ".":
+                    folder = ""
+
+        def _renew_lease():
+            with db_conn() as conn, conn.cursor() as cur:
+                renew_processing_lease(cur, task_id, processing_token)
+                conn.commit()
+
+        print(f"  🎙️  {fname}")
+        t0 = time.time()
+        with processing_heartbeat(
+            _renew_lease, interval=PROCESSING_HEARTBEAT_SECONDS,
+            enabled=bool(processing_token),
+        ):
+            return _run_vad_asr_and_store(
+                audio_path, config, rel_path=rel_path, fname=fname, folder=folder,
+                processing_token=processing_token, delete_rejected=delete_rejected,
+                t0=t0,
+            )
+    except (AsrInterrupted, AsrArrearage):
+        lease_done = True
+        raise
+    finally:
+        if processing_token and task_id and not lease_done:
+            try:
+                with db_conn() as conn, conn.cursor() as cur:
+                    try_release_processing_lease(cur, task_id, processing_token)
+                    conn.commit()
+            except Exception:
+                pass
+
+
+def _run_vad_asr_and_store(audio_path, config, *, rel_path, fname, folder,
+                           processing_token, delete_rejected, t0):
+    from annotation_metadata.ingestion import task_is_protected
     with db_conn() as conn, conn.cursor() as cur:
-        existing = cur.execute(
+        row = cur.execute(
             "SELECT id FROM annotation_tasks WHERE rel_path = %s", (rel_path,),
         ).fetchone()
-        if existing:
-            from annotation_metadata.processing import acquire_processing_lease, renew_processing_lease
-            lease = acquire_processing_lease(cur, existing[0])
-            processing_token = lease["token"]
-            conn.commit()
-
-    print(f"  🎙️  {fname}")
-    t0 = time.time()
+        if row and task_is_protected(cur, row[0]):
+            print(f"     ⏭️  已有人工标注，未覆盖: {fname}")
+            return {"status": "skipped_human", "rel_path": rel_path}
 
     # 1. VAD
     segs, wav_full, orig_sr, vad_sr = run_vad(audio_path, config.get("vad", {}))
@@ -475,32 +603,14 @@ def main():
         return
 
     # 一次查询全部任务状态，避免 10 万音频逐条访问数据库。
+    # Manifest import above already supplemented sources before these skip
+    # guards. Alias copies of the same identity collapse to one work item.
     with db_conn() as conn:
         known = ingestion_states(conn)
-    pending = []
-    for af in audio_files:
-        rel = af.relative_to(audio_dir).as_posix()
-        if rel in known:
-            state = known[rel]
-            if state["protected"]:
-                reasons = []
-                if state.get("assigned"):
-                    reasons.append("已分配")
-                if state.get("human_modified"):
-                    reasons.append("人工修改")
-                if state.get("published"):
-                    reasons.append("已发布")
-                print(f"⏭️  {'/'.join(reasons)}，跳过: {rel}")
-                continue
-            if state.get("rejection") and not args.retry_rejected:
-                print(f"⏭️  已记录为不可领取 ({state['rejection']})，跳过: {rel}")
-                continue
-            if state["eligible"] and not args.force:
-                print(f"⏭️  已预处理，跳过: {rel}")
-                continue
-            if not state["eligible"]:
-                print(f"↻ 恢复未完成 ASR checkpoint: {rel}")
-        pending.append(af)
+    pending = collect_pending_audio(
+        audio_files, audio_dir, known,
+        force=args.force, retry_rejected=args.retry_rejected,
+    )
 
     print(f"\n{'='*56}\n  🎙️  音频预处理 (VAD+ASR)  500h优化版\n{'='*56}")
     matched_pending = len(pending)

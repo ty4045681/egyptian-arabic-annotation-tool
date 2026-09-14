@@ -35,6 +35,8 @@ from annotation_metadata.contracts import (
 )
 from annotation_metadata.features import metadata_write_enabled
 from annotation_metadata.processing import (
+    DEFAULT_LEASE_SECONDS,
+    acquire_processing_lease,
     complete_processing,
     require_processing_token,
 )
@@ -231,6 +233,167 @@ def create_placeholder_task(cur, *, rel_path: str, filename: str, folder: str,
         (baseline_id, task_id),
     )
     return task_id, True
+
+
+def register_path_alias(cur, task_id, alias_rel_path: str) -> None:
+    """Record a website path that refers to an existing canonical task."""
+    text = (alias_rel_path or "").replace("\\", "/").strip()
+    if not text:
+        return
+    row = cur.execute(
+        "SELECT rel_path FROM annotation_tasks WHERE id = %s",
+        (task_id,),
+    ).fetchone()
+    if not row or row[0] == text:
+        return
+    cur.execute(
+        """UPDATE annotation_tasks
+           SET extra = jsonb_set(
+                 COALESCE(extra, '{}'::jsonb),
+                 '{path_aliases}',
+                 COALESCE(extra->'path_aliases', '[]'::jsonb) || to_jsonb(%s::text),
+                 true
+               ),
+               updated_at = now()
+           WHERE id = %s
+             AND NOT COALESCE(extra->'path_aliases', '[]'::jsonb) ? %s""",
+        (text, task_id, text),
+    )
+
+
+def find_task_row_for_audio_path(cur, rel_path: str):
+    """Lock the canonical task for a website path or a recorded alias."""
+    found = cur.execute(
+        """SELECT id FROM (
+               SELECT t.id, 0 AS rank
+               FROM annotation_tasks t
+               WHERE t.rel_path = %s
+               UNION ALL
+               SELECT t.id, 1
+               FROM annotation_tasks t
+               WHERE t.extra->'path_aliases' ? %s
+               UNION ALL
+               SELECT s.task_id, 2
+               FROM task_sources s
+               WHERE s.is_current
+                 AND (
+                   s.raw_record->>'relative_path' = %s
+                   OR s.raw_record->>'rel_path' = %s
+                   OR s.raw_record->>'audio_path' = %s
+                 )
+           ) ranked
+           ORDER BY rank
+           LIMIT 1""",
+        (rel_path, rel_path, rel_path, rel_path, rel_path),
+    ).fetchone()
+    if not found:
+        return None
+    return cur.execute(
+        """SELECT id, current_published_version_id, status,
+                  baseline_version_id, rel_path
+           FROM annotation_tasks WHERE id = %s FOR UPDATE""",
+        (found[0],),
+    ).fetchone()
+
+
+def begin_audio_processing(conn, *, rel_path: str, filename: str, folder: str,
+                           identity=None, pcm_sha256: str | None = None,
+                           duration: float = 0.0,
+                           ttl_seconds: int = DEFAULT_LEASE_SECONDS) -> dict:
+    """Create/reuse the canonical placeholder and acquire a processing lease.
+
+    The returned transaction is committed by the caller's connection
+    transaction. VAD/ASR must run after this returns, not inside it.
+    """
+    from annotation_metadata.repository import (
+        attach_identity, lock_identity, lookup_identity,
+    )
+
+    with conn.transaction(), conn.cursor() as cur:
+        task_id = None
+        canonical_rel = rel_path
+        created = False
+        if identity is not None:
+            lock_identity(cur, identity)
+            existing = lookup_identity(cur, identity)
+            if existing:
+                task_id = existing["task_id"]
+                row = cur.execute(
+                    """SELECT rel_path FROM annotation_tasks
+                       WHERE id = %s FOR UPDATE""",
+                    (task_id,),
+                ).fetchone()
+                if not row:
+                    raise ValidationError("identity task is missing")
+                canonical_rel = row[0]
+                if rel_path != canonical_rel:
+                    register_path_alias(cur, task_id, rel_path)
+        if task_id is None:
+            found = find_task_row_for_audio_path(cur, rel_path)
+            if found:
+                task_id = found[0]
+                canonical_rel = found[4]
+                if rel_path != canonical_rel:
+                    register_path_alias(cur, task_id, rel_path)
+            else:
+                task_id, created = create_placeholder_task(
+                    cur, rel_path=rel_path, filename=filename, folder=folder,
+                    duration=duration, pcm_sha256=pcm_sha256,
+                )
+                canonical_rel = rel_path
+        if identity is not None:
+            try:
+                attached = attach_identity(cur, task_id, identity)
+            except ConflictError:
+                raced = lookup_identity(cur, identity)
+                if not raced:
+                    raise
+                if created and raced["task_id"] != task_id:
+                    cur.execute(
+                        "DELETE FROM annotation_tasks WHERE id = %s "
+                        "AND eligible = false AND current_published_version_id IS NULL "
+                        "AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.task_id = %s)",
+                        (task_id, task_id),
+                    )
+                task_id = raced["task_id"]
+                created = False
+                row = cur.execute(
+                    """SELECT rel_path FROM annotation_tasks
+                       WHERE id = %s FOR UPDATE""",
+                    (task_id,),
+                ).fetchone()
+                canonical_rel = row[0] if row else rel_path
+                if rel_path != canonical_rel:
+                    register_path_alias(cur, task_id, rel_path)
+            else:
+                if attached["task_id"] != task_id:
+                    task_id = attached["task_id"]
+                    created = False
+                    row = cur.execute(
+                        "SELECT rel_path FROM annotation_tasks WHERE id = %s FOR UPDATE",
+                        (task_id,),
+                    ).fetchone()
+                    canonical_rel = row[0] if row else rel_path
+                    if rel_path != canonical_rel:
+                        register_path_alias(cur, task_id, rel_path)
+        if task_is_protected(cur, task_id):
+            return {
+                "task_id": str(task_id),
+                "token": None,
+                "processing_version": None,
+                "rel_path": canonical_rel,
+                "created": created,
+                "protected": True,
+            }
+        lease = acquire_processing_lease(cur, task_id, ttl_seconds=ttl_seconds)
+        return {
+            "task_id": str(task_id),
+            "token": lease["token"],
+            "processing_version": lease["processing_version"],
+            "rel_path": canonical_rel,
+            "created": created,
+            "protected": False,
+        }
 
 
 def place_audio(source_file: Path, dest: Path, *, source_pcm_sha256: str) -> str:
@@ -453,6 +616,12 @@ def import_one_record(conn, *, raw: dict[str, Any], batch_code: str,
             )
             if created:
                 action = "created"
+            canonical = cur.execute(
+                "SELECT rel_path FROM annotation_tasks WHERE id = %s",
+                (task_id,),
+            ).fetchone()
+            if canonical and canonical[0] != rel_path:
+                register_path_alias(cur, task_id, rel_path)
             protected = task_is_protected(cur, task_id)
             if protected and action != "created":
                 action = "protected_text"
