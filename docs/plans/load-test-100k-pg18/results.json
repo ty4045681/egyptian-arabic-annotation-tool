@@ -1,0 +1,426 @@
+{
+  "environment": {
+    "postgres": "postgres (PostgreSQL) 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)",
+    "bindir": "/usr/lib/postgresql/18/bin",
+    "database": "load_e_ab2bb2b2ab2748ac8558c8f0f027a80d",
+    "pgdata": "/tmp/annotation-load-100k-73__bqq6/pgdata",
+    "workers": 2,
+    "threads": 4,
+    "gunicorn_config": "gunicorn_config.py",
+    "bind": "127.0.0.1:53281",
+    "note": "Measured with 2 workers x 4 threads unless overridden; that matches the isolated 4-core/~8GB preview. gunicorn_config.py defaults to 4 workers on larger hosts. Authentication is outside the request timer. HTTP timings include application work (claim SQL, metadata, JSON)."
+  },
+  "dataset": {
+    "tasks": 100000,
+    "pending": 85000,
+    "annotated": 10000,
+    "skipped": 5000,
+    "baselines": 100000,
+    "drafts": 85000,
+    "published": 15000,
+    "pending_without_draft": 0,
+    "tasks_without_baseline": 0,
+    "segments": 400000,
+    "sources": 308189,
+    "sources_current": 300589,
+    "emergencies_current": 0,
+    "taxi_current_tasks": 589,
+    "airport_high_current": 85000,
+    "shopping_high_current": 4000,
+    "predictions": 10000,
+    "reviews": 5000,
+    "users": 274,
+    "database_bytes": 500250303
+  },
+  "seed_ms": 39084.34667599795,
+  "explain": [
+    {
+      "title": "claim reserved",
+      "execution_ms": 0.223,
+      "path": "/home/ubuntu/annotation-development/scene-provenance/phase-e-independent-capacity-pg18/explain-claim-reserved.json"
+    },
+    {
+      "title": "claim band:high",
+      "execution_ms": 0.219,
+      "path": "/home/ubuntu/annotation-development/scene-provenance/phase-e-independent-capacity-pg18/explain-claim-band_high.json"
+    },
+    {
+      "title": "claim band:medium",
+      "execution_ms": 0.169,
+      "path": "/home/ubuntu/annotation-development/scene-provenance/phase-e-independent-capacity-pg18/explain-claim-band_medium.json"
+    },
+    {
+      "title": "claim airport high band",
+      "execution_ms": 0.075,
+      "path": "/home/ubuntu/annotation-development/scene-provenance/phase-e-independent-capacity-pg18/explain-claim-airport-high.json"
+    },
+    {
+      "title": "claim empty scene high band",
+      "execution_ms": 0.094,
+      "path": "/home/ubuntu/annotation-development/scene-provenance/phase-e-independent-capacity-pg18/explain-claim-emergencies-high.json"
+    },
+    {
+      "title": "admin 50-row list",
+      "execution_ms": 0.124,
+      "path": "/home/ubuntu/annotation-development/scene-provenance/phase-e-independent-capacity-pg18/explain-list.json"
+    },
+    {
+      "title": "overview matched snapshot",
+      "execution_ms": 27.6,
+      "path": "/home/ubuntu/annotation-development/scene-provenance/phase-e-independent-capacity-pg18/explain-overview-matched.json"
+    }
+  ],
+  "targets": {
+    "claim_new_p95_ms": 500,
+    "list_50_p95_ms": 500,
+    "overview_100k_p95_ms": 2000
+  },
+  "claim_normal": {
+    "scenario": "claim_new_normal",
+    "filters": {},
+    "concurrent_clients": 20,
+    "authentication": "completed before timed concurrent workload",
+    "wall_ms": 380.583320002188,
+    "throughput_per_s": 210.20364213423773,
+    "error_count": 0,
+    "error_rate": 0.0,
+    "resumed_count": 0,
+    "assigned_task_ids": 80,
+    "repeat_task_ids": 0,
+    "latency": {
+      "n": 80,
+      "p50_ms": 80.63305099494755,
+      "p95_ms": 161.24048249839686,
+      "p99_ms": 184.98188381214266,
+      "max_ms": 198.89319999492727,
+      "min_ms": 16.81907799502369,
+      "mean_ms": 84.09135736164899
+    },
+    "http_statuses": [
+      200
+    ],
+    "ok": true
+  },
+  "claim_high_heavy": {
+    "scenario": "claim_new_airport_high_heavy",
+    "filters": {
+      "source_scene": "airport"
+    },
+    "concurrent_clients": 20,
+    "authentication": "completed before timed concurrent workload",
+    "wall_ms": 172.79884200252127,
+    "throughput_per_s": 231.48303273592754,
+    "error_count": 0,
+    "error_rate": 0.0,
+    "resumed_count": 0,
+    "assigned_task_ids": 40,
+    "repeat_task_ids": 0,
+    "latency": {
+      "n": 40,
+      "p50_ms": 71.65701900521526,
+      "p95_ms": 100.02128094783984,
+      "p99_ms": 102.158100939414,
+      "max_ms": 102.62986599991564,
+      "min_ms": 21.432177993119694,
+      "mean_ms": 66.4890977252071
+    },
+    "http_statuses": [
+      200
+    ],
+    "ok": true
+  },
+  "claim_high_rare": {
+    "scenario": "claim_new_shopping_high_rare",
+    "filters": {
+      "source_scene": "shopping"
+    },
+    "concurrent_clients": 20,
+    "authentication": "completed before timed concurrent workload",
+    "wall_ms": 209.11334999254905,
+    "throughput_per_s": 191.28381808920975,
+    "error_count": 0,
+    "error_rate": 0.0,
+    "resumed_count": 0,
+    "assigned_task_ids": 40,
+    "repeat_task_ids": 0,
+    "latency": {
+      "n": 40,
+      "p50_ms": 76.42572649638169,
+      "p95_ms": 144.7282097957213,
+      "p99_ms": 163.35823843372054,
+      "max_ms": 174.3369190080557,
+      "min_ms": 18.01047100161668,
+      "mean_ms": 79.30198639915034
+    },
+    "http_statuses": [
+      200
+    ],
+    "ok": true
+  },
+  "claim_narrow": {
+    "scenario": "claim_new_taxi_narrow",
+    "filters": {
+      "source_scene": "taxi"
+    },
+    "concurrent_clients": 20,
+    "authentication": "completed before timed concurrent workload",
+    "wall_ms": 2111.650999999256,
+    "throughput_per_s": 9.47126205987971,
+    "error_count": 0,
+    "error_rate": 0.0,
+    "resumed_count": 0,
+    "assigned_task_ids": 20,
+    "repeat_task_ids": 0,
+    "latency": {
+      "n": 20,
+      "p50_ms": 1188.2645069999853,
+      "p95_ms": 1984.1346269990029,
+      "p99_ms": 2078.1971517983766,
+      "max_ms": 2101.71278299822,
+      "min_ms": 697.6415109966183,
+      "mean_ms": 1272.7062555502926
+    },
+    "http_statuses": [
+      200
+    ],
+    "ok": true
+  },
+  "claim_empty": {
+    "sample": {
+      "http_status": 409,
+      "ms": 2489.7787119989516,
+      "assigned": false,
+      "resumed": false,
+      "task_id": null,
+      "pool_reason": "no_matching_scene",
+      "error": "No task available to claim"
+    },
+    "ok": true
+  },
+  "claim_busy": {
+    "locked_rows": 500,
+    "sample": {
+      "http_status": 409,
+      "ms": 208.14363099634647,
+      "assigned": false,
+      "resumed": false,
+      "task_id": null,
+      "pool_reason": "temporarily_busy",
+      "error": "Task pool is busy; retry claim"
+    },
+    "ok": true,
+    "locks_before": {
+      "deadlocks": 0,
+      "conflicts": 0,
+      "tup_fetched": 8980188,
+      "tup_returned": 14676162,
+      "blks_read": 145415,
+      "blks_hit": 37257266,
+      "wait_events": [
+        {
+          "wait_event_type": "Client",
+          "wait_event": "ClientRead",
+          "count": 10
+        },
+        {
+          "wait_event_type": null,
+          "wait_event": null,
+          "count": 1
+        }
+      ]
+    },
+    "locks_after": {
+      "deadlocks": 0,
+      "conflicts": 0,
+      "tup_fetched": 10396205,
+      "tup_returned": 16508744,
+      "blks_read": 147863,
+      "blks_hit": 39257743,
+      "wait_events": [
+        {
+          "wait_event_type": "Client",
+          "wait_event": "ClientRead",
+          "count": 10
+        },
+        {
+          "wait_event_type": null,
+          "wait_event": null,
+          "count": 1
+        }
+      ]
+    }
+  },
+  "claim_concurrent": {
+    "scenario": "claim_concurrent_20",
+    "filters": {},
+    "concurrent_clients": 20,
+    "authentication": "completed before timed concurrent workload",
+    "wall_ms": 85.33558899944182,
+    "throughput_per_s": 234.3688047917595,
+    "error_count": 0,
+    "error_rate": 0.0,
+    "resumed_count": 0,
+    "assigned_task_ids": 20,
+    "repeat_task_ids": 0,
+    "latency": {
+      "n": 20,
+      "p50_ms": 42.85838549549226,
+      "p95_ms": 74.49009504998685,
+      "p99_ms": 80.42484461868298,
+      "max_ms": 81.90853201085702,
+      "min_ms": 19.571627999539487,
+      "mean_ms": 45.61889730102848
+    },
+    "http_statuses": [
+      200
+    ],
+    "ok": true
+  },
+  "claim_mixed_scopes": {
+    "scenario": "claim_mixed_scopes_20",
+    "filters": {},
+    "concurrent_clients": 20,
+    "authentication": "completed before timed concurrent workload",
+    "wall_ms": 412.80028599430807,
+    "throughput_per_s": 48.449578836473414,
+    "error_count": 0,
+    "error_rate": 0.0,
+    "resumed_count": 0,
+    "assigned_task_ids": 20,
+    "repeat_task_ids": 0,
+    "latency": {
+      "n": 20,
+      "p50_ms": 52.436969002883416,
+      "p95_ms": 104.11531824574944,
+      "p99_ms": 323.04978364278173,
+      "max_ms": 377.78339999204036,
+      "min_ms": 26.428279990796,
+      "mean_ms": 69.07242369707092
+    },
+    "http_statuses": [
+      200
+    ],
+    "ok": true,
+    "scope_validated": true,
+    "scope_modes": {
+      "all": 11,
+      "restricted": 9,
+      "none": 0
+    }
+  },
+  "claim_scope_none": {
+    "sample": {
+      "http_status": 409,
+      "ms": 92.7518390089972,
+      "assigned": false,
+      "resumed": false,
+      "task_id": null,
+      "pool_reason": "no_scene_access",
+      "error": "No task available to claim"
+    },
+    "ok": true
+  },
+  "list_50": {
+    "latency": {
+      "n": 40,
+      "p50_ms": 27.483292498800438,
+      "p95_ms": 50.14891495520712,
+      "p99_ms": 59.302481294143945,
+      "max_ms": 59.500846997252665,
+      "min_ms": 23.68553999986034,
+      "mean_ms": 31.626100550056435
+    },
+    "error_count": 0,
+    "payload_error_count": 0,
+    "item_count": 50,
+    "matched_count": 100000
+  },
+  "overview_100k": {
+    "latency": {
+      "n": 40,
+      "p50_ms": 1290.1305030027288,
+      "p95_ms": 1799.509814941848,
+      "p99_ms": 2591.900716283707,
+      "max_ms": 3081.4742090005893,
+      "min_ms": 1170.1840219902806,
+      "mean_ms": 1403.2031464499596
+    },
+    "error_count": 0,
+    "payload_error_count": 0,
+    "total_audio_count": 100000
+  },
+  "final_invariants": {
+    "tasks": 100000,
+    "pending": 85000,
+    "annotated": 10000,
+    "skipped": 5000,
+    "baselines": 100000,
+    "drafts": 85000,
+    "published": 15000,
+    "pending_without_draft": 0,
+    "tasks_without_baseline": 0,
+    "segments": 400000,
+    "sources": 308189,
+    "sources_current": 300589,
+    "emergencies_current": 0,
+    "taxi_current_tasks": 589,
+    "airport_high_current": 85000,
+    "shopping_high_current": 4000,
+    "predictions": 10000,
+    "reviews": 5000,
+    "users": 274,
+    "database_bytes": 500479679,
+    "assignments": 224
+  },
+  "lock_snapshot_final": {
+    "deadlocks": 0,
+    "conflicts": 0,
+    "tup_fetched": 13122132,
+    "tup_returned": 74973352,
+    "blks_read": 842488,
+    "blks_hit": 46829163,
+    "wait_events": [
+      {
+        "wait_event_type": "Client",
+        "wait_event": "ClientRead",
+        "count": 10
+      },
+      {
+        "wait_event_type": null,
+        "wait_event": null,
+        "count": 1
+      }
+    ]
+  },
+  "wait_sampling": {
+    "interval_seconds": 0.1,
+    "sample_count": 762,
+    "samples_with_lock_waiters": 0,
+    "max_observed_lock_waiters": 0,
+    "errors": [],
+    "note": "Samples taken during HTTP workload; waits shorter than the sampling interval can be missed. Counts do not measure exact wait durations."
+  },
+  "retained": {
+    "pgdata": "/tmp/annotation-load-100k-73__bqq6/pgdata",
+    "database": "load_e_ab2bb2b2ab2748ac8558c8f0f027a80d"
+  },
+  "pass": {
+    "claim_new_p95": true,
+    "list_50_p95": true,
+    "overview_100k_p95": true,
+    "empty_scene": true,
+    "busy": true,
+    "concurrent_unique": true,
+    "high_heavy_unique": true,
+    "high_rare_unique": true,
+    "narrow_unique": true,
+    "mixed_scopes": true,
+    "scope_none": true,
+    "wait_sampling": true,
+    "all_gates": true
+  },
+  "post_run_cleanup": {
+    "cluster_removed": true,
+    "note": "The original measurements are preserved; the disposable cluster was removed after actual SQL profiling and independent verification."
+  }
+}

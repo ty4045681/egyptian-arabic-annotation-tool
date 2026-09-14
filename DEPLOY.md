@@ -436,3 +436,8 @@ uv run pytest -q
 sudo systemctl status postgresql nginx audio-annotator cloudflared-tunnel annotation-backup.timer
 sudo journalctl -u postgresql -u nginx -u audio-annotator -u cloudflared-tunnel -n 100 --no-pager
 ```
+
+
+## 容量验收对应的运行设置
+
+本次4核、约8GB主机验收使用2个Gunicorn进程、每进程4个线程；PG16与PG18全量功能测试通过，PG18独立10万任务HTTP验收记录见[容量报告](docs/plans/load-test-100k-pg18/README.md)。管理员概览使用局部`work_mem=256MB`、`temp_buffers=128MB`、JIT关闭、最多2个并行查询worker及局部查询规划成本设置。work_mem按单个排序/哈希操作计，temp_buffers按会话按需使用；提高并发或合并ASR负载后需按实际总内存和延迟复测。报告保留p99、稀少场景与空池延迟，避免把p95门槛理解为单次响应上限。

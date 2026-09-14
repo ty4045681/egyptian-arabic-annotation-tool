@@ -234,4 +234,13 @@ Artifacts: `docs/plans/load-test-100k/results.json`, `samples.jsonl`, `dataset.j
 - Empty-pool `409` responses still run `pool_snapshot` (nine-scene counts + matching totals); one emergencies sample took **2.85 s**. That is not the new-claim p95 gate. Taxi-narrow 20-way claims measured p95 **2.26 s** (small candidate set under 20 concurrent workers on 8 gunicorn threads); the accepted 500 ms gate is the normal mixed-pool new-claim API.
 - Staging `/opt/annotation_tool` was not migrated (out of bounds). Schema versions are `[1,2,3,4]` after `manage_state.py apply-migrations` on a target database.
 - Real ASR provider accuracy and production crawler audio/dataset migration were not part of synthetic acceptance and remain deferred.
-- Independent reviewer certification, GitHub publish, and isolated preview cutover are not done in this pass. This report does not mark those operational gates complete.
+- Independent reviewer certification is recorded below. GitHub checks and isolated preview deployment are tracked separately from these development measurements.
+
+
+## 独立验收（2026-09-14）
+
+业务实现保持`ef237b9`；协调审查仅补齐CI、测试运行器和独立测量工具。原生PostgreSQL18完整240项测试（含13项浏览器测试）独立通过，75.28秒。Grok已完成实际PG16/18各240项回归。真实HTTP容量验收在测试结束后单独运行，普通领取/列表/概览p95分别161.24/50.15/1799.51毫秒，原门槛全部通过。
+
+全部220次成功领取跨场景无重复、无续领，置信度优先级已逐项与数据库核对；不同场景权限并发20人正确，无权限用户明确拒绝。全部列表和概览响应数量正确。762次运行中采样未观测到Lock等待；短等待可能漏采。实际仓储33条语句、26份查询计划已独立记录。稀少场景/空池仍约1.98/2.49秒，概览p99约2.59秒，保留为优化项。
+
+详见[独立PostgreSQL18容量验收与复现命令](load-test-100k-pg18/README.md)。真实ASR准确率、真实音频和正式库迁移仍在本次合成验收范围外。
