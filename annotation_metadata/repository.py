@@ -243,23 +243,42 @@ def get_source(cur, source_id) -> dict | None:
 def list_source_history(cur, task_id) -> list[dict]:
     rows = cur.execute(
         """SELECT s.id, s.record_key, s.revision, s.is_current, s.scene_code,
-                  s.confidence, s.content_digest, s.created_at, b.batch_code
+                  s.confidence, s.confidence_basis, s.source_type, s.source_url,
+                  s.video_id, s.channel_id, s.channel_title, s.provider,
+                  s.raw_record, s.content_digest, s.created_at,
+                  b.batch_code, s.batch_id
            FROM task_sources s
            JOIN source_batches b ON b.id = s.batch_id
            WHERE s.task_id = %s
-           ORDER BY s.record_key, s.revision""",
+           ORDER BY s.record_key, s.revision, s.id""",
         (task_id,),
     ).fetchall()
-    return [
-        {
-            "id": str(row[0]), "record_key": row[1], "revision": int(row[2]),
-            "is_current": bool(row[3]), "scene_code": row[4],
-            "confidence": row[5], "content_digest": row[6],
-            "created_at": row[7].isoformat() if row[7] else None,
-            "batch_code": row[8],
-        }
-        for row in rows
-    ]
+    return [_complete_source_from_row(row) for row in rows]
+
+
+def _complete_source_from_row(row) -> dict:
+    raw = row[13] if isinstance(row[13], dict) else dict(row[13] or {})
+    return {
+        "id": str(row[0]),
+        "record_key": row[1],
+        "revision": int(row[2]),
+        "is_current": bool(row[3]),
+        "scene_code": row[4],
+        "scene_label": scene_label(row[4]),
+        "confidence": row[5],
+        "confidence_basis": row[6] or "",
+        "source_type": row[7] or "",
+        "source_url": row[8],
+        "video_id": row[9],
+        "channel_id": row[10],
+        "channel_title": row[11],
+        "provider": row[12],
+        "raw_record": raw,
+        "content_digest": row[14],
+        "created_at": row[15].isoformat() if row[15] else None,
+        "batch_code": row[16],
+        "batch_id": str(row[17]) if row[17] else None,
+    }
 
 
 def latest_prediction(cur, task_id) -> dict | None:
@@ -275,6 +294,23 @@ def latest_prediction(cur, task_id) -> dict | None:
     ).fetchone()
     if not row:
         return None
+    return _prediction_from_row(row)
+
+
+def list_predictions(cur, task_id) -> list[dict]:
+    rows = cur.execute(
+        """SELECT id, predicted_label, predicted_scene_code, score, score_meaning,
+                  model_name, prompt_version, input_version_id, input_revision,
+                  input_digest, created_at
+           FROM task_scene_predictions
+           WHERE task_id = %s
+           ORDER BY created_at, id""",
+        (task_id,),
+    ).fetchall()
+    return [_prediction_from_row(row) for row in rows]
+
+
+def _prediction_from_row(row) -> dict:
     return {
         "id": str(row[0]),
         "predicted_label": row[1],
@@ -282,7 +318,7 @@ def latest_prediction(cur, task_id) -> dict | None:
         "score": float(row[3]) if row[3] is not None else None,
         "score_meaning": row[4],
         "model_name": row[5],
-        "prompt_version": row[6],
+        "prompt_version": row[6] or "",
         "input_version_id": str(row[7]) if row[7] else None,
         "input_revision": row[8],
         "input_digest": row[9],
@@ -405,6 +441,117 @@ def append_review(cur, *, version_id, status: str, scene_codes: list[str],
     return created, True
 
 
+def list_reviews_for_task(cur, task_id) -> list[dict]:
+    rows = cur.execute(
+        """SELECT r.id, r.version_id, r.review_no, r.status, r.note, r.actor_kind,
+                  r.actor_user_id, r.actor_admin_action_id, r.operation_id,
+                  r.previous_review_id, r.superseded, r.created_at,
+                  v.version_no, v.lifecycle
+           FROM scene_reviews r
+           JOIN annotation_versions v ON v.id = r.version_id
+           WHERE v.task_id = %s
+           ORDER BY v.version_no, r.review_no, r.id""",
+        (task_id,),
+    ).fetchall()
+    if not rows:
+        return []
+    review_ids = [row[0] for row in rows]
+    label_rows = cur.execute(
+        """SELECT review_id, scene_code FROM scene_review_labels
+           WHERE review_id = ANY(%s)
+           ORDER BY review_id, scene_code""",
+        (review_ids,),
+    ).fetchall()
+    labels: dict[str, list[str]] = {}
+    for review_id, code in label_rows:
+        labels.setdefault(str(review_id), []).append(code)
+    return [
+        {
+            "id": str(row[0]),
+            "version_id": str(row[1]),
+            "review_no": int(row[2]),
+            "status": row[3],
+            "note": row[4] or "",
+            "actor_kind": row[5],
+            "actor_user_id": str(row[6]) if row[6] else None,
+            "actor_admin_action_id": str(row[7]) if row[7] else None,
+            "operation_id": str(row[8]) if row[8] else None,
+            "previous_review_id": str(row[9]) if row[9] else None,
+            "superseded": bool(row[10]),
+            "created_at": row[11].isoformat() if row[11] else None,
+            "version_no": int(row[12]),
+            "version_lifecycle": row[13],
+            "scene_codes": labels.get(str(row[0]), []),
+        }
+        for row in rows
+    ]
+
+
+def list_media_identities(cur, task_id=None) -> list[dict]:
+    sql = """SELECT id, task_id, provider, external_id, variant, pcm_sha256, created_at
+             FROM task_media_identities"""
+    params: list = []
+    if task_id is not None:
+        sql += " WHERE task_id = %s"
+        params.append(task_id)
+    sql += " ORDER BY provider, external_id, variant, id"
+    rows = cur.execute(sql, params).fetchall()
+    return [
+        {
+            "id": str(row[0]),
+            "task_id": str(row[1]),
+            "provider": row[2],
+            "external_id": row[3],
+            "variant": row[4],
+            "pcm_sha256": row[5],
+            "created_at": row[6].isoformat() if row[6] else None,
+        }
+        for row in rows
+    ]
+
+
+def list_import_runs(cur) -> list[dict]:
+    rows = cur.execute(
+        """SELECT r.id, r.batch_id, b.batch_code, r.snapshot_sha256, r.snapshot_bytes,
+                  r.contract_version, r.status, r.processed_count, r.counts,
+                  r.error_report, r.checkpoint, r.started_at, r.completed_at
+           FROM source_import_runs r
+           JOIN source_batches b ON b.id = r.batch_id
+           ORDER BY r.started_at, r.id"""
+    ).fetchall()
+    return [
+        {
+            "id": str(row[0]),
+            "batch_id": str(row[1]),
+            "batch_code": row[2],
+            "snapshot_sha256": row[3],
+            "snapshot_bytes": row[4],
+            "contract_version": int(row[5]),
+            "status": row[6],
+            "processed_count": int(row[7]),
+            "counts": row[8] if isinstance(row[8], dict) else dict(row[8] or {}),
+            "error_report": row[9] if isinstance(row[9], list) else list(row[9] or []),
+            "checkpoint": row[10] if isinstance(row[10], dict) else dict(row[10] or {}),
+            "started_at": row[11].isoformat() if row[11] else None,
+            "completed_at": row[12].isoformat() if row[12] else None,
+        }
+        for row in rows
+    ]
+
+
+def path_aliases_for_task(cur, task_id) -> list[str]:
+    row = cur.execute(
+        "SELECT extra->'path_aliases' FROM annotation_tasks WHERE id = %s",
+        (task_id,),
+    ).fetchone()
+    if not row or row[0] is None:
+        return []
+    aliases = row[0]
+    if isinstance(aliases, list):
+        return [str(item) for item in aliases]
+    return []
+
+
 def assignment_claim_context(cur, user_id) -> dict | None:
     row = cur.execute(
         """SELECT claim_scene_code, claim_source_id, claim_policy, claim_confidence
@@ -512,11 +659,15 @@ def metadata_summaries(cur, task_ids: list,
             "source_scenes": [],
             "source_confidence": "unknown",
             "batch_codes": [],
+            "scene_confidence_pairs": [],
         })
         if scene_code and scene_code not in item["source_scenes"]:
             item["source_scenes"].append(scene_code)
         if batch_code and batch_code not in item["batch_codes"]:
             item["batch_codes"].append(batch_code)
+        pair = f"{scene_code or 'unknown'}:{confidence or 'unknown'}"
+        if pair not in item["scene_confidence_pairs"]:
+            item["scene_confidence_pairs"].append(pair)
         current = CONFIDENCE_RANK.get(item["source_confidence"], 4)
         candidate = CONFIDENCE_RANK.get(confidence or "unknown", 4)
         if candidate < current:
@@ -573,6 +724,7 @@ def metadata_summaries(cur, task_ids: list,
             "source_scenes": [],
             "source_confidence": "unknown",
             "batch_codes": [],
+            "scene_confidence_pairs": [],
         })
         prediction = predictions.get(key, {})
         result[key] = {

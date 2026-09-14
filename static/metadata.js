@@ -186,7 +186,7 @@
     });
     box.appendChild(el("div", {
       className: "review-reference-title",
-      text: "提交时的核验（仅供参考，不是当前草稿）",
+      text: "上次已发布的核验（仅供参考，不是当前草稿；可能含提交后的管理员修正）",
     }));
     box.appendChild(el("div", { text: reviewSummaryText(metadata.reference_review) }));
     container.appendChild(box);
@@ -259,7 +259,7 @@
       if (metadata.reference_review) {
         body.appendChild(el("div", {
           attrs: { "data-review-kind": "reference" },
-          text: "提交时：" + reviewSummaryText(metadata.reference_review),
+          text: "上次已发布：" + reviewSummaryText(metadata.reference_review),
         }));
       }
     } else if (published && published.submitted) {

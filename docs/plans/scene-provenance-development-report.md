@@ -8,7 +8,18 @@ Date: 2026-09-14. Branch: `codex/scene-provenance`.
 - Administrators restrict each annotator’s scene scope; annotators select within that scope.
 - Existing users default to all scenes. A missing scope row is treated as `all`. An empty restricted list is not all.
 
-## Phase C (this pass) — done
+## Phase D (this pass) — done
+
+Metadata export/import, training/Excel sidecars, dump/restore, and compatibility-flag fallback. Phases A/B/C are preserved. The 100k-task capacity benchmark and whole-suite certification stay for a later pass. This pass does **not** complete the overall project.
+
+1. **UI copy.** `reference_review` is the latest published review, which may be an administrator correction after the original submission. The badge now reads `上次已发布的核验`, not `提交时的核验`. Source/model/human separation is unchanged.
+2. **Versioned metadata contract.** `manage_state.py export-metadata` writes `metadata.v1.json` as a REPEATABLE READ snapshot and replaces the file only after successful generation. The document keeps the old task/sources/source_history/prediction/published_review/scopes fields and adds complete source revisions (`raw_record`, basis, url, video, batch), all predictions (input version/revision/digest/model/prompt/nullable score), all version-linked reviews, scopes, taxonomy, batches, import runs, media identities, path aliases, version/user/admin-action identity rows, and publication-event `scene_review_id` audit references. Credentials, session cookies, and active lease tokens are not exported.
+3. **Import.** `import-metadata` validates the whole document before writing. Unknown format, bad schema, dangling mappings, and identity conflicts abort the transaction with no partial metadata mutation. Repeats are idempotent and preserve timestamps/stable UUIDs. Human text, task status, and assignments are never updated. Scopes are not overwritten unless `--replace-scopes`. `--dry-run` reports. Identity match is exact UUID, or an explicit mapping file; usernames and pathnames are rejected as mapping keys.
+4. **Excel and training.** Excel adds explicit source scene/confidence pairs, batches, human review status/scenes, and model prediction. Training `data.json` fields are unchanged. `scripts/export_top_annotators_tar.py` writes `scene_metadata.json` linked by task_id/segment_id/audio, marked audio-level (not inferred segment labels or scene-trainable hours), with source/model/human separate. Shared helpers live in `annotation_metadata/export_metadata.py`. Optional filters use the same-evidence `TaskFilter` and record `applied_filters`; default remains all data.
+5. **Restore tests.** Synthetic old+new tasks cover cross-scene/cross-batch source revisions, two predictions, draft/published/admin-corrected reviews, scopes, identities, and audit history. Export → wipe/import on matching IDs → re-export compares histories; clone into a fresh migrated DB; explicit UUID mapping; idempotent repeat; bad mapping/conflict rollback. A separate test runs real `pg_dump --format=custom` / `pg_restore` into a disposable database and checks task/version/segment/assignment/source/review/audit counts and relationships. Binaries are the running same-major tools (pgserver 16 or `/usr/lib/postgresql/18/bin`).
+6. **Compatibility flags.** Checking out `5567209` after migration 003 is not rollback. The same new-schema build with `ANNOTATION_METADATA_UI=0`, `ANNOTATION_METADATA_WRITE=0`, `ANNOTATION_SCENE_REVIEW_WRITE=0`, `ANNOTATION_CLAIM_POLICY=fifo` can health, read old+new tasks, resume an assignment, and export preserved metadata. Scope is still enforced. Omitting `scene_review` on save/complete keeps review history. Prohibited writes raise clearly. Tables are not dropped. Commands with placeholders are in `DEPLOY.md` §16. Actual production data migration remains deferred.
+
+## Phase C — done (preserved)
 
 Annotator and administrator UI plus genuine browser acceptance. Phases A/B backend contracts are preserved. Metadata restore/export and scale benchmarks stay for later passes. This pass does **not** complete the overall project.
 
@@ -48,8 +59,8 @@ Backend-only. Admin UI polish and scene-only save were delivered in Phase C. Exp
 | P4 reviews | Draft save / complete in the same transaction; legacy omit = no change. Draft is not published verification in overview groups. |
 | P5 claiming | Forced resume, server-side scope, confidence-then-allocation order; Phase B fixes headline evidence and scope lock order. |
 | P6 UI | **Phase C done for annotator/admin UI.** Compact badge, review queue, admin filters/stats/scope/correction, and Playwright acceptance. |
-| P7 tests | **Phase C browser acceptance added.** Export/restore and load-test p95 remain. |
-| Export / admin remaining | Versioned metadata export extras, restore/export round-trip, and load-test p95 are unfinished. |
+| P7 tests | **Phase C browser acceptance added.** Phase D adds export/restore/dump/flag tests. Load-test p95 remains. |
+| Export / admin remaining | **Phase D metadata export/import, Excel/training sidecars, dump/restore, and flag fallback are done.** Load-test p95 is unfinished. |
 
 ## Architecture
 
@@ -62,7 +73,7 @@ Backend-only. Admin UI polish and scene-only save were delivered in Phase C. Exp
 ## Deviations (documented, not silent removals)
 
 - `save`/`complete` still ignore unknown top-level JSON fields (legacy clients); `scene_review` objects forbid extras.
-- Training `data.json` field set is unchanged; metadata is a sidecar (`manage_state.py export-metadata`).
+- Training `data.json` field set is unchanged; scene evidence is `scene_metadata.json` from the training exporter, and the full provenance sidecar is `manage_state.py export-metadata`.
 - Phase B ran pytest with `--ignore=tests/browser`. Phase C runs the browser suite on real Chromium.
 - `preprocess.py --manifest --dry-run` no longer imports torch at module load.
 - Facets remain vocabulary/options. Grouped counts live on `admin_overview`, not a second statistics API.
@@ -113,10 +124,51 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
 
 Phase B non-browser results (153 passed on PG16/PG18 with `--ignore=tests/browser`) remain valid for the backend of that pass.
 
+## Test commands and results (Phase D, 2026-09-14)
+
+Disposable pgserver PostgreSQL 16.2 and native 18.6. Isolated disposable DBs, synthetic WAV only. No sudo/apt. No live `/opt/annotation_tool` mutation.
+
+```bash
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python -m compileall -q \
+  annotation_metadata annotation_repository.py server.py manage_state.py export.py
+# COMPILE_OK
+
+# Bundled pgserver PostgreSQL 16.2 — full non-browser:
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q --ignore=tests/browser
+# 190 passed in 33.07s
+
+# Bundled PG16 — affected browser (review reference copy + flags/save queue):
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q --tb=line \
+  tests/browser/test_scene_workflow.py \
+  tests/browser/test_regression_review_only_save.py \
+  tests/browser/test_regression_review_save_queue.py
+# 8 passed in 21.75s
+
+# Native PostgreSQL 18 — full non-browser:
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
+  scripts/run_pytest_with_postgres.py /usr/lib/postgresql/18/bin -q --tb=line \
+  --ignore=tests/browser
+# ACCEPTANCE DATABASE BINARY: postgres (PostgreSQL) 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
+# 190 passed in 37.56s
+
+# Native PG18 — same affected browser files:
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
+  scripts/run_pytest_with_postgres.py /usr/lib/postgresql/18/bin -q --tb=line \
+  tests/browser/test_scene_workflow.py \
+  tests/browser/test_regression_review_only_save.py \
+  tests/browser/test_regression_review_save_queue.py
+# ACCEPTANCE DATABASE BINARY: postgres (PostgreSQL) 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
+# 8 passed in 22.62s
+```
+
+Non-browser total is **190** (Phase C's 156 plus export/import, dump/restore, flag fallback, Excel/training sidecar, backup-runtime, checkpoint, restore-integrity, transaction-boundary, and domain-validation cases). Existing reviewer assertions in those regression files were preserved. `pg_dump`/`pg_restore` used the running same-major binaries; DSN passwords stay in `PGPASSWORD`, not argv. Export/import helpers do not commit a caller's open transaction.
+
+Remaining after this pass: 100k-task capacity benchmark, whole-suite certification/matrix, and real data migration.
+
 ## Limitations / still unfinished
 
-- Export field completeness, metadata restore/export round-trip, and versioned metadata export extras are not part of Phase C.
 - 100k-task / 300k-source load test was not re-run; run `uv run python scripts/load_test_100k.py` on an isolated volume before citing p95.
+- Whole-suite certification after the capacity pass is still outstanding.
 - Staging `/opt/annotation_tool` was not migrated (out of bounds). Schema `[1,2,3]` applies only after `manage_state.py apply-migrations` on a target database.
 - Real ASR and production crawler audio were not used; fixtures are synthetic WAV/JSONL.
-- Overall scene-provenance delivery is **not** complete until export/restore and scale work finish.
+- Overall scene-provenance delivery is **not** complete until the final benchmark/matrix/review pass finishes.

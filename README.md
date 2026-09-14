@@ -21,6 +21,7 @@
 | 安全撤销/停用 | 不删除历史；原子撤销当前版本、重建 baseline draft、回收任务并阻止原提交者重领 |
 | 无损迁移 | JSON manifest、SHA-256、可重入导入、round-trip 校验、兼容 JSON 回导 |
 | 备份 | PostgreSQL custom dump + 校验 + 恢复演练 + 兼容 JSON 快照 |
+| 场景元数据 | 版本化 `export-metadata` / `import-metadata`；训练旁文件；Excel 来源/核验列 |
 
 ## 架构
 
@@ -43,7 +44,7 @@ server.py                   Flask API / page / audio authorization
 annotation_repository.py    所有业务事务和权限规则
 db.py                       psycopg 连接池与 migration runner
 migrations/                 PostgreSQL schema
-manage_state.py             JSON 盘点、迁移、验证、回导、assignment 管理
+manage_state.py             JSON 盘点、迁移、验证、回导、元数据导入导出、assignment 管理
 preprocess.py               VAD + ASR，直接写 PostgreSQL
 preprocess_store.py         预处理入库与人工标注保护
 classify.py                 从 PostgreSQL 分类并更新 category

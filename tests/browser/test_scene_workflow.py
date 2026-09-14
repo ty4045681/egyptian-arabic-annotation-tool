@@ -142,7 +142,7 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             expect(page.locator("#completedMetadataDisclosure")).to_contain_text("机场")
             page.locator("#correctButton").click()
             expect(page.locator("#sceneReviewPanel")).to_be_visible(timeout=15000)
-            expect(page.locator(".review-reference")).to_contain_text("提交时的核验")
+            expect(page.locator(".review-reference")).to_contain_text("上次已发布的核验")
             expect(page.locator(".review-reference")).to_contain_text("场景已确认")
             expect(page.locator("#metadataBanner")).to_contain_text("场景待核验")
             _screenshot(page, artifacts, "desktop-reopen-reference.png")

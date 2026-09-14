@@ -359,6 +359,67 @@ uv run python manage_state.py export-json --output /home/ck/rollback-json-$(date
 
 核对导出后，旧应用指向新目录；不能覆盖迁移前快照。PostgreSQL、迁移前 JSON 和回滚导出全部保留审计。
 
+## 16. 场景元数据导出/导入与兼容回退
+
+**Checking out git `5567209` after migration 003 is not schema rollback.**
+`assert_schema_current()` requires the running build to ship every applied
+migration file. The compatibility path is the **same new-schema build** with
+feature flags off.
+
+Placeholders only; never point these at a live staging DSN:
+
+```bash
+export ANNOTATION_DB_DSN='$ANNOTATION_DB_DSN'
+export TARGET_DB_DSN='$TARGET_DB_DSN'
+export BACKUP_DUMP='$BACKUP_DIR/annotation_tool.dump'
+export PG_BINDIR='/usr/lib/postgresql/16/bin'   # or /usr/lib/postgresql/18/bin
+export METADATA_DIR='$BACKUP_DIR/metadata'
+export MAPPING_JSON='$BACKUP_DIR/identity-mapping.json'
+```
+
+Feature flags (scope enforcement stays on even with fifo):
+
+```bash
+export ANNOTATION_METADATA_UI=0
+export ANNOTATION_METADATA_WRITE=0
+export ANNOTATION_SCENE_REVIEW_WRITE=0
+export ANNOTATION_CLAIM_POLICY=fifo
+# Then start the same migrated build and check /api/health.
+```
+
+PostgreSQL custom dump is the complete backup (tasks, versions, segments,
+assignments, provenance, reviews, audit). Metadata JSON is a sidecar round
+trip, not a substitute:
+
+```bash
+uv run python manage_state.py dump-postgres --output "$BACKUP_DUMP" --pg-bindir "$PG_BINDIR"
+# Restore only into a newly created empty database:
+createdb --maintenance-db="$ADMIN_DSN" new_annotation_restore
+uv run python manage_state.py restore-postgres \
+  --dump "$BACKUP_DUMP" --target-dsn "$TARGET_DB_DSN" --pg-bindir "$PG_BINDIR"
+```
+
+Versioned metadata (exact task/version/user IDs, or an explicit UUID mapping
+file; never username or pathname remaps):
+
+```bash
+uv run python manage_state.py export-metadata --output "$METADATA_DIR"
+uv run python manage_state.py verify-metadata --input "$METADATA_DIR"
+uv run python manage_state.py import-metadata --input "$METADATA_DIR" --dry-run
+uv run python manage_state.py import-metadata --input "$METADATA_DIR"
+# Optional explicit mapping + scope replace:
+uv run python manage_state.py import-metadata \
+  --input "$METADATA_DIR" --mapping "$MAPPING_JSON" --replace-scopes
+```
+
+Verify a restore by comparing task/version/segment/assignment/source/review
+counts and relationships before declaring the target usable. Real production
+data migration remains deferred.
+
+Legacy `export-json` field contract is unchanged. Training `data.json` is
+unchanged; scene evidence is `scene_metadata.json` (audio-level, not segment
+labels). Excel adds source scene/confidence/batch and human verification columns.
+
 ## 常用命令
 
 ```bash

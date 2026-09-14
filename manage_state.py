@@ -22,6 +22,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from db import apply_migrations, assert_schema_current, db_conn
+from annotation_metadata.export_metadata import MetadataImportError
+from annotation_repository import ForbiddenError, ValidationError
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 CONFIG_PATH = SCRIPT_DIR / "config.json"
@@ -1068,11 +1070,88 @@ def command_verify_source_metadata(args) -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
 
+def _task_filter_from_args(args):
+    from annotation_metadata.export_metadata import parse_task_filter
+    return parse_task_filter({
+        "source_scene": getattr(args, "source_scene", None),
+        "source_confidence": getattr(args, "source_confidence", None),
+        "batch_code": getattr(args, "batch_code", None),
+        "review_status": getattr(args, "review_status", None),
+        "prediction_scene": getattr(args, "prediction_scene", None),
+        "human_scene": getattr(args, "human_scene", None),
+    })
+
+
+def _add_task_filter_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--source-scene", help="same-evidence source scene filter")
+    parser.add_argument("--source-confidence", help="same-evidence source confidence filter")
+    parser.add_argument("--batch-code", help="same-evidence source batch filter")
+    parser.add_argument("--review-status", help="published human review status filter")
+    parser.add_argument("--prediction-scene", help="latest model prediction scene filter")
+    parser.add_argument("--human-scene", help="published human scene label filter")
+
+
 def command_export_metadata(args) -> None:
     from annotation_metadata.export_metadata import export_metadata
+    filters = _task_filter_from_args(args)
     with db_conn() as conn:
-        result = export_metadata(conn, Path(args.output).expanduser().resolve())
+        result = export_metadata(
+            conn, Path(args.output).expanduser().resolve(), filters=filters,
+        )
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def command_import_metadata(args) -> None:
+    from annotation_metadata.export_metadata import import_metadata
+    mapping = Path(args.mapping).expanduser().resolve() if args.mapping else None
+    with db_conn() as conn:
+        result = import_metadata(
+            conn,
+            Path(args.input).expanduser().resolve(),
+            mapping_path=mapping,
+            dry_run=args.dry_run,
+            replace_scopes=args.replace_scopes,
+        )
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def command_verify_metadata(args) -> None:
+    from annotation_metadata.export_metadata import verify_metadata_file
+    result = verify_metadata_file(Path(args.input).expanduser().resolve())
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    if not result.get("ok"):
+        raise SystemExit(3)
+
+
+def command_dump_postgres(args) -> None:
+    from annotation_metadata.postgres_backup import dump_database
+    dsn = os.environ.get("ANNOTATION_DB_DSN", "").strip()
+    if not dsn:
+        raise MigrationError("ANNOTATION_DB_DSN is not set")
+    result = dump_database(
+        dsn, Path(args.output).expanduser().resolve(),
+        bindir=Path(args.pg_bindir) if args.pg_bindir else None,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def command_restore_postgres(args) -> None:
+    from annotation_metadata.postgres_backup import (
+        provenance_counts, provenance_relationships, restore_database,
+    )
+    target = args.target_dsn.strip()
+    if not target:
+        raise MigrationError("--target-dsn is required")
+    result = restore_database(
+        Path(args.dump).expanduser().resolve(), target,
+        bindir=Path(args.pg_bindir) if args.pg_bindir else None,
+    )
+    with psycopg.connect(target) as conn:
+        result["counts"] = provenance_counts(conn)
+        result["relationships"] = provenance_relationships(conn)
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    if not result["relationships"]["ok"]:
+        raise SystemExit(3)
 
 
 def command_assignments(args) -> None:
@@ -1177,9 +1256,76 @@ def parser() -> argparse.ArgumentParser:
     verify_src.add_argument("--batch-code", required=True)
     verify_src.set_defaults(func=command_verify_source_metadata)
 
-    export_meta = sub.add_parser("export-metadata")
-    export_meta.add_argument("--output", required=True)
+    from annotation_metadata.export_metadata import IDENTITY_HELP
+
+    export_meta = sub.add_parser(
+        "export-metadata",
+        help="export versioned scene provenance metadata (not credentials or leases)",
+        description=(
+            "Write metadata.v1.json as a REPEATABLE READ snapshot. "
+            "Legacy export-json is unchanged. Default includes every task."
+        ),
+        epilog=IDENTITY_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    export_meta.add_argument("--output", required=True, help="output directory")
+    _add_task_filter_arguments(export_meta)
     export_meta.set_defaults(func=command_export_metadata)
+
+    import_meta = sub.add_parser(
+        "import-metadata",
+        help="validate then import metadata.v1.json into matching annotation rows",
+        description=(
+            "Validate the entire document before applying. Malformed files, "
+            "unknown formats, dangling mappings, and identity conflicts roll "
+            "back without partial metadata mutation. Repeats are idempotent."
+        ),
+        epilog=IDENTITY_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    import_meta.add_argument("--input", required=True, help="metadata.v1.json or its directory")
+    import_meta.add_argument(
+        "--mapping",
+        help="explicit UUID mapping JSON (never username or pathname remaps)",
+    )
+    import_meta.add_argument("--dry-run", action="store_true", help="report without writing")
+    import_meta.add_argument(
+        "--replace-scopes", action="store_true",
+        help="replace annotator scene scopes; omitted scopes are left unchanged",
+    )
+    import_meta.set_defaults(func=command_import_metadata)
+
+    verify_meta = sub.add_parser(
+        "verify-metadata",
+        help="validate a metadata.v1.json file without importing",
+    )
+    verify_meta.add_argument("--input", required=True)
+    verify_meta.set_defaults(func=command_verify_metadata)
+
+    dump_pg = sub.add_parser(
+        "dump-postgres",
+        help="PostgreSQL custom dump of the current ANNOTATION_DB_DSN",
+        description=(
+            "Complete backup format. Restore only into a newly created empty "
+            "database. Use same-major pg_dump (pgserver 16 or /usr/lib/postgresql/18/bin)."
+        ),
+    )
+    dump_pg.add_argument("--output", required=True, help="output .dump path")
+    dump_pg.add_argument("--pg-bindir", help="PostgreSQL binary directory")
+    dump_pg.set_defaults(func=command_dump_postgres)
+
+    restore_pg = sub.add_parser(
+        "restore-postgres",
+        help="pg_restore a custom dump into an empty target DSN and print counts",
+        description=(
+            "Refuses a target that already has annotation_tasks rows. "
+            "Never use a live staging DSN."
+        ),
+    )
+    restore_pg.add_argument("--dump", required=True)
+    restore_pg.add_argument("--target-dsn", required=True)
+    restore_pg.add_argument("--pg-bindir", help="PostgreSQL binary directory")
+    restore_pg.set_defaults(func=command_restore_postgres)
     return p
 
 
@@ -1187,7 +1333,8 @@ def main() -> None:
     args = parser().parse_args()
     try:
         args.func(args)
-    except (MigrationError, psycopg.Error, OSError, json.JSONDecodeError) as exc:
+    except (MigrationError, MetadataImportError, ForbiddenError, ValidationError,
+            psycopg.Error, OSError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
