@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from annotation_metadata import SCHEMA_VERSION
 from annotation_metadata.features import feature_flags, metadata_ui_enabled
+from annotation_metadata.predictions import (
+    prediction_is_stale,
+    version_inference_snapshot,
+)
 from annotation_metadata.repository import (
     assignment_claim_context,
     latest_prediction,
@@ -83,27 +87,6 @@ def headline(metadata: dict) -> str:
     return f"{scene_part} · {conf_part} · {review_part}"
 
 
-def _version_input_snapshot(cur, version_id) -> tuple[int | None, str | None]:
-    if version_id is None:
-        return None, None
-    row = cur.execute(
-        "SELECT revision FROM annotation_versions WHERE id = %s",
-        (version_id,),
-    ).fetchone()
-    if not row:
-        return None, None
-    texts = cur.execute(
-        """SELECT COALESCE(text, ''), COALESCE(asr_text, '')
-           FROM segments WHERE version_id = %s ORDER BY segment_id""",
-        (version_id,),
-    ).fetchall()
-    import hashlib
-    digest = hashlib.sha256(
-        "\n".join(f"{a}\t{b}" for a, b in texts).encode("utf-8")
-    ).hexdigest()
-    return int(row[0]), digest
-
-
 def serialize_task_metadata(cur, task_id, *, version_id=None,
                             published_version_id=None,
                             assignment_user_id=None,
@@ -118,14 +101,8 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
         claim_context = assignment_claim_context(cur, assignment_user_id)
     stale_prediction = False
     if prediction and version_id:
-        current_revision, current_digest = _version_input_snapshot(cur, version_id)
-        stale_prediction = (
-            str(prediction.get("input_version_id") or "") != str(version_id)
-            or (prediction.get("input_revision") is not None
-                and prediction.get("input_revision") != current_revision)
-            or (prediction.get("input_digest")
-                and current_digest
-                and prediction.get("input_digest") != current_digest)
+        stale_prediction = prediction_is_stale(
+            prediction, version_inference_snapshot(cur, version_id),
         )
     correcting = bool(
         include_draft_review and version_id and published_version_id

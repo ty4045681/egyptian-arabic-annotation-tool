@@ -6,7 +6,6 @@ or commits. That keeps complete/save/review atomic with assignment release.
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from typing import Any, Iterable
 
@@ -283,9 +282,8 @@ def insert_prediction(cur, *, task_id, predicted_label: str,
                 score, score_meaning)
            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (pred_id, task_id, input_version_id, input_revision,
-         input_digest or hashlib.sha256(predicted_label.encode()).hexdigest(),
-         model_name, prompt_version, predicted_label, predicted_scene_code,
-         score, score_meaning),
+         input_digest, model_name, prompt_version, predicted_label,
+         predicted_scene_code, score, score_meaning),
     )
     return pred_id
 
