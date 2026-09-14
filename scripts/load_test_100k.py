@@ -31,6 +31,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -541,15 +542,25 @@ def db_lock_snapshot(conn) -> dict:
 
 def run_new_claim_scenario(base: str, usernames: list[str], filters: dict,
                            samples_path: Path, scenario: str) -> dict:
-    def _one(username: str) -> dict:
-        client = login_annotator(base, username)
-        sample = timed_claim(client, filters)
-        sample["username"] = username
-        return sample
-
     workers = max(1, min(20, len(usernames)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        rows = list(pool.map(_one, usernames))
+        clients = list(pool.map(lambda name: login_annotator(base, name), usernames))
+    start_barrier = threading.Barrier(workers, timeout=30)
+
+    def _one(index: int) -> dict:
+        client = clients[index]
+        # Synchronize the first wave; later partial waves must not wait for
+        # nonexistent peers when --claim-samples isn't divisible by 20.
+        if index < workers:
+            start_barrier.wait()
+        sample = timed_claim(client, filters)
+        sample["username"] = usernames[index]
+        return sample
+
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        rows = list(pool.map(_one, range(len(usernames))))
+    wall_ms = (time.perf_counter() - started) * 1000
     errors = 0
     resumed = 0
     task_ids = []
@@ -566,6 +577,10 @@ def run_new_claim_scenario(base: str, usernames: list[str], filters: dict,
     return {
         "scenario": scenario,
         "filters": filters,
+        "concurrent_clients": workers,
+        "authentication": "completed before timed concurrent workload",
+        "wall_ms": wall_ms,
+        "throughput_per_s": unique / (wall_ms / 1000) if wall_ms else None,
         "error_count": errors,
         "error_rate": errors / len(rows) if rows else None,
         "resumed_count": resumed,
@@ -578,6 +593,59 @@ def run_new_claim_scenario(base: str, usernames: list[str], filters: dict,
             and unique == len(task_ids)
         ),
     }
+
+
+class LockWaitSampler:
+    """Observe waits during HTTP load; short waits can fall between samples."""
+
+    def __init__(self, dsn: str, interval: float = 0.1):
+        self.dsn, self.interval = dsn, interval
+        self.rows, self.errors = [], []
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._sample, daemon=True)
+
+    def _sample(self):
+        import psycopg
+        try:
+            with psycopg.connect(self.dsn, autocommit=True,
+                                 application_name='capacity-wait-monitor') as conn:
+                while not self.stop_event.is_set():
+                    rows = conn.execute(
+                        """SELECT state, wait_event_type, wait_event, count(*)
+                           FROM pg_stat_activity
+                           WHERE datname = current_database()
+                             AND pid <> pg_backend_pid()
+                           GROUP BY state, wait_event_type, wait_event"""
+                    ).fetchall()
+                    self.rows.append({
+                        'at': datetime.now(timezone.utc).isoformat(),
+                        'events': [dict(zip(('state', 'type', 'event', 'count'), r))
+                                   for r in rows],
+                        'lock_waiters': sum(r[3] for r in rows if r[1] == 'Lock'),
+                    })
+                    self.stop_event.wait(self.interval)
+        except Exception as exc:
+            self.errors.append(type(exc).__name__)
+
+    def start(self):
+        self.thread.start()
+
+    def finish(self, artifact_dir: Path) -> dict:
+        self.stop_event.set()
+        self.thread.join(timeout=10)
+        if self.thread.is_alive():
+            self.errors.append('sampler_thread_did_not_stop')
+        report = {
+            'interval_seconds': self.interval,
+            'sample_count': len(self.rows),
+            'samples_with_lock_waiters': sum(r['lock_waiters'] > 0 for r in self.rows),
+            'max_observed_lock_waiters': max((r['lock_waiters'] for r in self.rows), default=0),
+            'errors': self.errors,
+            'note': 'Samples taken during HTTP workload; waits shorter than the sampling interval can be missed. Counts do not measure exact wait durations.',
+        }
+        (artifact_dir / 'lock-waits.json').write_text(
+            json.dumps({**report, 'samples': self.rows}, indent=2) + '\n')
+        return report
 
 
 def main() -> int:
@@ -608,7 +676,10 @@ def main() -> int:
         help="After seed, time one admin_overview in-process and exit",
     )
     args = parser.parse_args()
-    needed = args.claim_samples + 40 + 40 + 20 + 1 + 20
+    if min(args.claim_samples, args.list_samples, args.overview_samples,
+           args.workers, args.threads) < 1:
+        parser.error('sample counts, workers and threads must be positive')
+    needed = args.claim_samples + 40 + 40 + 20 + 1 + 20 + 1
     if needed > CLAIM_USERS:
         raise SystemExit("claim sample total exceeds dedicated claim users")
 
@@ -829,6 +900,8 @@ def main() -> int:
             "overview_100k_p95_ms": TARGET_OVERVIEW_P95_MS,
         },
     }
+    wait_sampler = LockWaitSampler(dsn)
+    wait_sampler.start()
     try:
         probe = ApiClient(base)
         wait_healthy(probe)
@@ -909,16 +982,41 @@ def main() -> int:
             "locks_after": after_locks,
         }
 
-        started = time.perf_counter()
         results["claim_concurrent"] = run_new_claim_scenario(
             base, take_users(20), {}, samples_path, "claim_concurrent_20",
         )
-        results["claim_concurrent"]["wall_ms"] = (time.perf_counter() - started) * 1000
-        wall = results["claim_concurrent"]["wall_ms"]
-        assigned = results["claim_concurrent"]["assigned_task_ids"]
-        results["claim_concurrent"]["throughput_per_s"] = (
-            assigned / (wall / 1000) if wall else None
+        scoped_names = [f'load-user-{i:02d}' for i in range(19)] + take_users(1)
+        results['claim_mixed_scopes'] = run_new_claim_scenario(
+            base, scoped_names, {}, samples_path, 'claim_mixed_scopes_20',
         )
+        with db_conn() as conn:
+            scope_rows = conn.execute(
+                """SELECT u.username, a.task_id, COALESCE(sc.mode, 'all'),
+                          CASE WHEN COALESCE(sc.mode, 'all') = 'all' THEN true
+                               WHEN sc.mode = 'none' THEN false
+                               WHEN src.scene_code IS NULL THEN sc.allow_unknown
+                               ELSE EXISTS (SELECT 1 FROM annotator_scene_access sa
+                                   WHERE sa.user_id=u.id AND sa.scene_code=src.scene_code)
+                          END AS allowed
+                   FROM annotators u
+                   LEFT JOIN assignments a ON a.user_id=u.id
+                   LEFT JOIN annotator_scene_scopes sc ON sc.user_id=u.id
+                   LEFT JOIN task_sources src ON src.id=a.claim_source_id
+                   WHERE u.username = ANY(%s)""", (scoped_names,),
+            ).fetchall()
+        scope_ok = len(scope_rows) == 20 and all(r[1] is not None and r[3] for r in scope_rows)
+        results['claim_mixed_scopes']['scope_validated'] = scope_ok
+        results['claim_mixed_scopes']['scope_modes'] = {
+            mode: sum(r[2] == mode for r in scope_rows) for mode in ('all', 'restricted', 'none')
+        }
+        results['claim_mixed_scopes']['ok'] &= scope_ok
+        none_sample = timed_claim(login_annotator(base, 'load-user-19'), {})
+        record_samples(samples_path, 'claim_scope_none', [none_sample])
+        results['claim_scope_none'] = {
+            'sample': none_sample,
+            'ok': (none_sample['http_status'] == 409 and not none_sample['assigned']
+                   and none_sample['pool_reason'] == 'no_scene_access'),
+        }
 
         admin = login_admin(base, ADMIN_KEY)
         for _ in range(8):
@@ -936,6 +1034,8 @@ def main() -> int:
         results["list_50"] = {
             "latency": summarize([row["ms"] for row in list_rows if row["http_status"] == 200]),
             "error_count": sum(1 for row in list_rows if row["http_status"] != 200),
+            "payload_error_count": sum(1 for row in list_rows
+                                       if row['item_count'] != 50 or row['matched_count'] != TASKS),
             "item_count": list_rows[0]["item_count"] if list_rows else 0,
             "matched_count": list_rows[0]["matched_count"] if list_rows else None,
         }
@@ -952,6 +1052,7 @@ def main() -> int:
                 [row["ms"] for row in overview_rows if row["http_status"] == 200]
             ),
             "error_count": sum(1 for row in overview_rows if row["http_status"] != 200),
+            "payload_error_count": sum(1 for row in overview_rows if row['total'] != TASKS),
             "total_audio_count": overview_rows[0]["total"] if overview_rows else None,
         }
 
@@ -962,6 +1063,7 @@ def main() -> int:
             )
             results["lock_snapshot_final"] = db_lock_snapshot(conn)
     finally:
+        results['wait_sampling'] = wait_sampler.finish(artifact_dir)
         gunicorn.terminate()
         try:
             gunicorn.wait(timeout=20)
@@ -996,9 +1098,13 @@ def main() -> int:
             claim_p95 is not None and claim_p95 <= TARGET_CLAIM_P95_MS
             and results["claim_normal"]["ok"]
         ),
-        "list_50_p95": list_p95 is not None and list_p95 <= TARGET_LIST_P95_MS,
+        "list_50_p95": (list_p95 is not None and list_p95 <= TARGET_LIST_P95_MS
+                        and results['list_50']['error_count'] == 0
+                        and results['list_50']['payload_error_count'] == 0),
         "overview_100k_p95": (
             overview_p95 is not None and overview_p95 <= TARGET_OVERVIEW_P95_MS
+            and results['overview_100k']['error_count'] == 0
+            and results['overview_100k']['payload_error_count'] == 0
         ),
         "empty_scene": results.get("claim_empty", {}).get("ok"),
         "busy": results.get("claim_busy", {}).get("ok"),
@@ -1006,6 +1112,10 @@ def main() -> int:
         "high_heavy_unique": results.get("claim_high_heavy", {}).get("ok"),
         "high_rare_unique": results.get("claim_high_rare", {}).get("ok"),
         "narrow_unique": results.get("claim_narrow", {}).get("ok"),
+        "mixed_scopes": results.get('claim_mixed_scopes', {}).get('ok'),
+        "scope_none": results.get('claim_scope_none', {}).get('ok'),
+        "wait_sampling": (results.get('wait_sampling', {}).get('sample_count', 0) > 0
+                          and not results.get('wait_sampling', {}).get('errors')),
     }
     results["pass"]["all_gates"] = all(bool(value) for value in results["pass"].values())
     (artifact_dir / "results.json").write_text(
