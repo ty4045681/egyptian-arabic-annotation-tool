@@ -36,6 +36,12 @@ def store_preprocessed_task(
     skip_if_human_modified: bool = True,
     eligible: bool | None = None,
     task_extra: dict | None = None,
+    sources=None,
+    identity=None,
+    pcm_sha256: str | None = None,
+    processing_token: str | None = None,
+    metadata_only: bool = False,
+    batch_code: str | None = None,
 ) -> dict:
     """Insert or refresh a pending task with a draft version.
 
@@ -53,8 +59,25 @@ def store_preprocessed_task(
         )
         row = cur.fetchone()
 
+        def _sync_sources(task_id):
+            if not sources and identity is None and not pcm_sha256:
+                return "unchanged"
+            from annotation_metadata.ingestion import apply_store_side_effects
+            from annotation_metadata.contracts import PreprocessedTaskInput
+            payload = PreprocessedTaskInput(
+                rel_path=rel_path, filename=filename, folder=folder,
+                duration=float(duration), segments=[],
+                sources=list(sources or []), identity=identity,
+                pcm_sha256=pcm_sha256, processing_token=None,
+                metadata_only=True, batch_code=batch_code,
+            )
+            return apply_store_side_effects(cur, task_id, payload)
+
         if row is not None:
             task_id, published_vid, status, baseline_vid = row
+            if not metadata_only:
+                from annotation_metadata.processing import require_processing_token
+                require_processing_token(cur, task_id, processing_token)
             protected = published_vid is not None or cur.execute(
                 "SELECT 1 FROM assignments WHERE task_id = %s", (task_id,)
             ).fetchone()
@@ -65,12 +88,26 @@ def store_preprocessed_task(
                 (task_id,),
             ).fetchone()
             protected = protected or (draft and draft[2])
-            if protected:
-                if skip_if_human_modified:
-                    return {"action": "skipped_human", "task_id": str(task_id)}
-                raise TaskProtectedError(
-                    f"{rel_path}: task is assigned, published, or human-modified"
-                )
+            if protected or metadata_only:
+                metadata_action = _sync_sources(task_id)
+                if processing_token and not metadata_only:
+                    from annotation_metadata.processing import complete_processing
+                    complete_processing(cur, task_id, processing_token)
+                if protected:
+                    if skip_if_human_modified:
+                        return {
+                            "action": "skipped_human",
+                            "task_id": str(task_id),
+                            "metadata_action": metadata_action,
+                        }
+                    raise TaskProtectedError(
+                        f"{rel_path}: task is assigned, published, or human-modified"
+                    )
+                return {
+                    "action": metadata_action,
+                    "task_id": str(task_id),
+                    "metadata_action": metadata_action,
+                }
             if draft:
                 draft_vid = draft[0]
                 _replace_draft(cur, task_id, draft_vid, duration, segments)
@@ -81,7 +118,12 @@ def store_preprocessed_task(
                             duration=duration, eligible=task_eligible,
                             preprocessed_at=preprocessed_at,
                             category=category, extra=task_extra)
-                return {"action": "updated", "task_id": str(task_id)}
+                metadata_action = _sync_sources(task_id)
+                if processing_token:
+                    from annotation_metadata.processing import complete_processing
+                    complete_processing(cur, task_id, processing_token)
+                return {"action": "updated", "task_id": str(task_id),
+                        "metadata_action": metadata_action}
 
         # New task
         task_id = uuid.uuid4()
@@ -118,7 +160,12 @@ def store_preprocessed_task(
             (baseline_id, task_id),
         )
         _upsert_waveform(cur, task_id, waveform_payload)
-        return {"action": "created", "task_id": str(task_id)}
+        metadata_action = _sync_sources(task_id)
+        if processing_token:
+            from annotation_metadata.processing import complete_processing
+            complete_processing(cur, task_id, processing_token)
+        return {"action": "created", "task_id": str(task_id),
+                "metadata_action": metadata_action}
 
 
 def _replace_draft(cur, task_id, draft_vid, duration, segments) -> None:

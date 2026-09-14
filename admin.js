@@ -408,7 +408,7 @@ async function enterApp(session) {
   $("loginView").hidden = true;
   $("adminApp").hidden = false;
   renderViewShell();
-  const results = await Promise.allSettled([loadAnnotators(), loadCurrentView()]);
+  const results = await Promise.allSettled([loadAnnotators(), loadCurrentView(), loadMetadataFacets()]);
   const failed = results.find((result) => result.status === "rejected" && result.reason?.name !== "AbortError");
   if (failed && failed.reason?.status !== 401) showStatus(failed.reason.message || "Some dashboard data could not be loaded.");
 }
@@ -485,6 +485,54 @@ function normaliseAnnotator(raw) {
     currentCount: numberValue(pick(raw, ["current_count", "current_contributions", "annotated"], 0))
       || numberValue(pick(raw, ["current.annotated_count"], 0)) + numberValue(pick(raw, ["current.skipped_count"], 0)),
   };
+}
+
+async function loadMetadataFacets() {
+  try {
+    const data = await api.get("/api/admin/metadata/facets");
+    const scenes = listValue(data, ["scenes"]);
+    const batches = listValue(data, ["batches"]);
+    const sceneSelect = $("corpusSourceScene");
+    if (sceneSelect) {
+      const current = sceneSelect.value;
+      sceneSelect.replaceChildren(element("option", { value: "", text: "All source scenes" }), element("option", { value: "unknown", text: "Unknown source" }));
+      scenes.forEach((scene) => sceneSelect.appendChild(element("option", { value: scene.code, text: scene.label_zh || scene.code })));
+      sceneSelect.value = current;
+    }
+    const batchSelect = $("corpusBatch");
+    if (batchSelect) {
+      const current = batchSelect.value;
+      batchSelect.replaceChildren(element("option", { value: "", text: "All batches" }));
+      batches.forEach((batch) => batchSelect.appendChild(element("option", { value: batch.batch_code, text: batch.batch_code })));
+      batchSelect.value = current;
+    }
+    const grid = $("scopeSceneGrid");
+    if (grid && !grid.childElementCount) {
+      scenes.forEach((scene) => {
+        const label = element("label");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = scene.code;
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(scene.label_zh || scene.code));
+        grid.appendChild(label);
+      });
+    }
+    const reviewGrid = $("adminReviewScenes");
+    if (reviewGrid && !reviewGrid.childElementCount) {
+      scenes.forEach((scene) => {
+        const label = element("label");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = scene.code;
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(scene.label_zh || scene.code));
+        reviewGrid.appendChild(label);
+      });
+    }
+  } catch (_) {
+    // Facets are progressive enhancement.
+  }
 }
 
 async function loadAnnotators() {
@@ -954,6 +1002,17 @@ function renderAnnotatorDetail(data) {
     Revoked: pick(stats, ["revoked"], 0),
   });
   renderDistribution($("annotatorLabelMix"), labelMix);
+  const scope = pick(data, ["scene_scope", "scope"], {});
+  if ($("scopeMode")) {
+    $("scopeMode").value = pick(scope, ["mode"], "all");
+    $("scopeAllowUnknown").checked = boolValue(pick(scope, ["allow_unknown"], false));
+    $("scopeReason").value = "";
+    $("sceneScopeForm").dataset.revision = String(pick(scope, ["revision"], 0));
+    const allowed = new Set(listValue(scope, ["scene_codes"]));
+    for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) {
+      box.checked = allowed.has(box.value);
+    }
+  }
 }
 
 function statusBadge(status) {
@@ -1045,7 +1104,10 @@ async function loadCorpus(append = false, epoch = state.requestEpoch) {
     cursor: append ? state.corpusTaskCursor : "",
     q: $("corpusSearch").value.trim(),
     status: $("corpusStatus").value,
-    lifecycle: "published",
+    source_scene: $("corpusSourceScene")?.value || "",
+    source_confidence: $("corpusSourceConfidence")?.value || "",
+    batch_code: $("corpusBatch")?.value || "",
+    review_status: $("corpusReviewStatus")?.value || "",
   };
   try {
     const data = await api.get(apiUrl("/api/admin/tasks", extra));
@@ -1072,8 +1134,10 @@ function renderCorpusTasks() {
     row.appendChild(element("td", { text: item.annotatorName }));
     row.appendChild(element("td", {}, statusBadge(item.status)));
     row.appendChild(element("td", { className: "mono-cell", text: formatDuration(item.durationSeconds) }));
-    row.appendChild(element("td", { text: item.category }));
-    row.appendChild(element("td", { text: formatDateTime(item.submittedAt) }));
+    row.appendChild(element("td", { text: (item.source_scenes || item.sourceScenes || []).join(", ") || "unknown" }));
+    row.appendChild(element("td", { text: item.source_confidence || item.sourceConfidence || "unknown" }));
+    row.appendChild(element("td", { text: item.review_status || item.reviewStatus || "pending" }));
+    row.appendChild(element("td", { text: formatDateTime(item.submittedAt || item.updated_at) }));
     const actions = element("td", { className: "actions-cell" });
     actions.appendChild(element("button", { className: "table-action", text: "View", type: "button", dataset: { taskAction: "view-corpus", taskId: item.taskId } }));
     if (item.revocable) actions.appendChild(element("button", { className: "table-action", text: "Revoke", type: "button", dataset: { taskAction: "revoke-corpus", taskId: item.taskId } }));
@@ -1246,6 +1310,22 @@ function renderTaskDetail(data, task) {
     $("taskDetail").appendChild(element("div", { className: "table-state", text: "No segment detail is available." }));
   }
   $("revokeFromDetailButton").hidden = !task.revocable;
+  const metadata = pick(data, ["metadata"], null);
+  if (metadata && window.AnnotationMetadata) {
+    const banner = element("div");
+    $("taskDetail").appendChild(banner);
+    AnnotationMetadata.renderBanner(banner, metadata);
+    const details = element("div");
+    $("taskDetail").appendChild(details);
+    AnnotationMetadata.renderDetails(details, metadata);
+  }
+  const form = $("adminReviewForm");
+  if (form) {
+    form.hidden = !pick(data, ["current_version_id"], null);
+    form.dataset.taskId = task.taskId || "";
+    form.dataset.versionId = pick(data, ["current_version_id"], "") || "";
+    form.dataset.reviewId = pick(metadata, ["scene_review.id"], "") || "";
+  }
 }
 
 function revokeItemsForTasks(tasks) {
@@ -1708,6 +1788,46 @@ function setupEvents() {
     setButtonBusy($("loadMoreCorpusTasks"), false);
   });
   $("exportCorpusButton").addEventListener("click", () => exportTasks(state.corpusTasks, "corpus-tasks"));
+  $("sceneScopeForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!state.selectedAnnotatorId) return;
+    const codes = Array.from(document.querySelectorAll("#scopeSceneGrid input[type=checkbox]:checked")).map((box) => box.value);
+    try {
+      await api.request(`/api/admin/annotators/${encodeURIComponent(state.selectedAnnotatorId)}/scene-scope`, {
+        method: "PUT",
+        body: {
+          operation_id: crypto.randomUUID(),
+          expected_revision: Number($("sceneScopeForm").dataset.revision || 0),
+          mode: $("scopeMode").value,
+          scene_codes: $("scopeMode").value === "restricted" ? codes : [],
+          allow_unknown: $("scopeAllowUnknown").checked,
+          reason: $("scopeReason").value,
+        },
+      });
+      toast("Scene scope saved");
+      await loadAnnotator(state.selectedAnnotatorId);
+    } catch (error) { toast(error.message, "error"); }
+  });
+  $("adminReviewForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = $("adminReviewForm");
+    const taskId = form.dataset.taskId;
+    if (!taskId) return;
+    const codes = Array.from(document.querySelectorAll("#adminReviewScenes input[type=checkbox]:checked")).map((box) => box.value);
+    try {
+      await api.post(`/api/admin/annotations/${encodeURIComponent(taskId)}/scene-review`, {
+        operation_id: crypto.randomUUID(),
+        expected_version_id: form.dataset.versionId,
+        expected_review_id: form.dataset.reviewId || null,
+        status: $("adminReviewStatus").value,
+        scene_codes: codes,
+        note: $("adminReviewNote").value,
+        reason: $("adminReviewReason").value,
+      });
+      toast("Scene review corrected");
+      await showTask(taskId);
+    } catch (error) { toast(error.message, "error"); }
+  });
 
   $("auditFilterForm").addEventListener("submit", async (event) => {
     event.preventDefault();

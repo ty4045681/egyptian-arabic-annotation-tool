@@ -109,9 +109,33 @@ def load_batch(after_order: int, *, force: bool, size: int = 200) -> list[dict]:
     ]
 
 
-def update_category(task_id, category: str) -> None:
-    with db_tx() as conn:
-        conn.execute(
+def update_category(task_id, category: str, *, model_name: str = "qwen-turbo",
+                    prompt_version: str = "classify-v1", score=None) -> None:
+    from annotation_metadata.repository import insert_prediction
+    from annotation_metadata.taxonomy import model_scene_code
+    import hashlib
+    with db_tx() as conn, conn.cursor() as cur:
+        row = cur.execute(
+            """SELECT t.current_published_version_id, d.id, d.revision
+               FROM annotation_tasks t
+               LEFT JOIN annotation_versions d
+                 ON d.task_id = t.id AND d.lifecycle = 'draft'
+               WHERE t.id = %s""",
+            (task_id,),
+        ).fetchone()
+        version_id = (row[0] or row[1]) if row else None
+        revision = row[2] if row else None
+        digest = hashlib.sha256(
+            f"{task_id}:{category}:{model_name}:{prompt_version}".encode()
+        ).hexdigest()
+        insert_prediction(
+            cur, task_id=task_id, predicted_label=category,
+            model_name=model_name, prompt_version=prompt_version,
+            input_version_id=version_id, input_revision=revision,
+            input_digest=digest, score=score,
+            predicted_scene_code=model_scene_code(category),
+        )
+        cur.execute(
             "UPDATE annotation_tasks SET category = %s, updated_at = now() WHERE id = %s",
             (category, task_id),
         )

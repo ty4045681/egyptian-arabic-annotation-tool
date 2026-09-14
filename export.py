@@ -34,7 +34,8 @@ def export_xlsx(output: Path) -> int:
     fill = PatternFill(start_color="1e1e2e", end_color="1e1e2e", fill_type="solid")
     font = Font(bold=True, size=11, color="ffffff")
     headers = []
-    for value in ["User", "Folder", "Audio", "Duration (s)", "Status"]:
+    for value in ["User", "Folder", "Audio", "Duration (s)", "Status",
+                  "Source scenes", "Source confidence", "Batches", "Scene review"]:
         cell = WriteOnlyCell(ws, value=value)
         cell.fill = fill
         cell.font = font
@@ -48,16 +49,27 @@ def export_xlsx(output: Path) -> int:
         with conn.cursor(name="annotation_export", row_factory=None) as cur:
             cur.itersize = 2000
             cur.execute(
-                """SELECT u.username, t.folder, t.filename, t.duration, t.status
+                """SELECT u.username, t.folder, t.filename, t.duration, t.status, t.id
                    FROM annotation_tasks t
                    JOIN annotation_versions v ON v.id = t.current_published_version_id
                    JOIN annotators u ON u.id = v.submitted_by_user_id
                    WHERE t.status IN ('annotated', 'skipped')
                    ORDER BY t.folder, t.filename"""
             )
-            for username, folder, filename, duration, status in cur:
-                ws.append([username, folder, filename, round(float(duration or 0), 1), status])
-                count += 1
+            rows = list(cur)
+        from annotation_metadata.repository import metadata_summaries
+        with conn.cursor() as summary_cur:
+            summaries = metadata_summaries(summary_cur, [row[5] for row in rows])
+        for username, folder, filename, duration, status, task_id in rows:
+            summary = summaries.get(str(task_id), {})
+            ws.append([
+                username, folder, filename, round(float(duration or 0), 1), status,
+                ",".join(summary.get("source_scenes") or []),
+                summary.get("source_confidence") or "unknown",
+                ",".join(summary.get("batch_codes") or []),
+                summary.get("review_status") or "pending",
+            ])
+            count += 1
 
     output.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output)

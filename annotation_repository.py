@@ -55,6 +55,12 @@ class TaskPoolBusy(ConflictError):
 class ValidationError(RepositoryError):
     status = 400
 
+    def __init__(self, message, *, code=None, field=None, details=None):
+        super().__init__(message)
+        self.code = code
+        self.field = field
+        self.details = details
+
 
 class ForbiddenError(RepositoryError):
     status = 403
@@ -109,6 +115,8 @@ def ensure_user(cur: psycopg.Cursor, username: str) -> dict:
            RETURNING id, username, status""",
         (uid, username),
     ).fetchone()
+    from annotation_metadata.repository import ensure_default_scope
+    ensure_default_scope(cur, row[0])
     return {"id": row[0], "username": row[1], "status": row[2]}
 
 
@@ -246,11 +254,21 @@ def _claimable_tasks_from(*, user_scoped: bool) -> str:
     )
 
 
-def pool_state(user_id: str | None = None) -> dict:
+def pool_state(user_id: str | None = None, *, source_scene: str | None = None,
+               batch_code: str | None = None,
+               source_confidence: str | None = None) -> dict:
     """Return global totals and, when supplied, availability for one user."""
     uid = _validate_uuid(user_id, "user_id") if user_id is not None else None
-    claimable_from = _claimable_tasks_from(user_scoped=uid is not None)
-    claimable_params = (uid, uid) if uid is not None else ()
+    if uid is not None:
+        from annotation_metadata.claiming import parse_claim_filters, pool_snapshot
+        filters = parse_claim_filters(
+            source_scene=source_scene, batch_code=batch_code,
+            source_confidence=source_confidence,
+        )
+        with db_tx() as conn, conn.cursor() as cur:
+            return pool_snapshot(cur, uid, filters)
+
+    claimable_from = _claimable_tasks_from(user_scoped=False)
     with db_tx() as conn, conn.cursor() as cur:
         counts = dict(
             cur.execute(
@@ -267,7 +285,6 @@ def pool_state(user_id: str | None = None) -> dict:
         ).fetchone()[0]
         available = cur.execute(
             "SELECT count(*) " + claimable_from,
-            claimable_params,
         ).fetchone()[0]
 
     if available > 0:
@@ -325,6 +342,22 @@ def _row_to_assignment(row, segments: list, waveform_b64: str | None) -> dict:
     }
 
 
+def _attach_assignment_metadata(cur, payload: dict, user_id) -> dict:
+    from annotation_metadata.serializers import attach_metadata
+    published = cur.execute(
+        "SELECT current_published_version_id FROM annotation_tasks WHERE id = %s",
+        (payload["task_id"],),
+    ).fetchone()
+    attach_metadata(
+        cur, payload, payload["task_id"],
+        version_id=payload.get("version_id"),
+        published_version_id=published[0] if published else None,
+        assignment_user_id=user_id,
+        include_draft_review=True,
+    )
+    return payload
+
+
 def get_assignment(user_id: str) -> dict | None:
     """Read-only: the user's active assignment (never implicitly claims)."""
     with db_tx() as conn, conn.cursor() as cur:
@@ -333,7 +366,8 @@ def get_assignment(user_id: str) -> dict | None:
             return None
         segments = _load_segments(cur, row[9])
         wf = _load_waveform(cur, row[0])
-        return _row_to_assignment(row, segments, wf)
+        payload = _row_to_assignment(row, segments, wf)
+        return _attach_assignment_metadata(cur, payload, user_id)
 
 
 def has_assignment(user_id: str) -> bool:
@@ -345,14 +379,28 @@ def has_assignment(user_id: str) -> bool:
         ).fetchone()[0]
 
 
-def claim(user_id: str) -> dict:
+def claim(user_id: str, *, source_scene: str | None = None,
+          batch_code: str | None = None,
+          source_confidence: str | None = None) -> dict:
     """Claim one task for the user, preferring migration-reserved drafts.
 
+    An existing assignment is always resumed, ignoring the new scene selector.
     Raises NoTaskAvailable when no task matches the user's claim conditions,
     or TaskPoolBusy when matching rows are temporarily locked.
     """
+    from annotation_metadata.claim_policy import get_claim_policy
+    from annotation_metadata.claiming import (
+        assert_scope_allows, candidate_exists_sql, claimable_select_sql,
+        parse_claim_filters, task_still_matches,
+    )
+    from annotation_metadata.queries import load_scope
+
     uid = _validate_uuid(user_id, "user_id")
-    claimable_from = _claimable_tasks_from(user_scoped=True)
+    filters = parse_claim_filters(
+        source_scene=source_scene, batch_code=batch_code,
+        source_confidence=source_confidence,
+    )
+    policy = get_claim_policy()
     with db_tx() as conn, conn.cursor() as cur:
         # Serialize claims for the same user. Different users still proceed
         # concurrently and SKIP LOCKED prevents task contention.
@@ -363,39 +411,45 @@ def claim(user_id: str) -> dict:
         if existing:
             segments = _load_segments(cur, existing[9])
             wf = _load_waveform(cur, existing[0])
-            return _row_to_assignment(existing, segments, wf)
+            payload = _row_to_assignment(existing, segments, wf)
+            return _attach_assignment_metadata(cur, payload, uid)
+
+        scope = load_scope(cur, uid)
+        assert_scope_allows(scope, filters)
+        select_sql, select_params = claimable_select_sql(
+            scope, filters, uid, policy.name
+        )
+        exists_sql, exists_params = candidate_exists_sql(scope, filters, uid)
 
         task_row = None
         lease_token = None
         for _attempt in range(64):
-            task_row = cur.execute(
-                """SELECT t.id, t.rel_path, t.filename, t.folder, t.duration, t.status,
-                          v.id, v.revision, t.reserved_for_user_id """
-                + claimable_from
-                + """ ORDER BY (t.reserved_for_user_id = %s) DESC, t.allocation_order
-                      LIMIT 1
-                      FOR UPDATE OF t, v SKIP LOCKED""",
-                (uid, uid, uid),
-            ).fetchone()
+            task_row = cur.execute(select_sql, select_params).fetchone()
             if not task_row:
-                candidate_exists = cur.execute(
-                    "SELECT EXISTS(SELECT 1 " + claimable_from + ")",
-                    (uid, uid),
-                ).fetchone()[0]
+                candidate_exists = cur.execute(exists_sql, exists_params).fetchone()[0]
                 if candidate_exists:
                     raise TaskPoolBusy("Task pool is busy; retry claim")
                 raise NoTaskAvailable("No task available to claim")
 
-            task_id, rel_path, filename, folder, duration, status, version_id, revision, _reserved = task_row
+            (task_id, rel_path, filename, folder, duration, status, version_id,
+             revision, _reserved, best_id, best_scene, best_confidence) = task_row
+            still = task_still_matches(cur, task_id, scope, filters, uid)
+            if still is None:
+                continue
+            _task_id, best_id, best_scene, best_confidence = still
             candidate_token = uuid.uuid4()
             inserted = cur.execute(
                 """INSERT INTO assignments
                        (user_id, task_id, working_version_id, mode, lease_token,
-                        base_revision, assigned_at, last_activity_at)
-                   VALUES (%s, %s, %s, 'annotation', %s, %s, now(), now())
+                        base_revision, assigned_at, last_activity_at,
+                        claim_scene_code, claim_source_id, claim_policy,
+                        claim_confidence)
+                   VALUES (%s, %s, %s, 'annotation', %s, %s, now(), now(),
+                           %s, %s, %s, %s)
                    ON CONFLICT DO NOTHING
                    RETURNING lease_token""",
-                (uid, task_id, version_id, candidate_token, revision),
+                (uid, task_id, version_id, candidate_token, revision,
+                 best_scene, best_id, policy.name, best_confidence),
             ).fetchone()
             if inserted:
                 lease_token = inserted[0]
@@ -410,11 +464,17 @@ def claim(user_id: str) -> dict:
             """INSERT INTO annotation_events (user_id, task_id, version_id,
                                               event_type, to_status, details)
                VALUES (%s, %s, %s, 'claimed', 'pending', %s)""",
-            (uid, task_id, version_id, Json({"mode": "annotation"})),
+            (uid, task_id, version_id, Json({
+                "mode": "annotation",
+                "claim_scene_code": best_scene,
+                "claim_confidence": best_confidence,
+                "claim_policy": policy.name,
+                "claim_source_id": str(best_id) if best_id else None,
+            })),
         )
         segments = _load_segments(cur, version_id)
         wf = _load_waveform(cur, task_id)
-        return {
+        payload = {
             "assigned": True,
             "task_id": str(task_id),
             "mode": "annotation",
@@ -432,6 +492,7 @@ def claim(user_id: str) -> dict:
             "waveform_b64": wf,
             "resumed": False,
         }
+        return _attach_assignment_metadata(cur, payload, uid)
 
 
 def _lock_assignment(cur, user_id, lease_token: str | None):
@@ -604,7 +665,7 @@ def _validate_version_segments(cur, version_id, task_id) -> None:
 # ============================================================
 def save_draft(user_id: str, lease_token: str, expected_revision: int,
                dirty_segments: list[dict], operation_id: str,
-               request_hash: str) -> dict:
+               request_hash: str, scene_review=None) -> dict:
     uid = _validate_uuid(user_id, "user_id")
     op_uuid = _validate_uuid(operation_id, "operation_id")
     with db_tx() as conn, conn.cursor() as cur:
@@ -623,6 +684,11 @@ def save_draft(user_id: str, lease_token: str, expected_revision: int,
         if current != int(expected_revision):
             raise RevisionConflict(current)
         _apply_dirty_segments(cur, asg["version_id"], dirty_segments)
+        from annotation_metadata.reviews import apply_optional_review
+        review, review_changed = apply_optional_review(
+            cur, version_id=asg["version_id"], payload=scene_review,
+            actor_user_id=uid, operation_id=op_uuid,
+        )
         new_rev = current + 1
         cur.execute(
             """UPDATE annotation_versions
@@ -631,7 +697,11 @@ def save_draft(user_id: str, lease_token: str, expected_revision: int,
                WHERE id = %s""",
             (new_rev, uid, asg["version_id"]),
         )
-        response = {"success": True, "revision": new_rev}
+        response = {
+            "success": True, "revision": new_rev,
+            "scene_review": review,
+            "scene_review_changed": review_changed,
+        }
         _store_operation(cur, op_uuid, uid, "save_draft", request_hash, response)
         return response
 
@@ -639,7 +709,7 @@ def save_draft(user_id: str, lease_token: str, expected_revision: int,
 def complete(user_id: str, lease_token: str, expected_revision: int,
              target_status: str, skip_reasons: list[str],
              dirty_segments: list[dict], operation_id: str,
-             request_hash: str) -> dict:
+             request_hash: str, scene_review=None) -> dict:
     if target_status not in ("annotated", "skipped"):
         raise ValidationError("target_status must be 'annotated' or 'skipped'")
     if not isinstance(skip_reasons, list) or any(
@@ -685,6 +755,14 @@ def complete(user_id: str, lease_token: str, expected_revision: int,
 
         _apply_dirty_segments(cur, asg["version_id"], dirty_segments)
         _validate_version_segments(cur, asg["version_id"], asg["task_id"])
+        from annotation_metadata.reviews import apply_optional_review
+        review, _review_changed = apply_optional_review(
+            cur, version_id=asg["version_id"], payload=scene_review,
+            actor_user_id=uid, operation_id=op_uuid,
+        )
+        if review is None:
+            from annotation_metadata.repository import latest_review
+            review = latest_review(cur, asg["version_id"])
 
         if target_status == "annotated":
             empty = cur.execute(
@@ -728,6 +806,7 @@ def complete(user_id: str, lease_token: str, expected_revision: int,
             "task_id": str(asg["task_id"]),
             "status": target_status,
             "skip_reasons": reasons,
+            "scene_review": review,
         }
         _store_operation(cur, op_uuid, uid, "complete", request_hash, response)
         cur.execute(
@@ -737,7 +816,10 @@ def complete(user_id: str, lease_token: str, expected_revision: int,
                VALUES (%s, %s, %s, %s, 'completed', %s, %s, %s)""",
             (op_uuid, uid, asg["task_id"], asg["version_id"],
              asg["task_status"], target_status,
-             Json({"mode": asg["mode"], "skip_reasons": reasons})),
+             Json({
+                 "mode": asg["mode"], "skip_reasons": reasons,
+                 "scene_review_id": (review or {}).get("id"),
+             })),
         )
         cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
         return response
@@ -909,7 +991,7 @@ def completed_detail(user_id: str, task_id: str) -> dict:
             raise ForbiddenError("You can only view your own submissions")
         segments = _load_segments(cur, row[8])
         wf = _load_waveform(cur, tid)
-        return {
+        payload = {
             "task_id": str(row[0]),
             "rel_path": row[1],
             "filename": row[2],
@@ -924,6 +1006,12 @@ def completed_detail(user_id: str, task_id: str) -> dict:
             "segments": segments,
             "waveform_b64": wf,
         }
+        from annotation_metadata.serializers import attach_metadata
+        attach_metadata(
+            cur, payload, tid, version_id=row[8],
+            published_version_id=row[8],
+        )
+        return payload
 
 
 def reopen_completed(user_id: str, task_id: str, operation_id: str) -> dict:
@@ -1299,7 +1387,29 @@ def _normalize_admin_filters(filters: dict | None) -> dict:
         raise ValidationError(
             "lifecycle must be all|published|revoked|superseded"
         )
+    from annotation_metadata.contracts import TaskFilter, parse_strict
+    result["metadata"] = parse_strict(TaskFilter, {
+        "source_scene": raw.get("source_scene") or None,
+        "source_confidence": raw.get("source_confidence") or None,
+        "batch_code": raw.get("batch_code") or None,
+        "review_status": raw.get("review_status") or None,
+        "prediction_scene": raw.get("prediction_scene") or None,
+        "human_scene": raw.get("human_scene") or None,
+    })
     return result
+
+
+def _applied_admin_filters(filters: dict) -> dict:
+    metadata = filters.get("metadata")
+    dumped = metadata.model_dump() if metadata is not None else {}
+    return {
+        "status": filters.get("status"),
+        "folder": filters.get("folder") or None,
+        "category": filters.get("category") or None,
+        "annotator_id": str(filters["annotator_id"]) if filters.get("annotator_id") else None,
+        "lifecycle": filters.get("lifecycle"),
+        **{key: value for key, value in dumped.items() if value},
+    }
 
 
 def _admin_task_filter_sql(filters: dict, *, task_alias="t",
@@ -1340,6 +1450,13 @@ def _admin_task_filter_sql(filters: dict, *, task_alias="t",
     if filters["to"]:
         clauses.append(f"{timestamp} < %s")
         params.append(filters["to"])
+    metadata = filters.get("metadata")
+    if metadata is not None:
+        from annotation_metadata.queries import metadata_filter_sql
+        meta_sql, meta_params = metadata_filter_sql(metadata, task_alias=task_alias)
+        if meta_sql != "true":
+            clauses.append(meta_sql)
+            params.extend(meta_params)
     return (" AND ".join(clauses) if clauses else "true"), params
 
 
@@ -1476,6 +1593,101 @@ def admin_overview(filters: dict | None = None) -> dict:
                 WHERE {where}""",
             params,
         ).fetchone()
+        from annotation_metadata.queries import SceneScope, best_source_lateral
+        from annotation_metadata.taxonomy import scene_label
+        admin_scope = SceneScope(mode="all")
+        best_sql, best_params = best_source_lateral(
+            scope=admin_scope, filters=normalized["metadata"]
+        )
+        conf_rows = cur.execute(
+            f"""SELECT COALESCE(best.confidence, 'unknown'), count(*),
+                       COALESCE(sum(t.duration), 0)
+                FROM annotation_tasks t
+                LEFT JOIN annotation_versions v
+                  ON v.id = t.current_published_version_id
+                {best_sql}
+                WHERE {where}
+                GROUP BY 1 ORDER BY 1""",
+            (*best_params, *params),
+        ).fetchall()
+        scene_rows = cur.execute(
+            f"""SELECT scene_code, count(*), COALESCE(sum(duration), 0)
+                FROM (
+                    SELECT DISTINCT t.id, COALESCE(ts.scene_code, 'unknown') AS scene_code,
+                           t.duration
+                    FROM annotation_tasks t
+                    LEFT JOIN annotation_versions v
+                      ON v.id = t.current_published_version_id
+                    JOIN task_sources ts ON ts.task_id = t.id AND ts.is_current
+                    WHERE {where}
+                ) grouped
+                GROUP BY scene_code ORDER BY count(*) DESC, scene_code""",
+            params,
+        ).fetchall()
+        unknown_scene = cur.execute(
+            f"""SELECT count(*), COALESCE(sum(t.duration), 0)
+                FROM annotation_tasks t
+                LEFT JOIN annotation_versions v
+                  ON v.id = t.current_published_version_id
+                WHERE {where}
+                  AND NOT EXISTS (
+                    SELECT 1 FROM task_sources ts
+                    WHERE ts.task_id = t.id AND ts.is_current
+                      AND ts.scene_code IS NOT NULL
+                  )""",
+            params,
+        ).fetchone()
+        review_row = cur.execute(
+            f"""SELECT
+                  count(*) FILTER (WHERE t.current_published_version_id IS NULL),
+                  count(*) FILTER (
+                    WHERE t.current_published_version_id IS NOT NULL
+                      AND COALESCE((
+                        SELECT sr.status FROM scene_reviews sr
+                        WHERE sr.version_id = t.current_published_version_id
+                          AND NOT sr.superseded
+                        ORDER BY sr.review_no DESC LIMIT 1
+                      ), 'pending') = 'pending'
+                  ),
+                  count(*) FILTER (
+                    WHERE (
+                      SELECT sr.status FROM scene_reviews sr
+                      WHERE sr.version_id = t.current_published_version_id
+                        AND NOT sr.superseded
+                      ORDER BY sr.review_no DESC LIMIT 1
+                    ) = 'confirmed'
+                  )
+                FROM annotation_tasks t
+                LEFT JOIN annotation_versions v
+                  ON v.id = t.current_published_version_id
+                WHERE {where}""",
+            params,
+        ).fetchone()
+
+    confidence_buckets = [
+        {"confidence": item[0], "task_count": int(item[1]),
+         "duration_seconds": float(item[2])}
+        for item in conf_rows
+    ]
+    source_scene_groups = [
+        {"scene_code": item[0], "label": scene_label(item[0]),
+         "task_count": int(item[1]), "duration_seconds": float(item[2]),
+         "overlapping": True}
+        for item in scene_rows
+    ]
+    if unknown_scene and int(unknown_scene[0]):
+        if not any(item["scene_code"] == "unknown" for item in source_scene_groups):
+            source_scene_groups.append({
+                "scene_code": "unknown", "label": scene_label(None),
+                "task_count": int(unknown_scene[0]),
+                "duration_seconds": float(unknown_scene[1]),
+                "overlapping": True,
+            })
+    review_stats = {
+        "unreviewed_unpublished": int(review_row[0] or 0),
+        "unreviewed_published": int(review_row[1] or 0),
+        "confirmed": int(review_row[2] or 0),
+    }
 
     total_segments = int(segment_row[0] or 0)
     excluded_segments = int(segment_row[4] or 0)
@@ -1534,7 +1746,17 @@ def admin_overview(filters: dict | None = None) -> dict:
             "stale_assignments": int(queue[2]),
             "claimable_tasks": int(queue[3]),
         },
+        "source_scenes": source_scene_groups,
+        "confidence_buckets": confidence_buckets,
+        "review_stats": review_stats,
+        "applied_filters": _applied_admin_filters(snapshot_filters),
+        "as_of": utcnow().isoformat(),
         "updated_at": utcnow().isoformat(),
+        "notes": {
+            "task_counts": "unique tasks; multi-source joins are not summed",
+            "scene_groups_overlap": True,
+            "confidence_buckets": "mutually exclusive highest matching source confidence",
+        },
     }
 
 
@@ -2109,6 +2331,9 @@ def admin_annotator_detail(annotator_id: str,
                FROM active_sessions WHERE user_id = %s""",
             (uid,),
         ).fetchone()
+        from annotation_metadata.queries import load_scope
+        from annotation_metadata.repository import scope_payload
+        scene_scope_payload = scope_payload(load_scope(cur, uid))
 
     total_segments = int(quality[0] or 0)
     bad_segments = int(quality[1] or 0)
@@ -2178,6 +2403,7 @@ def admin_annotator_detail(annotator_id: str,
             {"category": row[0], "count": int(row[1])}
             for row in category_rows
         ],
+        "scene_scope": scene_scope_payload,
     }
 
 
@@ -2188,8 +2414,11 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
     limit = max(1, min(int(limit), 100))
     where, params = _admin_task_filter_sql(normalized)
     clauses = [where]
+    filter_digest = normalized["metadata"].digest()
     if cursor:
-        created_at, task_id = _decode_admin_cursor(cursor, 2)
+        created_at, task_id, cursor_digest = _decode_admin_cursor(cursor, 3)
+        if cursor_digest != filter_digest:
+            raise ValidationError("Invalid cursor")
         created_at = _parse_admin_datetime(created_at, "cursor")
         task_id = _validate_uuid(task_id, "cursor")
         clauses.append("(t.created_at, t.id) < (%s::timestamptz, %s::uuid)")
@@ -2284,10 +2513,24 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
             "trainable_duration_seconds": float(row[29]),
             "blocked_annotator_count": int(row[30]),
         })
+    if items:
+        from annotation_metadata.repository import metadata_summaries
+        with db_tx() as conn, conn.cursor() as cur:
+            summaries = metadata_summaries(cur, [item["task_id"] for item in items])
+        for item in items:
+            summary = summaries.get(item["task_id"], {})
+            item["source_scenes"] = summary.get("source_scenes") or []
+            item["source_confidence"] = summary.get("source_confidence") or "unknown"
+            item["batch_codes"] = summary.get("batch_codes") or []
+            item["review_status"] = summary.get("review_status") or "pending"
     next_cursor = None
     if has_more and rows:
-        next_cursor = _encode_admin_cursor(rows[-1][1], rows[-1][0])
-    return {"items": items, "next_cursor": next_cursor}
+        next_cursor = _encode_admin_cursor(rows[-1][1], rows[-1][0], filter_digest)
+    return {
+        "items": items, "next_cursor": next_cursor,
+        "applied_filters": _applied_admin_filters(normalized),
+        "filter_digest": filter_digest,
+    }
 
 
 def admin_annotations(filters: dict | None = None, limit: int = 50,
@@ -2323,8 +2566,16 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
     if normalized["to"]:
         clauses.append("v.submitted_at < %s")
         params.append(normalized["to"])
+    from annotation_metadata.queries import metadata_filter_sql
+    meta_sql, meta_params = metadata_filter_sql(normalized["metadata"], task_alias="t")
+    if meta_sql != "true":
+        clauses.append(meta_sql)
+        params.extend(meta_params)
+    filter_digest = normalized["metadata"].digest()
     if cursor:
-        submitted_at, version_id = _decode_admin_cursor(cursor, 2)
+        submitted_at, version_id, cursor_digest = _decode_admin_cursor(cursor, 3)
+        if cursor_digest != filter_digest:
+            raise ValidationError("Invalid cursor")
         submitted_at = _parse_admin_datetime(submitted_at, "cursor")
         version_id = _validate_uuid(version_id, "cursor")
         clauses.append("(v.submitted_at, v.id) < (%s::timestamptz, %s::uuid)")
@@ -2392,10 +2643,24 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
         }
         for row in rows
     ]
+    if items:
+        from annotation_metadata.repository import metadata_summaries
+        with db_tx() as conn, conn.cursor() as cur:
+            summaries = metadata_summaries(cur, [item["task_id"] for item in items])
+        for item in items:
+            summary = summaries.get(item["task_id"], {})
+            item["source_scenes"] = summary.get("source_scenes") or []
+            item["source_confidence"] = summary.get("source_confidence") or "unknown"
+            item["batch_codes"] = summary.get("batch_codes") or []
+            item["review_status"] = summary.get("review_status") or "pending"
     next_cursor = None
     if has_more and rows:
-        next_cursor = _encode_admin_cursor(rows[-1][1], rows[-1][0])
-    return {"items": items, "next_cursor": next_cursor}
+        next_cursor = _encode_admin_cursor(rows[-1][1], rows[-1][0], filter_digest)
+    return {
+        "items": items, "next_cursor": next_cursor,
+        "applied_filters": _applied_admin_filters(normalized),
+        "filter_digest": filter_digest,
+    }
 
 
 def admin_annotator_annotations(annotator_id: str,
@@ -2455,43 +2720,53 @@ def admin_annotation_detail(task_id: str) -> dict:
                WHERE a.task_id = %s""",
             (tid,),
         ).fetchone()
-    version_items = [
-        {
-            "id": str(row[0]), "version_no": int(row[1]),
-            "lifecycle": row[2], "target_status": row[3],
-            "revision": int(row[4]), "human_modified": bool(row[5]),
-            "created_at": row[6].isoformat(), "updated_at": row[7].isoformat(),
-            "submitted_at": row[8].isoformat() if row[8] else None,
-            "revoked_at": row[9].isoformat() if row[9] else None,
-            "revoked_reason": row[10],
-            "submitter": ({"id": str(row[11]), "username": row[12]}
-                          if row[11] else None),
-            "base_version_id": str(row[13]) if row[13] else None,
-            "revoked_by_admin_action_id": str(row[14]) if row[14] else None,
-            "skip_reasons": list(row[15] or []),
-            "is_current": row[0] == task[11],
+        version_items = [
+            {
+                "id": str(row[0]), "version_no": int(row[1]),
+                "lifecycle": row[2], "target_status": row[3],
+                "revision": int(row[4]), "human_modified": bool(row[5]),
+                "created_at": row[6].isoformat(), "updated_at": row[7].isoformat(),
+                "submitted_at": row[8].isoformat() if row[8] else None,
+                "revoked_at": row[9].isoformat() if row[9] else None,
+                "revoked_reason": row[10],
+                "submitter": ({"id": str(row[11]), "username": row[12]}
+                              if row[11] else None),
+                "base_version_id": str(row[13]) if row[13] else None,
+                "revoked_by_admin_action_id": str(row[14]) if row[14] else None,
+                "skip_reasons": list(row[15] or []),
+                "is_current": row[0] == task[11],
+            }
+            for row in versions
+        ]
+        payload = {
+            "task_id": str(task[0]), "rel_path": task[1], "filename": task[2],
+            "folder": task[3], "duration": float(task[4]), "status": task[5],
+            "eligible": bool(task[6]), "category": task[7],
+            "preprocessed_at": task[8].isoformat() if task[8] else None,
+            "created_at": task[9].isoformat(), "updated_at": task[10].isoformat(),
+            "current_version_id": str(task[11]) if task[11] else None,
+            "baseline_version_id": str(task[12]) if task[12] else None,
+            "baseline_quality": task[13],
+            "reserved_for_user_id": str(task[14]) if task[14] else None,
+            "display_version_id": str(display_version_id) if display_version_id else None,
+            "segments": segments, "versions": version_items,
+            "assignment": ({
+                "annotator_id": str(assignment[0]), "username": assignment[1],
+                "mode": assignment[2], "working_version_id": str(assignment[3]),
+                "assigned_at": assignment[4].isoformat(),
+                "last_activity_at": assignment[5].isoformat(),
+            } if assignment else None),
         }
-        for row in versions
-    ]
-    return {
-        "task_id": str(task[0]), "rel_path": task[1], "filename": task[2],
-        "folder": task[3], "duration": float(task[4]), "status": task[5],
-        "eligible": bool(task[6]), "category": task[7],
-        "preprocessed_at": task[8].isoformat() if task[8] else None,
-        "created_at": task[9].isoformat(), "updated_at": task[10].isoformat(),
-        "current_version_id": str(task[11]) if task[11] else None,
-        "baseline_version_id": str(task[12]) if task[12] else None,
-        "baseline_quality": task[13],
-        "reserved_for_user_id": str(task[14]) if task[14] else None,
-        "display_version_id": str(display_version_id) if display_version_id else None,
-        "segments": segments, "versions": version_items,
-        "assignment": ({
-            "annotator_id": str(assignment[0]), "username": assignment[1],
-            "mode": assignment[2], "working_version_id": str(assignment[3]),
-            "assigned_at": assignment[4].isoformat(),
-            "last_activity_at": assignment[5].isoformat(),
-        } if assignment else None),
-    }
+        from annotation_metadata.serializers import attach_metadata
+        attach_metadata(
+            cur, payload, tid,
+            version_id=display_version_id,
+            published_version_id=task[11],
+            include_draft_review=True,
+        )
+        from annotation_metadata.repository import list_source_history
+        payload["source_history"] = list_source_history(cur, tid)
+        return payload
 
 
 def admin_authorized_media(task_id: str) -> dict:
@@ -3542,6 +3817,85 @@ def authorized_media(user_id: str, task_id: str) -> dict:
             if row[1] is not None else None
         )
         return {"rel_path": row[0], "waveform_b64": waveform}
+
+
+def admin_correct_scene_review(admin_session_id: str, task_id: str,
+                               payload: dict) -> dict:
+    from annotation_metadata.contracts import AdminSceneReviewCommand, parse_strict
+    from annotation_metadata.reviews import admin_correct_review
+    command = parse_strict(AdminSceneReviewCommand, payload)
+    with db_tx() as conn, conn.cursor() as cur:
+        return admin_correct_review(
+            cur, admin_session_id=admin_session_id, command=command,
+            task_id=task_id,
+        )
+
+
+def admin_set_scene_scope(admin_session_id: str, annotator_id: str,
+                          payload: dict) -> dict:
+    from annotation_metadata.contracts import SceneScopeCommand, parse_strict
+    from annotation_metadata.repository import replace_scope, scope_payload
+    command = parse_strict(SceneScopeCommand, payload)
+    uid = _validate_uuid(annotator_id, "annotator_id")
+    reason_value = _required_reason(command.reason)
+    with db_tx() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, username FROM annotators WHERE id = %s FOR UPDATE",
+            (uid,),
+        )
+        user = cur.fetchone()
+        if not user:
+            raise NotFoundError("Annotator not found")
+        request_payload = {**command.model_dump(), "annotator_id": str(uid)}
+        request_hash = _canonical_request_hash(request_payload)
+        action = _begin_admin_action(
+            cur, admin_session_id=admin_session_id,
+            operation_id=command.operation_id,
+            action_type="set_scene_scope", reason=reason_value,
+            request_hash=request_hash, request_payload=request_payload,
+        )
+        if action.get("replay"):
+            return _admin_replay_response(action)
+        scope = replace_scope(
+            cur, uid, mode=command.mode, scene_codes=command.scene_codes,
+            allow_unknown=command.allow_unknown,
+            expected_revision=command.expected_revision,
+        )
+        summary = {
+            "annotator_id": str(uid),
+            "username": user[1],
+            "scope": scope_payload(scope),
+        }
+        _insert_admin_action_item(
+            cur, action["action_id"], annotator_id=uid, result="updated",
+            details=summary,
+        )
+        _finish_admin_action(cur, action["action_id"], summary)
+        return {"success": True, "action_id": str(action["action_id"]), **summary}
+
+
+def admin_metadata_facets(filters: dict | None = None) -> dict:
+    from annotation_metadata.repository import list_active_scenes, list_batches
+    from annotation_metadata.taxonomy import CONFIDENCE_LEVELS, REVIEW_STATUSES
+    normalized = _normalize_admin_filters(filters)
+    with db_tx() as conn, conn.cursor() as cur:
+        scenes = list_active_scenes(cur)
+        batches = list_batches(cur)
+    return {
+        "scenes": scenes,
+        "batches": batches,
+        "confidences": list(CONFIDENCE_LEVELS),
+        "review_statuses": list(REVIEW_STATUSES) + [
+            "unreviewed_unpublished", "unreviewed_published",
+        ],
+        "applied_filters": _applied_admin_filters(normalized),
+        "as_of": utcnow().isoformat(),
+        "definitions": {
+            "task_count": "unique tasks; source joins are not summed",
+            "scene_groups_overlap": True,
+            "confidence_buckets": "highest matching source confidence, mutually exclusive",
+        },
+    }
 
 
 # ============================================================

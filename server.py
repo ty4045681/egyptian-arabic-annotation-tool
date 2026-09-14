@@ -301,6 +301,8 @@ def admin_query_filters() -> dict:
         "from", "to", "timezone", "bucket", "annotator_id", "status",
         "folder", "category", "q", "include_deactivated",
         "annotator_status", "action_type", "lifecycle", "signal",
+        "source_scene", "source_confidence", "batch_code", "review_status",
+        "prediction_scene", "human_scene",
     )
     return {
         key: value.strip()
@@ -335,6 +337,10 @@ def handle_repo_error(err: repo.RepositoryError):
     if isinstance(err, repo.RevisionConflict):
         body["current_revision"] = err.current_revision
         body["conflict"] = "revision"
+    if getattr(err, "code", None):
+        body["code"] = err.code
+    if getattr(err, "field", None):
+        body["field"] = err.field
     return jsonify(body), err.status
 
 
@@ -687,6 +693,24 @@ def api_clientlog():
 # ============================================================
 # Assignment API
 # ============================================================
+def _claim_filters_from_request(data: dict | None = None) -> dict:
+    from annotation_metadata.contracts import ClaimRequest, parse_strict
+    payload = dict(data or {})
+    args = request.args
+    if "source_scene" in args and "source_scene" not in payload:
+        payload["source_scene"] = args.get("source_scene")
+    if "batch_code" in args and "batch_code" not in payload:
+        payload["batch_code"] = args.get("batch_code")
+    if "source_confidence" in args and "source_confidence" not in payload:
+        payload["source_confidence"] = args.get("source_confidence")
+    parsed = parse_strict(ClaimRequest, payload)
+    return {
+        "source_scene": parsed.source_scene,
+        "batch_code": parsed.batch_code,
+        "source_confidence": parsed.source_confidence,
+    }
+
+
 @app.route("/api/assignment")
 @login_required
 def api_get_assignment():
@@ -695,24 +719,31 @@ def api_get_assignment():
     asg = repo.get_assignment(user["id"])
     if asg:
         return jsonify(asg)
-    return jsonify({"assigned": False, "pool": repo.pool_state(user["id"])})
+    filters = _claim_filters_from_request()
+    return jsonify({"assigned": False, "pool": repo.pool_state(user["id"], **filters)})
 
 
 @app.route("/api/assignment/claim", methods=["POST"])
 @login_required
 def api_claim():
     user = request.annotator
+    data = request.get_json(silent=True)
+    if data is None:
+        data = {}
+    if data != {} and not isinstance(data, dict):
+        raise repo.ValidationError("Request body must be a JSON object")
+    filters = _claim_filters_from_request(data if isinstance(data, dict) else {})
     try:
-        asg = repo.claim(user["id"])
+        asg = repo.claim(user["id"], **filters)
         return jsonify(asg)
     except repo.TaskPoolBusy as error:
-        pool = repo.pool_state(user["id"])
+        pool = repo.pool_state(user["id"], **filters)
         pool["available"] = 0
         pool["reason"] = "temporarily_busy"
         return jsonify({"assigned": False, "pool": pool,
                         "error": str(error)}), 409
     except repo.NoTaskAvailable as error:
-        return jsonify({"assigned": False, "pool": repo.pool_state(user["id"]),
+        return jsonify({"assigned": False, "pool": repo.pool_state(user["id"], **filters),
                         "error": str(error)}), 409
 
 
@@ -749,6 +780,7 @@ def api_save_draft():
         dirty_segments=data.get("segments", []),
         operation_id=required_string(data, "operation_id"),
         request_hash=request_hash,
+        scene_review=data.get("scene_review"),
     )
     return jsonify(result)
 
@@ -771,6 +803,7 @@ def api_complete():
         dirty_segments=data.get("segments", []),
         operation_id=required_string(data, "operation_id"),
         request_hash=request_hash,
+        scene_review=data.get("scene_review"),
     )
     if result.get("idempotent_replay"):
         return jsonify(result["response"])
@@ -1181,6 +1214,14 @@ def _init_app_config() -> dict:
         ) from exc
     return config
 
+
+from annotation_metadata.routes import register_metadata_routes
+register_metadata_routes(
+    app,
+    login_required=login_required,
+    admin_required=admin_required,
+    admin_write_required=admin_write_required,
+)
 
 _init_app_config()
 

@@ -1035,6 +1035,46 @@ def command_export(args) -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+def command_inspect_source_manifest(args) -> None:
+    from annotation_metadata.ingestion import inspect_source_manifest
+    source_root = Path(args.audio_root).expanduser().resolve() if args.audio_root else None
+    result = inspect_source_manifest(
+        Path(args.manifest).expanduser().resolve(),
+        batch_code=args.batch_code,
+        source_root=source_root,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def command_import_source_metadata(args) -> None:
+    from annotation_metadata.ingestion import import_source_metadata
+    with db_conn() as conn:
+        result = import_source_metadata(
+            conn,
+            manifest_path=Path(args.manifest).expanduser().resolve(),
+            batch_code=args.batch_code,
+            source_root=Path(args.audio_root).expanduser().resolve() if args.audio_root else None,
+            audio_root=Path(args.website_audio_root).expanduser().resolve() if args.website_audio_root else None,
+            dry_run=args.dry_run,
+        )
+    print(json.dumps({k: result[k] for k in result if k != "results"},
+                     ensure_ascii=False, indent=2, default=str))
+
+
+def command_verify_source_metadata(args) -> None:
+    from annotation_metadata.ingestion import verify_source_metadata
+    with db_conn() as conn:
+        result = verify_source_metadata(conn, batch_code=args.batch_code)
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def command_export_metadata(args) -> None:
+    from annotation_metadata.export_metadata import export_metadata
+    with db_conn() as conn:
+        result = export_metadata(conn, Path(args.output).expanduser().resolve())
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def command_assignments(args) -> None:
     with db_conn() as conn:
         rows = conn.execute(
@@ -1118,6 +1158,28 @@ def parser() -> argparse.ArgumentParser:
     release.add_argument("--username", required=True)
     release.add_argument("--reason", required=True)
     release.set_defaults(func=command_release)
+
+    inspect_src = sub.add_parser("inspect-source-manifest")
+    inspect_src.add_argument("--manifest", required=True)
+    inspect_src.add_argument("--batch-code", required=True)
+    inspect_src.add_argument("--audio-root")
+    inspect_src.set_defaults(func=command_inspect_source_manifest)
+
+    import_src = sub.add_parser("import-source-metadata")
+    import_src.add_argument("--manifest", required=True)
+    import_src.add_argument("--batch-code", required=True)
+    import_src.add_argument("--audio-root")
+    import_src.add_argument("--website-audio-root")
+    import_src.add_argument("--dry-run", action="store_true")
+    import_src.set_defaults(func=command_import_source_metadata)
+
+    verify_src = sub.add_parser("verify-source-metadata")
+    verify_src.add_argument("--batch-code", required=True)
+    verify_src.set_defaults(func=command_verify_source_metadata)
+
+    export_meta = sub.add_parser("export-metadata")
+    export_meta.add_argument("--output", required=True)
+    export_meta.set_defaults(func=command_export_metadata)
     return p
 
 

@@ -9,9 +9,6 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 
-import soundfile as sf
-import torch
-
 from db import db_conn
 from preprocess_store import ingestion_states, load_draft_segments, store_preprocessed_task
 
@@ -64,6 +61,8 @@ def get_vad():
 
 
 def run_vad(audio_path, vad_cfg):
+    import soundfile as sf
+    import torch
     model, get_ts = get_vad()
     wav, orig_sr = sf.read(str(audio_path), dtype="float32")
     if wav.ndim > 1: wav = wav.mean(axis=1)
@@ -215,6 +214,16 @@ def process_audio_with_asr(audio_path, config, *, delete_rejected=False):
     folder = Path(rel_path).parent.as_posix()
     if folder == ".":
         folder = ""
+    processing_token = None
+    with db_conn() as conn, conn.cursor() as cur:
+        existing = cur.execute(
+            "SELECT id FROM annotation_tasks WHERE rel_path = %s", (rel_path,),
+        ).fetchone()
+        if existing:
+            from annotation_metadata.processing import acquire_processing_lease, renew_processing_lease
+            lease = acquire_processing_lease(cur, existing[0])
+            processing_token = lease["token"]
+            conn.commit()
 
     print(f"  🎙️  {fname}")
     t0 = time.time()
@@ -239,6 +248,7 @@ def process_audio_with_asr(audio_path, config, *, delete_rejected=False):
                     preprocessed_at=datetime.now(timezone.utc), eligible=False,
                     task_extra={"preprocess_rejection": "no_speech",
                                 "asr_checkpoint_incomplete": False},
+                    processing_token=processing_token,
                 )
         return {"status": "rejected_no_speech", "rel_path": rel_path}
 
@@ -268,6 +278,16 @@ def process_audio_with_asr(audio_path, config, *, delete_rejected=False):
     _reject_file = False
     quota_stop = False
     arrearage_stop = False
+
+    if processing_token:
+        from annotation_metadata.processing import renew_processing_lease
+        with db_conn() as conn, conn.cursor() as cur:
+            row = cur.execute(
+                "SELECT id FROM annotation_tasks WHERE rel_path = %s", (rel_path,),
+            ).fetchone()
+            if row:
+                renew_processing_lease(cur, row[0], processing_token)
+                conn.commit()
 
     if has_key:
         init_asr(asr_cfg["api_key"])
@@ -335,6 +355,7 @@ def process_audio_with_asr(audio_path, config, *, delete_rejected=False):
                     preprocessed_at=datetime.now(timezone.utc), eligible=False,
                     task_extra={"preprocess_rejection": "content_inspection",
                                 "asr_checkpoint_incomplete": True},
+                    processing_token=processing_token,
                 )
         return {"status": "rejected_content", "rel_path": rel_path}
 
@@ -358,6 +379,7 @@ def process_audio_with_asr(audio_path, config, *, delete_rejected=False):
             preprocessed_at=datetime.now(timezone.utc),
             category=None,
             skip_if_human_modified=True,
+            processing_token=processing_token,
             eligible=not quota_stop,
             task_extra={"asr_checkpoint_incomplete": bool(quota_stop),
                         "preprocess_rejection": None},
@@ -393,10 +415,34 @@ def main():
                         help="删除无语音或内容审核拒绝的源音频（默认始终保留）")
     parser.add_argument("--retry-rejected", action="store_true",
                         help="重新处理此前被VAD或内容审核拒绝的不可领取任务")
+    parser.add_argument("--manifest", help="crawler JSONL/JSON manifest for source metadata")
+    parser.add_argument("--batch-code", help="globally unique source batch code")
+    parser.add_argument("--source-audio-root", help="crawler audio root used to map relative_path")
     args = parser.parse_args()
 
     if args.limit is not None and args.limit < 1:
         parser.error("--limit 必须大于 0")
+    if args.manifest and not args.batch_code:
+        parser.error("--manifest 需要同时提供 --batch-code")
+
+    if args.manifest:
+        from annotation_metadata.ingestion import import_source_metadata
+        from db import db_conn as _db_conn
+        manifest_path = Path(args.manifest).resolve()
+        source_root = Path(args.source_audio_root).resolve() if args.source_audio_root else None
+        audio_root = Path(args.audio_dir).resolve()
+        with _db_conn() as conn:
+            imported = import_source_metadata(
+                conn, manifest_path=manifest_path, batch_code=args.batch_code,
+                source_root=source_root, audio_root=audio_root,
+                dry_run=args.dry_run,
+            )
+        print(json.dumps({k: imported[k] for k in imported if k != "results"},
+                         ensure_ascii=False, indent=2, default=str))
+        if args.dry_run:
+            return
+        # Continue into the existing directory scan so ASR can fill placeholders.
+        # Metadata-only protected tasks are skipped by the existing human-work guard.
 
     config["audio_dir"] = str(Path(args.audio_dir).resolve())
     config["asr"]["workers"] = args.workers

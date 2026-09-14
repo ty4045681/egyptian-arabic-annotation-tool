@@ -114,6 +114,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
 @media(max-width:700px){.app-header{align-items:flex-start;flex-wrap:wrap}.brand{width:100%}.assignment-line{order:3;width:100%;flex-basis:100%}.app-shell{min-height:calc(100vh - 104px)}main{padding:8px}.taskbar{align-items:stretch}.task-meta,.audio-wrap{min-width:100%;max-width:none}.task-actions,.skip-actions{width:100%}.divider{display:none}.btn,.link-btn,.reason{min-height:44px}.table-panel{overflow:auto}.transcript{min-width:220px}.time-input{font-size:16px}.play-cell{width:150px}.wave-scroll canvas{height:180px}.user{max-width:90px}}
 @media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.5s}.toast{transition:none}}
 </style>
+<link rel="stylesheet" href="/static/metadata.css">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to annotation workspace</a>
@@ -146,7 +147,10 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
       <button class="btn btn-secondary" id="returnButton" type="button">Return to current task</button>
     </section>
     <section class="taskbar" id="taskbar" aria-label="Current task controls">
-      <div class="task-meta"><h1 id="taskName">—</h1><p id="taskInfo">—</p></div>
+      <div class="task-meta"><h1 id="taskName">—</h1><p id="taskInfo">—</p>
+        <div id="metadataBanner" class="metadata-banner"></div>
+        <div id="metadataDetails"></div>
+      </div>
       <div class="audio-wrap"><audio id="audio" controls preload="metadata"></audio></div>
       <div class="skip-actions" id="skipActions" aria-label="Skip reason">
         <button class="reason" type="button" data-reason="noisy" aria-pressed="false">Noisy</button>
@@ -162,6 +166,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
       </div>
       <div class="save-state" id="saveState" data-state="saved">Saved</div>
     </section>
+    <section class="scene-review" id="sceneReviewPanel" hidden></section>
     <section class="wave-panel" id="wavePanel" aria-label="Audio waveform">
       <div class="panel-head"><span>Waveform</span><span id="waveStatus">Click a segment to play</span></div>
       <div class="wave-scroll" id="waveScroll"><canvas id="waveCanvas" height="220"></canvas></div>
@@ -182,6 +187,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
 </div>
 <div class="sr-only" id="liveStatus" role="status" aria-live="polite"></div>
 <div id="toastRoot"></div>
+<script src="/static/metadata.js"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
@@ -191,7 +197,7 @@ const state={
   user:"",assignment:null,task:null,segments:[],waveform:[],waveMax:1e-6,duration:0,
   selected:-1,playing:-1,pxPerSecond:40,dirty:new Set(),saveTimer:null,savePromise:null,pendingSave:null,pendingComplete:null,
   queued:false,saveBlocked:false,review:false,history:[],historyIndex:-1,submitting:false,pendingAbandon:null,
-  transcriptSize:FONT_DEFAULT
+  transcriptSize:FONT_DEFAULT,scenes:[],selectedScene:"",sceneReview:null,nextClaimScene:""
 };
 function uuid(){return crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==="x"?r:(r&3|8);return v.toString(16)})}
 async function api(url,{method="GET",body,keepalive=false}={}){
@@ -234,6 +240,7 @@ async function initialize(){
   loadTranscriptFont();
   try{
     const me=await api("/api/current-user");state.user=me.user;$("currentUser").textContent=me.user;
+    try{const scenes=await api("/api/scenes");state.scenes=scenes.scenes||[];state.scope=scenes.scope;}catch(_){state.scenes=[]}
     await refreshDashboard();await loadAssignment()
   }catch(error){stateView("Workspace unavailable",error.message,'<button class="btn btn-primary" type="button" onclick="location.reload()">Try again</button>',"error")}
 }
@@ -253,7 +260,8 @@ async function loadAssignment(){
   state.review=false;state.historyIndex=-1;$("reviewBanner").classList.remove("show");
   stateView("Checking your task","Looking for an unfinished assignment.");
   try{
-    const data=await api("/api/assignment");
+    const q=state.nextClaimScene?("?source_scene="+encodeURIComponent(state.nextClaimScene)):"";
+    const data=await api("/api/assignment"+q);
     if(data.assigned){state.assignment=data;loadTask(data,false);return}
     state.assignment=null;showIdle(data.pool)
   }catch(error){stateView("Could not load your task",error.message,'<button class="btn btn-primary" type="button" onclick="loadAssignment()">Try again</button>',"error")}
@@ -266,15 +274,26 @@ function showIdle(pool,successMessage=""){
   else if(reason==="no_preprocessed"){title="No tasks available";description="Preprocessed audio has not been imported yet."}
   if(successMessage){title=successMessage}
   let actions='<a class="link-btn" href="/completed.html">View completed data</a>';
-  if(reason==="available")actions='<button class="btn btn-primary" id="claimButton" type="button">Claim next task</button> '+actions;
+  if(reason==="no_matching_scene"){title="没有匹配的场景任务";description="当前选择的来源场景没有可领取任务。已领取任务不会被释放。"}
+  else if(reason==="no_scene_access"){title="没有可领取的场景";description="管理员尚未向你开放可领取场景。"}
+  if(reason==="available"||reason==="no_matching_scene")actions='<button class="btn btn-primary" id="claimButton" type="button">Claim next task</button> '+actions;
   else if(reason==="temporarily_busy")actions='<button class="btn btn-primary" id="refreshPoolButton" type="button">Check again</button> '+actions;
   stateView(title,description,actions,successMessage?"success":"");$("assignmentLine").textContent=description;
   const claim=$("claimButton");if(claim)claim.addEventListener("click",claimTask)
   const refresh=$("refreshPoolButton");if(refresh)refresh.addEventListener("click",loadAssignment)
+  if(window.AnnotationMetadata && (reason==="available"||reason==="no_matching_scene"||reason==="no_scene_access")){
+    const host=document.createElement("div");host.id="idleScenePicker";
+    const inner=$("tablePanel").querySelector(".state-inner");if(inner)inner.appendChild(host);
+    AnnotationMetadata.renderScenePicker(host,{
+      scenes:state.scenes, pool:pool, selected:state.nextClaimScene,
+      onChange:(code)=>{state.nextClaimScene=code;loadAssignment()}
+    });
+    if(state.assignment) host.appendChild(Object.assign(document.createElement("p"),{textContent:"下次领取将使用该场景偏好。当前未完成任务仍会恢复。"}));
+  }
 }
 async function claimTask(){
   const button=$("claimButton");if(button){button.disabled=true;button.textContent="Claiming task…"}
-  try{const data=await api("/api/assignment/claim",{method:"POST",body:{}});state.assignment=data;loadTask(data,false);await refreshDashboard()}
+  try{const body={};if(state.nextClaimScene)body.source_scene=state.nextClaimScene;const data=await api("/api/assignment/claim",{method:"POST",body});state.assignment=data;loadTask(data,false);await refreshDashboard()}
   catch(error){const pool=error.body?.pool;if(pool)showIdle(pool);else stateView("Task claim failed",error.message,'<button class="btn btn-primary" type="button" onclick="claimTask()">Try again</button>',"error")}
 }
 function loadTask(data,review){
@@ -286,6 +305,21 @@ function loadTask(data,review){
   $("skipActions").hidden=review;$("taskActions").hidden=review;$("saveState").hidden=review;
   if(review){$("reviewBanner").classList.add("show");$("reviewText").textContent="Viewing "+data.filename+" in read-only mode. Your unfinished task remains reserved."}
   else{$("reviewBanner").classList.remove("show");setSaveState("Saved","saved")}
+  const meta=data.metadata;
+  if(window.AnnotationMetadata && meta){
+    $("metadataBanner").hidden=false;$("metadataDetails").hidden=false;
+    AnnotationMetadata.renderBanner($("metadataBanner"), meta);
+    AnnotationMetadata.renderDetails($("metadataDetails"), meta);
+    $("sceneReviewPanel").hidden=!!review;
+    if(!review){
+      const working=meta.draft_review||meta.scene_review||{status:"pending",scene_codes:[]};
+      AnnotationMetadata.renderReviewControls($("sceneReviewPanel"),{
+        value:working, scenes:state.scenes, disabled:false,
+        onChange:(value)=>{state.sceneReview=value;state.pendingComplete=null;setSaveState("Unsaved","dirty");scheduleSave()}
+      });
+      state.sceneReview=working;
+    }
+  } else {$("metadataBanner").hidden=true;$("sceneReviewPanel").hidden=true}
   renderSegments();drawWave();setBusy(false)
 }
 function decodeWaveform(encoded){if(!encoded)return[];try{const raw=atob(encoded),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return Array.from(new Int16Array(bytes.buffer),v=>v/32767)}catch(error){reportError("waveform",error.message);return[]}}
@@ -365,7 +399,9 @@ async function flushDirty(){
   if(!state.pendingSave){
     if(!state.dirty.size)return null;
     const indices=Array.from(state.dirty);indices.forEach(i=>state.dirty.delete(i));
-    state.pendingSave={indices,body:{lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,operation_id:uuid(),segments:indices.map(segmentPayload)}};
+    const body={lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,operation_id:uuid(),segments:indices.map(segmentPayload)};
+    if(state.sceneReview)body.scene_review=state.sceneReview;
+    state.pendingSave={indices,body};
   }
   const batch=state.pendingSave;setSaveState("Saving…","saving");
   state.savePromise=api("/api/assignment/current",{method:"PATCH",body:batch.body}).then(result=>{state.assignment.revision=result.revision;state.pendingSave=null;setSaveState(state.dirty.size?"Unsaved":"Saved",state.dirty.size?"dirty":"saved")}).catch(error=>{if(error.status===409){state.saveBlocked=true;setSaveState("Conflict","error");toast("This task changed elsewhere. Reload before editing further.","error",true)}else{setSaveState("Save failed","error");toast(error.message,"error",true);scheduleRetry()}throw error}).finally(()=>{state.savePromise=null;if(state.queued){state.queued=false;if((state.dirty.size||state.pendingSave)&&!state.saveBlocked)flushDirty().catch(()=>{})}});
@@ -383,7 +419,7 @@ async function submitTask(status){
   try{
     if(state.savePromise)await state.savePromise;
     if(state.pendingSave)await flushDirty();
-    if(!state.pendingComplete){state.pendingComplete={lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,target_status:status,skip_reasons:reasons,operation_id:uuid(),segments:state.segments.map((_,index)=>segmentPayload(index))}}
+    if(!state.pendingComplete){state.pendingComplete={lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,target_status:status,skip_reasons:reasons,operation_id:uuid(),segments:state.segments.map((_,index)=>segmentPayload(index))};if(state.sceneReview)state.pendingComplete.scene_review=state.sceneReview}
     const body=state.pendingComplete;
     let result;
     try{result=await api("/api/assignment/current/complete",{method:"POST",body})}
