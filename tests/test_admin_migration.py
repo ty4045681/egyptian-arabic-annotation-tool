@@ -190,7 +190,7 @@ def test_002_backfills_exact_and_reconstructed_baselines(database_before_admin):
     import db
 
     with psycopg.connect(database_before_admin["dsn"]) as conn:
-        assert db.apply_migrations(conn) == [2, 3, 4]
+        assert db.apply_migrations(conn) == [2, 3, 4, 5]
         tasks = {
             row[0]: row[1:]
             for row in conn.execute(

@@ -52,11 +52,11 @@ def test_claim_scope_does_not_restrict_truthful_review_labels(live_site):
                 conn.execute("INSERT INTO annotator_scene_access(user_id,scene_code) VALUES(%s,'airport')", (user,))
             page.reload()
             expect(page.locator("#claimButton")).to_be_visible(timeout=10000)
-            expect(page.locator("#idleScenePicker")).to_contain_text("机场")
-            expect(page.locator("#idleScenePicker")).not_to_contain_text("购物")
+            expect(page.locator("#idleScenePicker")).to_contain_text("Airport")
+            expect(page.locator("#idleScenePicker")).not_to_contain_text("Shopping")
             page.locator("#claimButton").click()
             panel = page.locator("#sceneReviewPanel")
-            panel.get_by_role("button", name="确认", exact=True).click()
+            panel.get_by_role("button", name="Confirm", exact=True).click()
             expect(panel.locator('input[value="shopping"]')).to_have_count(1, timeout=3000)
             panel.locator('input[value="shopping"]').check()
             page.locator("textarea[data-text='0']").fill("actual shopping content")
@@ -96,14 +96,14 @@ def test_lost_save_response_retries_identical_body_then_saves_new_review(live_si
 
             page.route("**/api/assignment/current", intercept)
             panel = page.locator("#sceneReviewPanel")
-            panel.get_by_role("button", name="确认", exact=True).click()
+            panel.get_by_role("button", name="Confirm", exact=True).click()
             panel.locator('input[value="airport"]').check()
             page.locator("textarea[data-text='0']").fill("first committed text")
             page.locator("#saveButton").click()
             expect(page.locator("#saveState")).to_have_attribute("data-state", "error", timeout=8000)
             assert server_responses == [200]
 
-            panel.get_by_role("button", name="调整/多场景", exact=True).click()
+            panel.get_by_role("button", name="Mixed / multiple scenes", exact=True).click()
             panel.locator('input[value="shopping"]').check()
             with page.expect_response(lambda r: r.url.endswith("/api/assignment/current") and r.request.method == "PATCH", timeout=8000) as retried:
                 page.locator("#saveButton").click()

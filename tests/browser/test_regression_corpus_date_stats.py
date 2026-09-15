@@ -15,7 +15,7 @@ def test_empty_date_filtered_corpus_does_not_show_unfiltered_stock_count(provena
             expect(page.locator("#adminApp")).to_be_visible(timeout=10000)
             expect(page.locator("#corpusTaskState")).to_contain_text("No tasks", timeout=10000)
             expect(page.locator("#corpusTaskBody tr")).to_have_count(0)
-            expect(page.locator("#corpusMatchedStats")).to_contain_text("0 条任务", timeout=5000)
+            expect(page.locator("#corpusMatchedStats")).to_contain_text("0 tasks", timeout=5000)
         finally:
             browser.close()
 
@@ -34,8 +34,8 @@ def test_partial_date_filtered_total_uses_same_predicate_as_list(provenance_site
             page.locator("#adminKey").fill(provenance_site["admin_key"])
             page.locator("#loginButton").click()
             expect(page.locator("#corpusTaskBody tr")).to_have_count(1, timeout=10000)
-            expect(page.locator("#corpusMatchedStats strong")).to_have_text("1 条任务")
-            expect(page.locator("#corpusMatchedStats")).to_contain_text("10s 原始音频")
+            expect(page.locator("#corpusMatchedStats strong")).to_have_text("1 tasks")
+            expect(page.locator("#corpusMatchedStats")).to_contain_text("10s source audio")
         finally:
             browser.close()
 
@@ -50,9 +50,9 @@ def test_corpus_match_total_is_not_capped_at_first_page(provenance_site, seed_ta
             page.locator("#adminKey").fill(provenance_site["admin_key"])
             page.locator("#loginButton").click()
             expect(page.locator("#corpusTaskBody tr")).to_have_count(50, timeout=10000)
-            expect(page.locator("#corpusMatchedStats strong")).to_have_text("51 条任务")
+            expect(page.locator("#corpusMatchedStats strong")).to_have_text("51 tasks")
             page.locator("#loadMoreCorpusTasks").click()
             expect(page.locator("#corpusTaskBody tr")).to_have_count(51, timeout=10000)
-            expect(page.locator("#corpusMatchedStats strong")).to_have_text("51 条任务")
+            expect(page.locator("#corpusMatchedStats strong")).to_have_text("51 tasks")
         finally:
             browser.close()

@@ -14,10 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from annotation_metadata.taxonomy import (
     CLAIM_POLICIES,
     CONFIDENCE_LEVELS,
+    FALLBACK_SOURCE_SCENE,
     MEDIA_VARIANT,
     REVIEW_STATUSES,
     SCENE_CODES,
     SCOPE_MODES,
+    is_source_fallback_filter,
+    normalize_source_scene_filter,
     resolve_scene_code,
     validate_review_labels,
 )
@@ -85,12 +88,10 @@ class ClaimRequest(StrictModel):
     def _scene(cls, value: str | None) -> str | None:
         if value in (None, ""):
             return None
-        if str(value).strip().lower() == "unknown":
-            return "unknown"
-        code = resolve_scene_code(value)
-        if code is None:
-            raise ValueError("source_scene is not a recognised scene")
-        return code
+        try:
+            return normalize_source_scene_filter(value)
+        except ValueError as exc:
+            raise ValueError("source_scene is not a recognised scene") from exc
 
     @field_validator("batch_code")
     @classmethod
@@ -168,12 +169,23 @@ class SceneScopeCommand(StrictModel):
             if code not in seen:
                 seen.add(code)
                 codes.append(code)
-        if self.mode == "restricted" and not codes and not self.allow_unknown:
-            # Explicit empty restricted list is "none of the nine scenes".
-            pass
-        if self.mode != "restricted" and codes:
-            raise ValueError("scene_codes are only valid when mode is restricted")
+        allow_unknown = bool(self.allow_unknown)
+        if self.mode == "restricted":
+            if allow_unknown and FALLBACK_SOURCE_SCENE not in codes:
+                # Legacy allow_unknown=true is Spoken languages permission.
+                codes.append(FALLBACK_SOURCE_SCENE)
+            if FALLBACK_SOURCE_SCENE in codes:
+                allow_unknown = True
+            if not codes:
+                # Explicit empty restricted list is unclaimable.
+                allow_unknown = False
+        else:
+            if codes:
+                raise ValueError("scene_codes are only valid when mode is restricted")
+            # Keep allow_unknown as sent for all/none compatibility; it does
+            # not grant scenes when mode is not restricted.
         object.__setattr__(self, "scene_codes", codes)
+        object.__setattr__(self, "allow_unknown", allow_unknown)
         object.__setattr__(self, "reason", reason)
         return self
 
@@ -189,9 +201,18 @@ class TaskFilter(StrictModel):
     human_scene: str | None = None
     selected_scene: str | None = None
 
-    @field_validator("source_scene", "selected_scene", "prediction_scene", "human_scene")
+    @field_validator("source_scene", "selected_scene")
     @classmethod
-    def _optional_scene(cls, value: str | None) -> str | None:
+    def _optional_source_scene(cls, value: str | None) -> str | None:
+        if value in (None, "", "all"):
+            return None
+        return normalize_source_scene_filter(value)
+
+    @field_validator("prediction_scene", "human_scene")
+    @classmethod
+    def _optional_result_scene(cls, value: str | None) -> str | None:
+        # prediction_scene=unknown / human_scene=unknown keep absent-result
+        # semantics. Do not coerce them to Spoken languages.
         if value in (None, "", "all"):
             return None
         if value == "unknown":
@@ -244,18 +265,18 @@ class TaskFilter(StrictModel):
         scene = self.source_scene_value()
         if self.batch_code:
             return True
-        if scene and scene != "unknown":
+        if scene and not is_source_fallback_filter(scene):
             return True
         if self.source_confidence and self.source_confidence != "unknown":
             return True
         return False
 
     def allows_virtual_unknown(self) -> bool:
-        """Legacy tasks with zero current sources match unknown-compatible filters."""
+        """No-source tasks match Spoken languages when confidence/batch allow it."""
         if self.batch_code:
             return False
         scene = self.source_scene_value()
-        if scene and scene != "unknown":
+        if scene and not is_source_fallback_filter(scene):
             return False
         if self.source_confidence and self.source_confidence != "unknown":
             return False

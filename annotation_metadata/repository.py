@@ -14,7 +14,15 @@ from psycopg.types.json import Json
 from annotation_metadata.contracts import MediaIdentity, NormalizedSource, TaskFilter
 from annotation_metadata.queries import SceneScope, load_scope, source_row_match_sql
 from annotation_metadata.taxonomy import (
-    CONFIDENCE_RANK, SCENE_BY_CODE, SCENE_CODES, scene_label,
+    CONFIDENCE_RANK,
+    FALLBACK_SOURCE_SCENE,
+    SCENE_BY_CODE,
+    SCENE_CODES,
+    SCENE_ORDER,
+    effective_source_scene,
+    ordered_scene_codes,
+    scene_label,
+    source_scene_label,
 )
 from annotation_repository import ConflictError, ValidationError
 
@@ -198,7 +206,7 @@ def _source_from_row(row) -> dict:
     return {
         "id": str(row[0]),
         "scene_code": row[1],
-        "scene_label": scene_label(row[1]),
+        "scene_label": source_scene_label(row[1]),
         "confidence": row[2],
         "confidence_basis": row[3] or "",
         "provider": row[4],
@@ -583,17 +591,26 @@ def list_active_scenes(cur, *, active_only: bool = False) -> list[dict]:
 
 
 def scope_payload(scope: SceneScope) -> dict:
+    if scope.all_scenes:
+        codes = list(SCENE_ORDER)
+        payload_codes = list(SCENE_ORDER)
+    else:
+        codes = ordered_scene_codes(scope.effective_scene_codes())
+        payload_codes = list(codes)
     scenes = [
-        {"code": code, "label_zh": scene_label(code),
-         "label_en": str(SCENE_BY_CODE[code]["label_en"])}
-        for code in (list(SCENE_CODES) if scope.all_scenes else scope.scene_codes)
+        {
+            "code": code,
+            "label": scene_label(code),
+            "label_zh": str(SCENE_BY_CODE[code]["label_zh"]),
+            "label_en": str(SCENE_BY_CODE[code]["label_en"]),
+        }
+        for code in codes
     ]
-    scenes.sort(key=lambda item: item["code"])
     return {
         "mode": scope.mode,
-        "allow_unknown": scope.allow_unknown,
+        "allow_unknown": scope.allows_fallback_source() if scope.mode == "restricted" else scope.allow_unknown,
         "revision": scope.revision,
-        "scene_codes": list(scope.scene_codes),
+        "scene_codes": payload_codes if scope.mode == "restricted" else list(scope.scene_codes),
         "scenes": scenes,
     }
 
@@ -661,11 +678,12 @@ def metadata_summaries(cur, task_ids: list,
             "batch_codes": [],
             "scene_confidence_pairs": [],
         })
-        if scene_code and scene_code not in item["source_scenes"]:
-            item["source_scenes"].append(scene_code)
+        effective = effective_source_scene(scene_code)
+        if effective not in item["source_scenes"]:
+            item["source_scenes"].append(effective)
         if batch_code and batch_code not in item["batch_codes"]:
             item["batch_codes"].append(batch_code)
-        pair = f"{scene_code or 'unknown'}:{confidence or 'unknown'}"
+        pair = f"{effective}:{confidence or 'unknown'}"
         if pair not in item["scene_confidence_pairs"]:
             item["scene_confidence_pairs"].append(pair)
         current = CONFIDENCE_RANK.get(item["source_confidence"], 4)
@@ -726,6 +744,11 @@ def metadata_summaries(cur, task_ids: list,
             "batch_codes": [],
             "scene_confidence_pairs": [],
         })
+        if not base["source_scenes"]:
+            base = {
+                **base,
+                "source_scenes": [FALLBACK_SOURCE_SCENE],
+            }
         prediction = predictions.get(key, {})
         result[key] = {
             **base,

@@ -44,7 +44,7 @@ def test_airport_priority_uses_airport_evidence(database, seed_tasks):
     assert result["task_id"] == airport
     assert result["metadata"]["claim_context"]["scene_code"] == "airport"
     assert result["metadata"]["claim_context"]["confidence"] == "high"
-    assert "购物" not in result["metadata"]["headline"] or "机场" in result["metadata"]["headline"]
+    assert "Shopping" not in result["metadata"]["headline"] or "Airport" in result["metadata"]["headline"]
 
 
 def test_unknown_confidence_excludes_known_high_sources(database, seed_tasks):

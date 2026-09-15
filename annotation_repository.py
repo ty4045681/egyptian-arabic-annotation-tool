@@ -1673,7 +1673,7 @@ def admin_overview(filters: dict | None = None) -> dict:
         from annotation_metadata.queries import (
             CONFIDENCE_CASE, NO_CURRENT_SOURCES, source_row_match_sql,
         )
-        from annotation_metadata.taxonomy import scene_label
+        from annotation_metadata.taxonomy import FALLBACK_SOURCE_SCENE, scene_label
         metadata_filter = normalized["metadata"]
         match_sql, match_params = source_row_match_sql(
             metadata_filter, src_alias="src"
@@ -1693,7 +1693,7 @@ def admin_overview(filters: dict | None = None) -> dict:
         if metadata_filter.allows_virtual_unknown():
             virtual_sql = f"""
                 UNION ALL
-                SELECT t.id, t.duration, 'unknown'::text, NULL::uuid,
+                SELECT t.id, t.duration, '{FALLBACK_SOURCE_SCENE}'::text, NULL::uuid,
                        'unknown'::text, NULL::uuid
                 FROM _overview_matched t
                 WHERE {NO_CURRENT_SOURCES.format(task="t")}
@@ -1727,14 +1727,15 @@ def admin_overview(filters: dict | None = None) -> dict:
             UNION ALL
             SELECT 'scene', key, task_count, duration_seconds
             FROM (
-                SELECT COALESCE(scene_code, 'unknown') AS key,
+                SELECT COALESCE(scene_code, '{FALLBACK_SOURCE_SCENE}') AS key,
                        count(*) AS task_count,
                        COALESCE(sum(duration), 0) AS duration_seconds
                 FROM (
                     SELECT task_id, duration,
-                           COALESCE(scene_code, 'unknown') AS scene_code
+                           COALESCE(scene_code, '{FALLBACK_SOURCE_SCENE}') AS scene_code
                     FROM src
-                    GROUP BY task_id, duration, COALESCE(scene_code, 'unknown')
+                    GROUP BY task_id, duration,
+                             COALESCE(scene_code, '{FALLBACK_SOURCE_SCENE}')
                 ) scene_tasks
                 GROUP BY 1
             ) scenes
@@ -1794,7 +1795,7 @@ def admin_overview(filters: dict | None = None) -> dict:
     ]
     source_scene_groups = [
         {"scene_code": item[0],
-         "label": scene_label(None if item[0] == "unknown" else item[0]),
+         "label": scene_label(item[0]),
          "task_count": int(item[1]), "duration_seconds": float(item[2]),
          "overlapping": True}
         for item in scene_rows

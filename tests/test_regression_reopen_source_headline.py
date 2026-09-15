@@ -23,8 +23,8 @@ def test_reopened_task_keeps_known_source_information(seed_tasks, multiple_sourc
     )
     repo.reopen_completed(user["id"], task, str(uuid.uuid4()))
     metadata = repo.get_assignment(user["id"])["metadata"]
-    assert "机场" in metadata["headline"], metadata
-    assert "来源置信度高" in metadata["headline"], metadata
-    assert "未知场景" not in metadata["headline"], metadata
-    assert "来源置信度未知" not in metadata["headline"], metadata
+    assert "Airport" in metadata["headline"], metadata
+    assert "Source confidence High" in metadata["headline"], metadata
+    assert "Unknown source" not in metadata["headline"], metadata
+    assert "Source confidence Unknown" not in metadata["headline"], metadata
     assert metadata["draft_review"]["status"] == "pending"

@@ -54,7 +54,8 @@ TARGET_LIST_P95_MS = 500
 TARGET_OVERVIEW_P95_MS = 2000
 ADMIN_KEY = "load-test-admin-key-not-for-production"
 NORMAL_SCENES = (
-    "tourism_information", "clinic", "business_negotiation", "restaurant", "hotel",
+    "tourism_information", "clinic", "spoken_languages",
+    "business_negotiation", "restaurant", "hotel",
 )
 
 
@@ -997,7 +998,10 @@ def main() -> int:
                 """SELECT u.username, a.task_id, COALESCE(sc.mode, 'all'),
                           CASE WHEN COALESCE(sc.mode, 'all') = 'all' THEN true
                                WHEN sc.mode = 'none' THEN false
-                               WHEN src.scene_code IS NULL THEN sc.allow_unknown
+                               WHEN src.scene_code IS NULL OR src.scene_code = 'spoken_languages'
+                                 THEN sc.allow_unknown OR EXISTS (
+                                   SELECT 1 FROM annotator_scene_access sa
+                                   WHERE sa.user_id=u.id AND sa.scene_code='spoken_languages')
                                ELSE EXISTS (SELECT 1 FROM annotator_scene_access sa
                                    WHERE sa.user_id=u.id AND sa.scene_code=src.scene_code)
                           END AS allowed

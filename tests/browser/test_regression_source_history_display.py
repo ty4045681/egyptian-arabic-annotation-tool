@@ -16,7 +16,7 @@ def test_historical_claim_still_displays_all_current_source_scenes(live_site):
             page.locator("#joinBtn").click()
             expect(page.locator("#claimButton")).to_be_visible(timeout=15000)
             page.locator("#claimButton").click()
-            expect(page.locator("#metadataBanner")).to_contain_text("机场", timeout=10000)
+            expect(page.locator("#metadataBanner")).to_contain_text("Airport", timeout=10000)
             with db.db_conn() as conn:
                 batch = conn.execute("SELECT batch_id FROM task_sources WHERE task_id=%s", (task,)).fetchone()[0]
                 conn.execute("UPDATE task_sources SET is_current=false WHERE task_id=%s", (task,))
@@ -27,7 +27,7 @@ def test_historical_claim_still_displays_all_current_source_scenes(live_site):
             details = page.locator("#metadataDisclosure")
             expect(details).to_be_visible(timeout=10000)
             details.locator("summary").click()
-            expect(details).to_contain_text("领取时的来源")
+            expect(details).to_contain_text("Source at claim time")
             expect(details).to_contain_text("current evidence revised-airport")
             expect(details).to_contain_text("current evidence other-shopping")
         finally:

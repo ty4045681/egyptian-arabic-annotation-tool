@@ -53,15 +53,20 @@ const state = {
   metadataFilters: {},
 };
 
-const CONF_ZH = { high: "来源置信度高", medium: "来源置信度中", low: "来源置信度低", unknown: "来源置信度未知" };
-const REVIEW_STATUS_ZH = {
-  pending: "待核验（已发布）",
-  confirmed: "已确认",
-  mixed: "多场景",
-  out_of_scope: "不属于九场景",
-  uncertain: "无法判断",
-  unreviewed_unpublished: "未发布、未核验",
-  unreviewed_published: "已发布、未核验",
+const CONF_LABEL = {
+  high: "Source confidence High",
+  medium: "Source confidence Medium",
+  low: "Source confidence Low",
+  unknown: "Source confidence Unknown",
+};
+const REVIEW_STATUS_LABEL = {
+  pending: "Pending (published)",
+  confirmed: "Confirmed",
+  mixed: "Multiple scenes",
+  out_of_scope: "Outside the ten scenes",
+  uncertain: "Cannot determine",
+  unreviewed_unpublished: "Unpublished, not reviewed",
+  unreviewed_published: "Published, not reviewed",
 };
 
 const charts = {
@@ -500,8 +505,12 @@ function normaliseAnnotator(raw) {
   };
 }
 
+function sceneDisplayName(scene) {
+  return scene.label_en || scene.label || scene.label_zh || scene.code;
+}
+
 function sceneLabel(code) {
-  if (!code || code === "unknown") return "未知";
+  if (!code || code === "unknown") return "";
   return state.sceneLabels[code] || (window.AnnotationMetadata && AnnotationMetadata.sceneLabel(code)) || code;
 }
 
@@ -560,17 +569,17 @@ async function loadMetadataFacets() {
     const data = await api.get("/api/admin/metadata/facets");
     const scenes = listValue(data, ["scenes"]);
     const batches = listValue(data, ["batches"]);
-    state.sceneLabels = Object.fromEntries(scenes.map((scene) => [scene.code, scene.label_zh || scene.code]));
-    const sceneOptions = scenes.map((scene) => ({ value: scene.code, text: scene.label_zh || scene.code }));
+    state.sceneLabels = Object.fromEntries(scenes.map((scene) => [scene.code, sceneDisplayName(scene)]));
+    const sceneOptions = scenes.map((scene) => ({ value: scene.code, text: sceneDisplayName(scene) }));
     const batchOptions = batches.map((batch) => ({ value: batch.batch_code, text: batch.name ? `${batch.batch_code} · ${batch.name}` : batch.batch_code }));
-    fillSelect($("corpusSourceScene"), sceneOptions, { allText: "全部来源场景", extra: [{ value: "unknown", text: "来源未知" }] });
-    fillSelect($("overviewSourceScene"), sceneOptions, { allText: "全部来源场景", extra: [{ value: "unknown", text: "来源未知" }] });
-    fillSelect($("corpusBatch"), batchOptions, { allText: "全部批次" });
-    fillSelect($("overviewBatch"), batchOptions, { allText: "全部批次" });
-    fillSelect($("corpusPredictionScene"), sceneOptions, { allText: "全部模型分类", extra: [{ value: "unknown", text: "无模型分类" }] });
-    fillSelect($("overviewPredictionScene"), sceneOptions, { allText: "全部模型分类", extra: [{ value: "unknown", text: "无模型分类" }] });
-    fillSelect($("corpusHumanScene"), sceneOptions, { allText: "全部人工场景", extra: [{ value: "unknown", text: "无人工作场景" }] });
-    fillSelect($("overviewHumanScene"), sceneOptions, { allText: "全部人工场景", extra: [{ value: "unknown", text: "无人工作场景" }] });
+    fillSelect($("corpusSourceScene"), sceneOptions, { allText: "All source scenes" });
+    fillSelect($("overviewSourceScene"), sceneOptions, { allText: "All source scenes" });
+    fillSelect($("corpusBatch"), batchOptions, { allText: "All batches" });
+    fillSelect($("overviewBatch"), batchOptions, { allText: "All batches" });
+    fillSelect($("corpusPredictionScene"), sceneOptions, { allText: "All model classifications", extra: [{ value: "unknown", text: "No model classification" }] });
+    fillSelect($("overviewPredictionScene"), sceneOptions, { allText: "All model classifications", extra: [{ value: "unknown", text: "No model classification" }] });
+    fillSelect($("corpusHumanScene"), sceneOptions, { allText: "All human scenes", extra: [{ value: "unknown", text: "No human scene" }] });
+    fillSelect($("overviewHumanScene"), sceneOptions, { allText: "All human scenes", extra: [{ value: "unknown", text: "No human scene" }] });
     const grid = $("scopeSceneGrid");
     if (grid && !grid.childElementCount) {
       scenes.forEach((scene) => {
@@ -579,7 +588,7 @@ async function loadMetadataFacets() {
         box.type = "checkbox";
         box.value = scene.code;
         label.appendChild(box);
-        label.appendChild(document.createTextNode(scene.label_zh || scene.code));
+        label.appendChild(document.createTextNode(sceneDisplayName(scene)));
         grid.appendChild(label);
       });
     }
@@ -591,7 +600,7 @@ async function loadMetadataFacets() {
         box.type = "checkbox";
         box.value = scene.code;
         label.appendChild(box);
-        label.appendChild(document.createTextNode(scene.label_zh || scene.code));
+        label.appendChild(document.createTextNode(sceneDisplayName(scene)));
         reviewGrid.appendChild(label);
       });
     }
@@ -777,9 +786,9 @@ function renderGroupTable(container, rows, emptyText) {
   }
   const table = element("table", { className: "metadata-group-table" });
   table.appendChild(element("thead", {}, element("tr", {}, [
-    element("th", { text: "分组" }),
-    element("th", { className: "num", text: "任务数" }),
-    element("th", { className: "num", text: "原始音频时长" }),
+    element("th", { text: "Group" }),
+    element("th", { className: "num", text: "Tasks" }),
+    element("th", { className: "num", text: "Source audio duration" }),
   ])));
   const body = element("tbody");
   for (const row of rows) {
@@ -797,22 +806,22 @@ function renderMetadataGroups(data) {
   renderGroupTable(
     $("sourceSceneGroups"),
     groupRows(listValue(data, ["source_scenes"]), (item) => item.label || sceneLabel(item.scene_code)),
-    "没有来源场景分组。",
+    "No source scene groups.",
   );
   renderGroupTable(
     $("confidenceGroups"),
-    groupRows(listValue(data, ["confidence_buckets"]), (item) => CONF_ZH[item.confidence] || item.confidence || "未知"),
-    "没有来源置信度分组。",
+    groupRows(listValue(data, ["confidence_buckets"]), (item) => CONF_LABEL[item.confidence] || item.confidence || "Unknown"),
+    "No source confidence groups.",
   );
   renderGroupTable(
     $("sourceBatchGroups"),
-    groupRows(listValue(data, ["source_batches"]), (item) => item.batch_code || "未知批次"),
-    "没有来源批次分组。",
+    groupRows(listValue(data, ["source_batches"]), (item) => item.batch_code || "Unknown batch"),
+    "No source batch groups.",
   );
   renderGroupTable(
     $("reviewStatusGroups"),
-    groupRows(listValue(data, ["review_statuses"]), (item) => REVIEW_STATUS_ZH[item.status] || item.status),
-    "没有已发布核验分组。",
+    groupRows(listValue(data, ["review_statuses"]), (item) => REVIEW_STATUS_LABEL[item.status] || item.status),
+    "No published review groups.",
   );
 }
 
@@ -830,10 +839,10 @@ function renderMatchedStats(data) {
   node.hidden = false;
   node.replaceChildren();
   node.append(
-    element("strong", { text: `${formatInteger(tasks)} 条任务` }),
+    element("strong", { text: `${formatInteger(tasks)} tasks` }),
     document.createTextNode(" · "),
-    element("span", { text: `${formatDuration(duration, false)} 原始音频` }),
-    document.createTextNode(" · 下列来源场景/批次分组可重叠；来源置信度与已发布核验互斥。"),
+    element("span", { text: `${formatDuration(duration, false)} source audio` }),
+    document.createTextNode(" · Source scene/batch groups below may overlap; source confidence and published review are mutually exclusive."),
   );
 }
 
@@ -1153,10 +1162,10 @@ function renderAnnotatorDetail(data) {
   const scope = pick(data, ["scene_scope", "scope"], {});
   if ($("scopeMode")) {
     $("scopeMode").value = pick(scope, ["mode"], "all");
-    $("scopeAllowUnknown").checked = boolValue(pick(scope, ["allow_unknown"], false));
     $("scopeReason").value = "";
     $("sceneScopeForm").dataset.revision = String(pick(scope, ["revision"], 0));
     const allowed = new Set(listValue(scope, ["scene_codes"]));
+    if (boolValue(pick(scope, ["allow_unknown"], false))) allowed.add("spoken_languages");
     for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) {
       box.checked = allowed.has(box.value);
     }
@@ -1304,11 +1313,11 @@ function renderCorpusTasks() {
     row.appendChild(element("td", {}, statusBadge(item.status)));
     row.appendChild(element("td", { className: "mono-cell", text: formatDuration(item.durationSeconds) }));
     const sourceScenes = (item.source_scenes || item.sourceScenes || []).map(sceneLabel);
-    row.appendChild(element("td", { text: sourceScenes.join("、") || "来源未知" }));
-    row.appendChild(element("td", { text: CONF_ZH[item.source_confidence || item.sourceConfidence] || item.source_confidence || "来源置信度未知" }));
+    row.appendChild(element("td", { text: sourceScenes.join(", ") || "Spoken languages" }));
+    row.appendChild(element("td", { text: CONF_LABEL[item.source_confidence || item.sourceConfidence] || item.source_confidence || "Source confidence Unknown" }));
     const humanScenes = (item.human_scenes || item.humanScenes || []).map(sceneLabel);
     const reviewStatus = item.review_status || item.reviewStatus || "pending";
-    const reviewText = (REVIEW_STATUS_ZH[reviewStatus] || reviewStatus) + (humanScenes.length ? ` · ${humanScenes.join("、")}` : "");
+    const reviewText = (REVIEW_STATUS_LABEL[reviewStatus] || reviewStatus) + (humanScenes.length ? ` · ${humanScenes.join(", ")}` : "");
     row.appendChild(element("td", { text: reviewText }));
     row.appendChild(element("td", { text: item.prediction_label || item.predictionLabel || sceneLabel(item.prediction_scene) || "—" }));
     row.appendChild(element("td", { text: formatDateTime(item.submittedAt || item.updated_at) }));
@@ -1513,8 +1522,8 @@ function renderTaskDetail(data, task) {
     const current = $("adminReviewCurrent");
     if (current) {
       const human = (review.scene_codes || []).map(sceneLabel).join("、");
-      const sourceText = (metadata?.sources || []).map((item) => item.scene_label || sceneLabel(item.scene_code)).join("、") || "来源未知";
-      current.textContent = `当前已发布核验：${REVIEW_STATUS_ZH[review.status] || review.status || "待核验"}${human ? " · " + human : ""}。来源场景：${sourceText}。`;
+      const sourceText = (metadata?.sources || []).map((item) => item.scene_label || sceneLabel(item.scene_code)).join(", ") || "Spoken languages";
+      current.textContent = `Current published review: ${REVIEW_STATUS_LABEL[review.status] || review.status || "Pending"}${human ? " · " + human : ""}. Source scenes: ${sourceText}.`;
     }
   }
 }
@@ -1995,7 +2004,7 @@ function setupEvents() {
     const codes = Array.from(document.querySelectorAll("#scopeSceneGrid input[type=checkbox]:checked")).map((box) => box.value);
     const reason = $("scopeReason").value.trim();
     if (!reason) {
-      formError($("scopeError"), "请填写调整原因。");
+      formError($("scopeError"), "Please enter a reason for this change.");
       $("scopeReason").focus();
       return;
     }
@@ -2007,11 +2016,11 @@ function setupEvents() {
           expected_revision: Number($("sceneScopeForm").dataset.revision || 0),
           mode: $("scopeMode").value,
           scene_codes: $("scopeMode").value === "restricted" ? codes : [],
-          allow_unknown: $("scopeAllowUnknown").checked,
+          allow_unknown: $("scopeMode").value === "restricted" && codes.includes("spoken_languages"),
           reason,
         },
       });
-      toast("可领取范围已保存。已领取任务不会被释放。");
+      toast("Claim scope saved. Existing assignments are not released.");
       $("scopeReason").value = "";
       await loadAnnotator(state.selectedAnnotatorId);
     } catch (error) {
@@ -2029,7 +2038,7 @@ function setupEvents() {
     const status = $("adminReviewStatus").value;
     const reason = $("adminReviewReason").value.trim();
     if (!reason) {
-      formError($("adminReviewError"), "请填写修正原因。");
+      formError($("adminReviewError"), "Please enter a reason for this correction.");
       $("adminReviewReason").focus();
       return;
     }
@@ -2050,7 +2059,7 @@ function setupEvents() {
         note: $("adminReviewNote").value,
         reason,
       });
-      toast("人工核验已追加修正。");
+      toast("Human review correction appended.");
       await showTask(taskId);
     } catch (error) {
       formError($("adminReviewError"), error.message);

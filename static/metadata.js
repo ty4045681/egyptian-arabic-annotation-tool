@@ -2,26 +2,27 @@
 (function (root) {
   "use strict";
 
-  const CONF_ZH = {
-    high: "来源置信度高", medium: "来源置信度中",
-    low: "来源置信度低", unknown: "来源置信度未知",
+  const CONF_LABEL = {
+    high: "Source confidence High", medium: "Source confidence Medium",
+    low: "Source confidence Low", unknown: "Source confidence Unknown",
   };
-  const REVIEW_ZH = {
-    pending: "场景待核验", confirmed: "场景已确认", mixed: "多场景",
-    out_of_scope: "不属于九场景", uncertain: "无法判断",
+  const REVIEW_LABEL = {
+    pending: "Scene review pending", confirmed: "Scene confirmed",
+    mixed: "Multiple scenes",
+    out_of_scope: "Outside the ten scenes", uncertain: "Cannot determine",
   };
-  const SCENE_ZH = {
-    airport: "机场", tourism_information: "旅游信息", shopping: "购物",
-    clinic: "诊所", emergencies: "紧急情况",
-    business_negotiation: "商务谈判", restaurant: "餐厅", hotel: "酒店",
-    taxi: "出租车",
+  const SCENE_LABEL = {
+    restaurant: "Restaurant", hotel: "Hotel", taxi: "Taxi", airport: "Airport",
+    clinic: "Clinic", tourism_information: "Tourism information",
+    emergencies: "Emergencies", spoken_languages: "Spoken languages",
+    business_negotiation: "Business negotiation", shopping: "Shopping",
   };
   const STATUS_BUTTONS = [
-    ["confirmed", "确认"],
-    ["mixed", "调整/多场景"],
-    ["out_of_scope", "不属于九场景"],
-    ["uncertain", "无法判断"],
-    ["pending", "暂不核验"],
+    ["confirmed", "Confirm"],
+    ["mixed", "Mixed / multiple scenes"],
+    ["out_of_scope", "Outside the ten scenes"],
+    ["uncertain", "Cannot determine"],
+    ["pending", "Skip review for now"],
   ];
 
   function el(tag, opts, children) {
@@ -49,15 +50,20 @@
     return node;
   }
 
+  function sceneDisplayLabel(scene) {
+    if (!scene) return sceneLabel(null);
+    return scene.label_en || scene.label || scene.label_zh || sceneLabel(scene.code);
+  }
+
   function sceneLabel(code) {
-    if (!code) return "未知场景";
-    return SCENE_ZH[code] || code;
+    if (!code || code === "unknown") return "Spoken languages";
+    return SCENE_LABEL[code] || code;
   }
 
   function humanSceneSuffix(review) {
     const codes = (review && review.scene_codes) || [];
     if (!codes.length) return "";
-    return "（" + codes.map(sceneLabel).join("、") + "）";
+    return " (" + codes.map(sceneLabel).join(", ") + ")";
   }
 
   function claimPrimary(metadata) {
@@ -82,38 +88,44 @@
     if (draft != null && !submitted) {
       const status = draft.status || "pending";
       if (status === "pending" && !(draft.id || (draft.scene_codes || []).length)) {
-        return REVIEW_ZH.pending;
+        return REVIEW_LABEL.pending;
       }
-      return "本人已保存，未提交" + humanSceneSuffix(draft);
+      return "Saved, not submitted" + humanSceneSuffix(draft);
     }
     if (!submitted) {
       const status = review.status || "pending";
-      if (status === "pending") return REVIEW_ZH.pending;
-      return (REVIEW_ZH[status] || REVIEW_ZH.pending) + humanSceneSuffix(review) + " · 未提交";
+      if (status === "pending") return REVIEW_LABEL.pending;
+      return (REVIEW_LABEL[status] || REVIEW_LABEL.pending) + humanSceneSuffix(review) + " · not submitted";
     }
-    return (REVIEW_ZH[review.status] || REVIEW_ZH.pending) + humanSceneSuffix(review);
+    return (REVIEW_LABEL[review.status] || REVIEW_LABEL.pending) + humanSceneSuffix(review);
   }
 
   function headline(metadata) {
-    if (!metadata) return "来源场景未知 · 来源置信度未知 · 场景待核验";
+    if (!metadata) return "Spoken languages · Source confidence Unknown · Scene review pending";
     const sources = metadata.sources || [];
     const claim = metadata.claim_context || {};
-    const primary = claimPrimary(metadata);
-    const distinct = new Set(sources.map((item) => item.scene_code || "unknown")).size;
+    let primary = claimPrimary(metadata);
+    if (!primary && sources.length === 1) primary = sources[0];
+    const distinct = new Set(sources.map((item) => item.scene_code || "spoken_languages")).size;
     let scenePart;
     let confPart;
     if (!sources.length && !primary) {
-      scenePart = "来源场景未知";
-      confPart = CONF_ZH.unknown;
+      const server = String(metadata.headline || "");
+      const parts = server.split(" · ");
+      if (parts.length >= 3) {
+        return parts.slice(0, -1).join(" · ") + " · " + reviewHeadlinePart(metadata);
+      }
+      scenePart = "Spoken languages";
+      confPart = CONF_LABEL.unknown;
     } else if (primary) {
       scenePart = primary.scene_label || sceneLabel(primary.scene_code);
-      confPart = CONF_ZH[primary.confidence || claim.confidence] || CONF_ZH.unknown;
-      if (distinct > 1) scenePart = scenePart + "（" + distinct + " 个来源场景）";
+      confPart = CONF_LABEL[primary.confidence || claim.confidence] || CONF_LABEL.unknown;
+      if (distinct > 1) scenePart = scenePart + " (" + distinct + " source scenes)";
     } else {
       scenePart = sources.map((item) =>
-        (item.scene_label || sceneLabel(item.scene_code)) + "·" + (CONF_ZH[item.confidence] || CONF_ZH.unknown)
-      ).join("；");
-      confPart = "来源置信度按场景";
+        (item.scene_label || sceneLabel(item.scene_code)) + "·" + (CONF_LABEL[item.confidence] || CONF_LABEL.unknown)
+      ).join("; ");
+      confPart = "Source confidence by scene";
     }
     return scenePart + " · " + confPart + " · " + reviewHeadlinePart(metadata);
   }
@@ -143,7 +155,7 @@
       parent.appendChild(el("a", { href: text, text: text }));
       return;
     }
-    parent.appendChild(el("div", { text: "链接（未使用）：" + text }));
+    parent.appendChild(el("div", { text: "Link (not used): " + text }));
   }
 
   function sourceBlock(source, kindLabel) {
@@ -154,26 +166,26 @@
     block.appendChild(el("div", {
       className: "metadata-source-title",
       text: (source.scene_label || sceneLabel(source.scene_code)) + " · " +
-        (CONF_ZH[source.confidence] || CONF_ZH.unknown),
+        (CONF_LABEL[source.confidence] || CONF_LABEL.unknown),
     }));
     if (source.confidence_basis) {
-      block.appendChild(el("div", { text: "依据：" + source.confidence_basis }));
+      block.appendChild(el("div", { text: "Basis: " + source.confidence_basis }));
     }
-    if (source.video_id) block.appendChild(el("div", { text: "视频 ID：" + source.video_id }));
-    if (source.batch_code) block.appendChild(el("div", { text: "批次：" + source.batch_code }));
-    if (source.source_type) block.appendChild(el("div", { text: "来源类型：" + source.source_type }));
-    if (source.channel_title) block.appendChild(el("div", { text: "频道：" + source.channel_title }));
-    if (source.provider) block.appendChild(el("div", { text: "平台：" + source.provider }));
+    if (source.video_id) block.appendChild(el("div", { text: "Video ID: " + source.video_id }));
+    if (source.batch_code) block.appendChild(el("div", { text: "Batch: " + source.batch_code }));
+    if (source.source_type) block.appendChild(el("div", { text: "Source type: " + source.source_type }));
+    if (source.channel_title) block.appendChild(el("div", { text: "Channel: " + source.channel_title }));
+    if (source.provider) block.appendChild(el("div", { text: "Provider: " + source.provider }));
     appendSafeUrl(block, source.source_url);
     return block;
   }
 
   function reviewSummaryText(review) {
-    if (!review) return REVIEW_ZH.pending;
-    const status = REVIEW_ZH[review.status] || REVIEW_ZH.pending;
+    if (!review) return REVIEW_LABEL.pending;
+    const status = REVIEW_LABEL[review.status] || REVIEW_LABEL.pending;
     const suffix = humanSceneSuffix(review);
-    const actor = review.actor_kind === "admin" ? "（管理员）" :
-      review.actor_kind === "annotator" ? "（标注员）" : "";
+    const actor = review.actor_kind === "admin" ? " (administrator)" :
+      review.actor_kind === "annotator" ? " (annotator)" : "";
     const note = review.note ? " · " + review.note : "";
     return status + suffix + actor + note;
   }
@@ -186,7 +198,7 @@
     });
     box.appendChild(el("div", {
       className: "review-reference-title",
-      text: "上次已发布的核验（仅供参考，不是当前草稿；可能含提交后的管理员修正）",
+      text: "Last published review (reference only, not the current draft; may include a later administrator correction)",
     }));
     box.appendChild(el("div", { text: reviewSummaryText(metadata.reference_review) }));
     container.appendChild(box);
@@ -202,79 +214,79 @@
       attrs: { id: options.disclosureId || "metadataDisclosure" },
     });
     if (options.open) details.setAttribute("open", "");
-    details.appendChild(el("summary", { text: options.summaryText || "来源、依据与核验详情" }));
+    details.appendChild(el("summary", { text: options.summaryText || "Source, basis, and review details" }));
     const body = el("div", { className: "metadata-disclosure-body" });
     body.appendChild(el("p", {
       className: "metadata-notice",
-      text: metadata.notice || "来源判断尚未代表人工核验。",
+      text: metadata.notice || "Source classification is not a human review.",
     }));
 
     const claim = metadata.claim_context || {};
     if (claim.historical) {
-      body.appendChild(el("h3", { text: "领取时的来源（当时依据，之后已更新）" }));
+      body.appendChild(el("h3", { text: "Source at claim time (the evidence used then; later updated)" }));
       if (claim.source) body.appendChild(sourceBlock(claim.source, "historical"));
       else {
         body.appendChild(el("p", {
-          text: sceneLabel(claim.scene_code) + " · " + (CONF_ZH[claim.confidence] || CONF_ZH.unknown),
+          text: sceneLabel(claim.scene_code) + " · " + (CONF_LABEL[claim.confidence] || CONF_LABEL.unknown),
         }));
       }
-      body.appendChild(el("h3", { text: "当前来源" }));
+      body.appendChild(el("h3", { text: "Current sources" }));
       const current = metadata.sources || [];
-      if (!current.length) body.appendChild(el("p", { text: "当前没有匹配的来源证据。" }));
+      if (!current.length) body.appendChild(el("p", { text: "No matching current source evidence." }));
       current.forEach((source) => body.appendChild(sourceBlock(source, "current")));
     } else {
-      body.appendChild(el("h3", { text: "来源证据" }));
+      body.appendChild(el("h3", { text: "Source evidence" }));
       const sources = metadata.sources || [];
       if (!sources.length) {
-        body.appendChild(el("p", { text: "来源场景未知 / 来源置信度未知。旧任务没有来源证据。" }));
+        body.appendChild(el("p", { text: "Spoken languages · Source confidence Unknown. This older task has no source evidence." }));
       } else {
         sources.forEach((source) => body.appendChild(sourceBlock(source, "source")));
       }
     }
 
-    body.appendChild(el("h3", { text: "模型分类" }));
+    body.appendChild(el("h3", { text: "Model classification" }));
     if (metadata.prediction) {
       const pred = metadata.prediction;
-      const predLine = (pred.predicted_label || pred.predicted_scene_code || "未分类") +
-        (pred.predicted_scene_code ? "（" + sceneLabel(pred.predicted_scene_code) + "）" : "");
+      const predLine = (pred.predicted_label || pred.predicted_scene_code || "Unclassified") +
+        (pred.predicted_scene_code ? " (" + sceneLabel(pred.predicted_scene_code) + ")" : "");
       body.appendChild(el("div", { attrs: { "data-kind": "model" }, text: predLine }));
-      if (pred.model_name) body.appendChild(el("div", { text: "模型：" + pred.model_name }));
-      if (pred.created_at) body.appendChild(el("div", { text: "生成时间：" + pred.created_at }));
+      if (pred.model_name) body.appendChild(el("div", { text: "Model: " + pred.model_name }));
+      if (pred.created_at) body.appendChild(el("div", { text: "Generated at: " + pred.created_at }));
       if (pred.stale) {
-        body.appendChild(el("p", { text: "模型预测基于旧转写版本，不是当前人工结论。" }));
+        body.appendChild(el("p", { text: "This model prediction is based on an older transcript and is not the current human conclusion." }));
       }
     } else {
-      body.appendChild(el("p", { text: "没有模型分类。" }));
+      body.appendChild(el("p", { text: "No model classification." }));
     }
 
-    body.appendChild(el("h3", { text: "人工核验" }));
+    body.appendChild(el("h3", { text: "Human review" }));
     const working = metadata.draft_review || metadata.scene_review;
     const published = metadata.scene_review;
     if (metadata.draft_review) {
       body.appendChild(el("div", {
         attrs: { "data-review-kind": "working" },
-        text: "当前草稿：" + reviewSummaryText(metadata.draft_review) +
-          (metadata.draft_review.submitted ? "" : " · 未提交"),
+        text: "Current draft: " + reviewSummaryText(metadata.draft_review) +
+          (metadata.draft_review.submitted ? "" : " · not submitted"),
       }));
       if (metadata.reference_review) {
         body.appendChild(el("div", {
           attrs: { "data-review-kind": "reference" },
-          text: "上次已发布：" + reviewSummaryText(metadata.reference_review),
+          text: "Last published: " + reviewSummaryText(metadata.reference_review),
         }));
       }
     } else if (published && published.submitted) {
       body.appendChild(el("div", {
         attrs: { "data-review-kind": "published" },
-        text: "已提交：" + reviewSummaryText(published),
+        text: "Submitted: " + reviewSummaryText(published),
       }));
     } else if (working) {
       body.appendChild(el("div", {
         attrs: { "data-review-kind": "working" },
-        text: "工作草稿：" + reviewSummaryText(working) +
-          (working.submitted ? "" : " · 未提交"),
+        text: "Working draft: " + reviewSummaryText(working) +
+          (working.submitted ? "" : " · not submitted"),
       }));
     } else {
-      body.appendChild(el("p", { text: REVIEW_ZH.pending }));
+      body.appendChild(el("p", { text: REVIEW_LABEL.pending }));
     }
 
     details.appendChild(body);
@@ -290,16 +302,16 @@
     const status = review.status || "pending";
     const codes = Array.isArray(review.scene_codes) ? review.scene_codes : [];
     if (status === "confirmed" && codes.length !== 1) {
-      return { ok: false, error: "确认需要恰好选择一个场景。" };
+      return { ok: false, error: "Confirm requires exactly one scene." };
     }
     if (status === "mixed" && codes.length < 2) {
-      return { ok: false, error: "多场景需要至少选择两个场景。" };
+      return { ok: false, error: "Mixed scenes require at least two scene labels." };
     }
     if (status === "out_of_scope" && codes.length) {
-      return { ok: false, error: "不属于九场景时不要选择场景标签。" };
+      return { ok: false, error: "Do not select scene labels when marking outside the ten scenes." };
     }
     if (status === "pending" && codes.length) {
-      return { ok: false, error: "暂不核验时不要选择场景标签。" };
+      return { ok: false, error: "Do not select scene labels when skipping review." };
     }
     return { ok: true, error: "" };
   }
@@ -309,7 +321,7 @@
     const current = options.value || { status: "pending", scene_codes: [], note: "" };
     container.replaceChildren();
     if (options.disabled) {
-      container.appendChild(el("h2", { text: "场景核验（当前为只读）" }));
+      container.appendChild(el("h2", { text: "Scene review (read-only)" }));
       container.appendChild(el("p", {
         attrs: { "data-review-kind": "readonly" },
         text: reviewSummaryText(current),
@@ -321,7 +333,7 @@
       scene_codes: Array.isArray(current.scene_codes) ? current.scene_codes.slice() : [],
       note: current.note || "",
     };
-    const heading = el("h2", { text: "场景核验（可随任务提交，非完成必填）" });
+    const heading = el("h2", { text: "Scene review (optional with the task; not required to complete)" });
     const actions = el("div", { className: "scene-review-actions" });
     const validation = el("p", {
       className: "scene-review-validation",
@@ -377,13 +389,13 @@
         emit();
       });
       label.appendChild(box);
-      label.appendChild(document.createTextNode(scene.label_zh || sceneLabel(scene.code)));
+      label.appendChild(document.createTextNode(sceneDisplayLabel(scene)));
       sceneBox.appendChild(label);
     });
     sceneBox.hidden = !(state.status === "confirmed" || state.status === "mixed" || state.status === "uncertain");
 
     const note = document.createElement("textarea");
-    note.placeholder = "备注（可选）";
+    note.placeholder = "Note (optional)";
     note.value = state.note;
     note.addEventListener("input", () => { state.note = note.value; emit(); });
 
@@ -405,27 +417,19 @@
     (options.pool && options.pool.by_scene || []).forEach((item) => { counts[item.scene_code] = item.available; });
     const wrap = el("div", { className: "scene-picker" });
     const allBtn = el("button", { attrs: { type: "button", "aria-pressed": String(!selected) } }, [
-      el("span", { text: "范围内全部" }),
-      el("span", { className: "count", text: String((options.pool && options.pool.available) || 0) + " 条" }),
+      el("span", { text: "All in scope" }),
+      el("span", { className: "count", text: String((options.pool && options.pool.available) || 0) + " tasks" }),
     ]);
     allBtn.addEventListener("click", () => options.onChange && options.onChange(""));
     wrap.appendChild(allBtn);
     (options.scenes || []).forEach((scene) => {
       const button = el("button", { attrs: { type: "button", "aria-pressed": String(selected === scene.code) } }, [
-        el("span", { text: scene.label_zh || scene.code }),
-        el("span", { className: "count", text: String(counts[scene.code] || 0) + " 条" }),
+        el("span", { text: sceneDisplayLabel(scene) }),
+        el("span", { className: "count", text: String(counts[scene.code] || 0) + " tasks" }),
       ]);
       button.addEventListener("click", () => options.onChange && options.onChange(scene.code));
       wrap.appendChild(button);
     });
-    if (options.pool && (options.pool.scope && (options.pool.scope.mode === "all" || options.pool.scope.allow_unknown))) {
-      const unknown = el("button", { attrs: { type: "button", "aria-pressed": String(selected === "unknown") } }, [
-        el("span", { text: "来源未知" }),
-        el("span", { className: "count", text: String(options.pool.unknown_available || 0) + " 条" }),
-      ]);
-      unknown.addEventListener("click", () => options.onChange && options.onChange("unknown"));
-      wrap.appendChild(unknown);
-    }
     container.appendChild(wrap);
     if (options.scopeText) {
       container.appendChild(el("p", { className: "metadata-notice", text: options.scopeText }));
@@ -435,6 +439,7 @@
   root.AnnotationMetadata = {
     headline, renderBanner, renderDetails, renderReviewControls, renderScenePicker,
     reviewPayload, validateReview, reviewSummaryText, renderReviewReference,
-    sceneLabel, CONF_ZH, REVIEW_ZH, SCENE_ZH,
+    sceneLabel, sceneDisplayLabel, CONF_LABEL, REVIEW_LABEL, SCENE_LABEL,
+    CONF_ZH: CONF_LABEL, REVIEW_ZH: REVIEW_LABEL, SCENE_ZH: SCENE_LABEL,
   };
 })(window);

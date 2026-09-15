@@ -59,8 +59,11 @@ def test_unknown_scene_group_counts_legacy_and_explicit_unknown_once(seed_tasks)
     source(explicit, None, "unknown", "acceptance-explicit-unknown")
     result = repo.admin_overview({"source_scene": "unknown"})
     groups = {row["scene_code"]: row for row in result["source_scenes"]}
-    assert groups["unknown"]["task_count"] == 2, groups
-    assert groups["unknown"]["duration_seconds"] == 20.0
+    assert groups["spoken_languages"]["task_count"] == 2, groups
+    assert groups["spoken_languages"]["duration_seconds"] == 20.0
+    same = repo.admin_overview({"source_scene": "spoken_languages"})
+    same_groups = {row["scene_code"]: row for row in same["source_scenes"]}
+    assert same_groups["spoken_languages"]["task_count"] == 2
 
 
 def test_corpus_cursor_cannot_cross_search_filter_context(seed_tasks):
@@ -82,8 +85,8 @@ def test_claim_headline_uses_selected_evidence_not_first_same_scene(seed_tasks):
     claimed = repo.claim(user["id"], source_scene="airport", batch_code="acceptance-airport-high")
     metadata = claimed["metadata"]
     assert metadata["claim_context"]["confidence"] == "high"
-    assert "来源置信度高" in metadata["headline"], metadata["headline"]
-    assert "2 个来源场景" not in metadata["headline"], "Two airport sources represent one distinct scene"
+    assert "Source confidence High" in metadata["headline"], metadata["headline"]
+    assert "2 source scenes" not in metadata["headline"], "Two airport sources represent one distinct scene"
 
 
 def test_repeated_sources_do_not_double_count_task_or_duration(seed_tasks):
@@ -225,7 +228,7 @@ def test_claim_headline_keeps_historical_evidence_after_revision(seed_tasks):
     assert metadata["claim_context"]["confidence"] == "high"
     assert metadata["claim_context"]["source_is_current"] is False
     assert metadata["claim_context"]["historical"] is True
-    assert "来源置信度高" in metadata["headline"]
+    assert "Source confidence High" in metadata["headline"]
     current = metadata["claim_context"]["current_evidence"]
     assert current
     assert current[0]["confidence"] == "low"

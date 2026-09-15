@@ -118,7 +118,7 @@ tests/
 
 新增 ASR 并发占位使用 task 上的处理 token、租约截止时间和处理版本；获取、续期和提交均校验 token。过期处理者不能覆盖接管者的结果，也不能释放新租约。它只保护同一任务的预处理，不承担网站 assignment 的职责。核验状态和来源置信度使用可扩展的文本值＋数据库 CHECK；模型 score 允许 NULL，非空时按供应方约定校验范围并保存分数含义。
 
-场景初始种子：`airport`、`tourism_information`、`shopping`、`clinic`、`emergencies`、`business_negotiation`、`restaurant`、`hotel`、`taxi`。映射 `01_机场` 等采集标签；旧分类的其他标签仍保留为 legacy/model 标签，不擅自归入九场景。
+场景目录现为十个稳定代码（显示顺序）：`restaurant`、`hotel`、`taxi`、`airport`、`clinic`、`tourism_information`、`emergencies`、`spoken_languages`、`business_negotiation`、`shopping`。英文平台标签与该顺序一致。映射 `01_机场` 等采集别名；未知来源（无当前来源、NULL `scene_code`、以及兼容 `source_scene=unknown`）归入 `spoken_languages`。模型预测与人工核验的 `unknown` 仍表示缺省结果，不因来源回退而改写。
 
 ### 4.2 来源版本、去重与冲突
 
@@ -193,7 +193,7 @@ manage_state.py verify-source-metadata --batch-code ...
 
 ## 7. 人工核验与现有版本机制
 
-状态：`pending`、`confirmed`、`mixed`、`out_of_scope`、`uncertain`。confirmed 要求一个场景，mixed 要求至少两个，out_of_scope 不选择九场景标签；uncertain 可记录候选和原因，不能计为已确认。
+状态：`pending`、`confirmed`、`mixed`、`out_of_scope`、`uncertain`。confirmed 要求一个场景，mixed 要求至少两个，out_of_scope 不选择十场景标签；uncertain 可记录候选和原因，不能计为已确认。
 
 - 核验随现有草稿自动保存，使用同一 `expected_revision` 和 `operation_id`；只有核验实际改变时追加 review revision，普通转写保存不制造核验历史。
 - 完成请求把最后一轮转写、核验、published 切换、事件和 assignment 释放放进同一事务。保存操作哈希包含核验字段，重试不能重复提交。
@@ -257,7 +257,7 @@ manage_state.py verify-source-metadata --batch-code ...
 
 任务标题下新增：**机场 · 来源置信度高 · 场景待核验**。来源信息可展开查看判断依据、视频链接、批次及其他场景关联。新信息按用户示例中文展示，场景字典保留英文标签供后续语言切换。
 
-空闲页提供场景选择器和匹配任务数；有未完成任务时保留当前任务，清楚标出下次领取偏好。核验控件提供确认、调整/多场景、不属于九场景、无法判断。信息提示明确“来源判断尚未代表人工核验”。
+空闲页提供十场景选择器和匹配任务数（含 Spoken languages，覆盖未知来源）；有未完成任务时保留当前任务，清楚标出下次领取偏好。核验控件提供确认、多场景、不属于十场景、无法判断。信息提示明确来源分类不是人工核验。平台界面为英文。
 
 复用 `static/metadata.js` 的纯格式化函数与 DOM 组件；现有内联脚本可通过动态 import 调用，避免一次性把依赖全局 onclick 的页面改成模块。`server.py` 为独立静态目录提供受限路径的资源路由。
 
@@ -334,7 +334,7 @@ manage_state.py verify-source-metadata --batch-code ...
 
 | 层次 | 必测内容 |
 |---|---|
-| 合同/适配 | 九场景别名、unknown、非法等级、外部字段保留、manifest/sidecar 冲突、缺失文件、越界路径、批次代码 |
+| 合同/适配 | 十场景别名、来源 unknown→Spoken languages、非法等级、外部字段保留、manifest/sidecar 冲突、缺失文件、越界路径、批次代码 |
 | 入库 | 同记录重复导入、清单追加、来源修订、同视频跨场景/批次、身份冲突、并发导入、崩溃恢复、ASR 被拒绝仍保留来源 |
 | 人工保护 | 已领取/已编辑/已发布任务只补来源；metadata-only 不调用 ASR、不改 segments 或 assignment |
 | 领取 | high 优先、同级稳定顺序、本人保留任务、不同场景、超范围/空范围、未知来源、禁止重领、锁冲突、退出/重启后恢复 |

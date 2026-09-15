@@ -17,7 +17,15 @@ from annotation_metadata.queries import (
     matching_source_task_ids_sql,
     order_sql,
 )
-from annotation_metadata.taxonomy import SCENE_BY_CODE, SCENE_CODES, scene_label
+from annotation_metadata.taxonomy import (
+    FALLBACK_SOURCE_SCENE,
+    SCENE_BY_CODE,
+    SCENE_CODES,
+    SCENE_ORDER,
+    is_source_fallback_filter,
+    ordered_scene_codes,
+    scene_label,
+)
 from annotation_repository import ForbiddenError
 
 CONFIDENCE_BANDS = ("high", "medium", "low", "unknown")
@@ -37,7 +45,7 @@ def assert_scope_allows(scope: SceneScope, filters: TaskFilter) -> None:
     selected = filters.source_scene_value()
     if selected is None:
         return
-    if not scope.allows_scene(selected if selected != "unknown" else None):
+    if not scope.allows_scene(selected):
         raise ForbiddenError("source_scene is outside the annotator's allowed scope")
 
 
@@ -131,7 +139,9 @@ def count_claimable_pair(cur, scope: SceneScope, filters: TaskFilter, user_id) -
 
 def scene_counts(cur, scope: SceneScope, filters: TaskFilter, user_id) -> tuple[list[dict], int]:
     """Available counts per allowed scene using the same matching rules."""
-    codes = list(SCENE_BY_CODE) if scope.all_scenes else list(scope.scene_codes)
+    codes = list(SCENE_ORDER) if scope.all_scenes else ordered_scene_codes(
+        scope.effective_scene_codes(),
+    )
     unknown_available = 0
     by_code: dict[str | None, int] = {}
     if scope.can_claim:
@@ -148,8 +158,9 @@ def scene_counts(cur, scope: SceneScope, filters: TaskFilter, user_id) -> tuple[
             extra_params.append(filters.batch_code)
         extra_sql = (" AND " + " AND ".join(extra_clauses)) if extra_clauses else ""
         scope_sql, scope_params = _scope_source_clause(scope, src_alias="src")
+        effective = f"COALESCE(src.scene_code, '{FALLBACK_SOURCE_SCENE}')"
         rows = cur.execute(
-            f"""SELECT src.scene_code, count(DISTINCT t.id)
+            f"""SELECT {effective}, count(DISTINCT t.id)
                 FROM task_sources src
                 JOIN annotation_tasks t ON t.id = src.task_id
                 JOIN annotation_versions v
@@ -163,26 +174,31 @@ def scene_counts(cur, scope: SceneScope, filters: TaskFilter, user_id) -> tuple[
                   AND (t.reserved_for_user_id = %s OR t.reserved_for_user_id IS NULL)
                   AND ({scope_sql})
                   {extra_sql}
-                GROUP BY src.scene_code""",
+                GROUP BY {effective}""",
             (user_id, user_id, *scope_params, *extra_params),
         ).fetchall()
         for scene_code, count in rows:
             by_code[scene_code] = int(count)
-        if scope.all_scenes or scope.allow_unknown:
-            unknown_filters = TaskFilter(
-                selected_scene="unknown",
-                source_scene="unknown",
+        if scope.allows_fallback_source():
+            fallback_filters = TaskFilter(
+                selected_scene=FALLBACK_SOURCE_SCENE,
+                source_scene=FALLBACK_SOURCE_SCENE,
                 batch_code=filters.batch_code,
                 source_confidence=filters.source_confidence,
             )
-            unknown_available = count_claimable(cur, scope, unknown_filters, user_id)
+            by_code[FALLBACK_SOURCE_SCENE] = count_claimable(
+                cur, scope, fallback_filters, user_id,
+            )
+            unknown_available = int(by_code[FALLBACK_SOURCE_SCENE])
     items = []
     for code in codes:
         if code not in SCENE_CODES:
             continue
+        label = scene_label(code)
         items.append({
             "scene_code": code,
-            "label_zh": scene_label(code),
+            "label": label,
+            "label_zh": label,
             "label_en": str(SCENE_BY_CODE[code]["label_en"]),
             "available": int(by_code.get(code, 0)),
         })
@@ -278,7 +294,8 @@ def _use_source_first(scope: SceneScope, filters: TaskFilter, *,
     if reserved_only:
         return False
     selected = filters.source_scene_value()
-    return bool(selected and selected != "unknown")
+    # Spoken languages includes virtual no-source tasks; keep the pending walk.
+    return bool(selected and not is_source_fallback_filter(selected))
 
 
 def claim_lock_query(scope: SceneScope, filters: TaskFilter, user_id, policy: str,

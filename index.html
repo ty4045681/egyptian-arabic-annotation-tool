@@ -125,7 +125,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
   <div class="header-actions">
     <a class="link-btn" href="/completed.html">Completed data</a>
     <div class="font-ctrl" role="group" aria-label="Arabic transcript font size">
-      <span class="font-ctrl-label">عربي</span>
+      <span class="font-ctrl-label">Arabic</span>
       <button class="font-btn" id="fontDown" type="button" aria-label="Decrease Arabic font size">A−</button>
       <span class="font-size-label" id="fontSizeLabel">18</span>
       <button class="font-btn" id="fontUp" type="button" aria-label="Increase Arabic font size">A+</button>
@@ -294,12 +294,13 @@ async function loadAssignment(){
 }
 function scopeSummaryText(){
   const scope=state.scope||{};
-  if(scope.mode==="none")return "可领取范围：无";
+  const sceneName=scene=>scene.label_en||scene.label||scene.label_zh||scene.code;
+  if(scope.mode==="none")return "Claim scope: none";
   if(scope.mode==="restricted"){
-    const labels=(state.claimScenes||[]).map(scene=>scene.label_zh||scene.code);
-    return "可领取范围："+(labels.join("、")||"未指定场景")+(scope.allow_unknown?"（含来源未知）":"");
+    const labels=(state.claimScenes||[]).map(sceneName);
+    return "Claim scope: "+(labels.join(", ")||"no scenes");
   }
-  return "可领取范围：全部来源场景";
+  return "Claim scope: all source scenes";
 }
 function showIdle(pool,successMessage=""){
   const reason=pool?.reason||"available";let title="Ready for another task",description="Your previous task is complete. Claim a task when you are ready.";
@@ -309,8 +310,8 @@ function showIdle(pool,successMessage=""){
   else if(reason==="no_preprocessed"){title="No tasks available";description="Preprocessed audio has not been imported yet."}
   if(successMessage){title=successMessage}
   let actions='<a class="link-btn" href="/completed.html">View completed data</a>';
-  if(reason==="no_matching_scene"){title="没有匹配的场景任务";description="当前选择的来源场景没有可领取任务。已领取任务不会被释放。"}
-  else if(reason==="no_scene_access"){title="没有可领取的场景";description="管理员尚未向你开放可领取场景。当前未完成任务仍会保留。"}
+  if(reason==="no_matching_scene"){title="No matching scene tasks";description="The selected source scene has no tasks you can claim. Existing assignments are not released."}
+  else if(reason==="no_scene_access"){title="No claimable scenes";description="An administrator has not granted you a claimable scene scope. Your current unfinished task is still reserved."}
   if(reason==="available"||reason==="no_matching_scene")actions='<button class="btn btn-primary" id="claimButton" type="button">Claim next task</button> '+actions;
   else if(reason==="temporarily_busy")actions='<button class="btn btn-primary" id="refreshPoolButton" type="button">Check again</button> '+actions;
   stateView(title,description,actions,successMessage?"success":"");$("assignmentLine").textContent=description;
@@ -325,7 +326,7 @@ function showIdle(pool,successMessage=""){
       scopeText:scopeSummaryText(),
       onChange:(code)=>{state.nextClaimScene=code;loadAssignment()}
     });
-    if(state.assignment) host.appendChild(Object.assign(document.createElement("p"),{textContent:"下次领取将使用该场景偏好。当前未完成任务仍会恢复。"}));
+    if(state.assignment) host.appendChild(Object.assign(document.createElement("p"),{textContent:"The next claim will use this scene preference. Your current unfinished task will still resume."}));
   }
 }
 async function claimTask(){

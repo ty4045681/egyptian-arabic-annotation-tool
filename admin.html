@@ -213,24 +213,24 @@
           <article class="panel panel-wide" id="metadataOverviewPanel">
             <div class="panel-heading">
               <div>
-                <h3>来源与核验</h3>
-                <p>按当前筛选统计。来源场景和批次分组可重叠；来源置信度和已发布核验互斥。</p>
+                <h3>Sources and review</h3>
+                <p>Statistics use the current filters. Source scene and batch groups may overlap; source confidence and published review are mutually exclusive.</p>
               </div>
             </div>
             <form class="filter-bar admin-metadata-filters" id="overviewFilterForm">
-              <label class="compact-field"><span>来源场景</span><select id="overviewSourceScene"><option value="">全部来源场景</option><option value="unknown">来源未知</option></select></label>
-              <label class="compact-field"><span>来源置信度</span><select id="overviewSourceConfidence"><option value="">全部置信度</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option><option value="unknown">未知</option></select></label>
-              <label class="compact-field"><span>来源批次</span><select id="overviewBatch"><option value="">全部批次</option></select></label>
-              <label class="compact-field"><span>人工核验状态</span><select id="overviewReviewStatus"><option value="">全部核验</option><option value="pending">待核验（已发布）</option><option value="confirmed">已确认</option><option value="mixed">多场景</option><option value="out_of_scope">不属于九场景</option><option value="uncertain">无法判断</option><option value="unreviewed_published">已发布、未核验</option><option value="unreviewed_unpublished">未发布、未核验</option></select></label>
-              <label class="compact-field"><span>模型分类</span><select id="overviewPredictionScene"><option value="">全部模型分类</option><option value="unknown">无模型分类</option></select></label>
-              <label class="compact-field"><span>人工核验场景</span><select id="overviewHumanScene"><option value="">全部人工场景</option><option value="unknown">无人工作场景</option></select></label>
-              <button class="button button-secondary button-small" type="submit">应用筛选</button>
+              <label class="compact-field"><span>Source scene</span><select id="overviewSourceScene"><option value="">All source scenes</option></select></label>
+              <label class="compact-field"><span>Source confidence</span><select id="overviewSourceConfidence"><option value="">All confidence</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="unknown">Unknown</option></select></label>
+              <label class="compact-field"><span>Source batch</span><select id="overviewBatch"><option value="">All batches</option></select></label>
+              <label class="compact-field"><span>Human review status</span><select id="overviewReviewStatus"><option value="">All reviews</option><option value="pending">Pending (published)</option><option value="confirmed">Confirmed</option><option value="mixed">Multiple scenes</option><option value="out_of_scope">Outside the ten scenes</option><option value="uncertain">Cannot determine</option><option value="unreviewed_published">Published, not reviewed</option><option value="unreviewed_unpublished">Unpublished, not reviewed</option></select></label>
+              <label class="compact-field"><span>Model classification</span><select id="overviewPredictionScene"><option value="">All model classifications</option><option value="unknown">No model classification</option></select></label>
+              <label class="compact-field"><span>Human review scene</span><select id="overviewHumanScene"><option value="">All human scenes</option><option value="unknown">No human scene</option></select></label>
+              <button class="button button-secondary button-small" type="submit">Apply filters</button>
             </form>
             <div class="metadata-overview-grid">
-              <div><h4>来源场景</h4><p class="overlap-note">同一任务可出现在多个来源场景中，分组相加不等于任务总数。</p><div id="sourceSceneGroups"></div></div>
-              <div><h4>来源置信度</h4><p class="overlap-note">按当前筛选下最高匹配来源证据互斥分桶。</p><div id="confidenceGroups"></div></div>
-              <div><h4>来源批次</h4><p class="overlap-note">同一任务可出现在多个批次中，分组相加不等于任务总数。</p><div id="sourceBatchGroups"></div></div>
-              <div><h4>已发布核验</h4><p class="overlap-note">只统计当前已发布版本；草稿核验不计入已核验。分组互斥。</p><div id="reviewStatusGroups"></div></div>
+              <div><h4>Source scenes</h4><p class="overlap-note">The same task can appear in more than one source scene; group totals can exceed the task count.</p><div id="sourceSceneGroups"></div></div>
+              <div><h4>Source confidence</h4><p class="overlap-note">Mutually exclusive buckets using the highest matching source evidence in the current filter.</p><div id="confidenceGroups"></div></div>
+              <div><h4>Source batches</h4><p class="overlap-note">The same task can appear in more than one batch; group totals can exceed the task count.</p><div id="sourceBatchGroups"></div></div>
+              <div><h4>Published review</h4><p class="overlap-note">Counts the current published version only; draft reviews are not published verification. Groups are mutually exclusive.</p><div id="reviewStatusGroups"></div></div>
             </div>
           </article>
         </div>
@@ -268,12 +268,11 @@
           <article class="panel" id="sceneScopePanel">
             <div class="panel-heading"><div><h3>Scene scope</h3><p>Restrict which source scenes this annotator may claim. Existing assignments are not released.</p></div></div>
             <form id="sceneScopeForm" class="scope-form">
-              <label>范围模式 <select id="scopeMode"><option value="all">全部来源场景</option><option value="restricted">限定场景</option><option value="none">不可领取</option></select></label>
-              <label class="check-row"><input id="scopeAllowUnknown" type="checkbox"><span>允许领取来源未知任务</span></label>
+              <label>Scope mode <select id="scopeMode"><option value="all">All source scenes</option><option value="restricted">Restricted scenes</option><option value="none">Cannot claim</option></select></label>
               <div class="scene-grid" id="scopeSceneGrid"></div>
-              <label>原因 <input id="scopeReason" required maxlength="4000" placeholder="说明为何调整可领取范围"></label>
+              <label>Reason <input id="scopeReason" required maxlength="4000" placeholder="Explain why this claim scope is changing"></label>
               <p class="form-error" id="scopeError" role="alert" hidden></p>
-              <button class="button button-secondary" type="submit">保存可领取范围</button>
+              <button class="button button-secondary" type="submit">Save claim scope</button>
             </form>
           </article>
 
@@ -323,18 +322,18 @@
           <form class="filter-bar" id="corpusFilterForm">
             <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search audio tasks</span><input id="corpusSearch" type="search" placeholder="Search filename, folder, or category"></label>
             <label class="compact-field"><span class="sr-only">Task status</span><select id="corpusStatus"><option value="">All statuses</option><option value="annotated">Annotated</option><option value="skipped">Skipped</option><option value="pending">Pending</option><option value="assigned">Assigned</option></select></label>
-            <label class="compact-field"><span>来源场景</span><select id="corpusSourceScene"><option value="">全部来源场景</option><option value="unknown">来源未知</option></select></label>
-            <label class="compact-field"><span>来源置信度</span><select id="corpusSourceConfidence"><option value="">全部置信度</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option><option value="unknown">未知</option></select></label>
-            <label class="compact-field"><span>来源批次</span><select id="corpusBatch"><option value="">全部批次</option></select></label>
-            <label class="compact-field"><span>人工核验状态</span><select id="corpusReviewStatus"><option value="">全部核验</option><option value="pending">待核验（已发布）</option><option value="confirmed">已确认</option><option value="mixed">多场景</option><option value="out_of_scope">不属于九场景</option><option value="uncertain">无法判断</option><option value="unreviewed_published">已发布、未核验</option><option value="unreviewed_unpublished">未发布、未核验</option></select></label>
-            <label class="compact-field"><span>模型分类</span><select id="corpusPredictionScene"><option value="">全部模型分类</option><option value="unknown">无模型分类</option></select></label>
-            <label class="compact-field"><span>人工核验场景</span><select id="corpusHumanScene"><option value="">全部人工场景</option><option value="unknown">无人工作场景</option></select></label>
-            <button class="button button-secondary button-small" type="submit">应用筛选</button>
+            <label class="compact-field"><span>Source scene</span><select id="corpusSourceScene"><option value="">All source scenes</option></select></label>
+            <label class="compact-field"><span>Source confidence</span><select id="corpusSourceConfidence"><option value="">All confidence</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="unknown">Unknown</option></select></label>
+            <label class="compact-field"><span>Source batch</span><select id="corpusBatch"><option value="">All batches</option></select></label>
+            <label class="compact-field"><span>Human review status</span><select id="corpusReviewStatus"><option value="">All reviews</option><option value="pending">Pending (published)</option><option value="confirmed">Confirmed</option><option value="mixed">Multiple scenes</option><option value="out_of_scope">Outside the ten scenes</option><option value="uncertain">Cannot determine</option><option value="unreviewed_published">Published, not reviewed</option><option value="unreviewed_unpublished">Unpublished, not reviewed</option></select></label>
+            <label class="compact-field"><span>Model classification</span><select id="corpusPredictionScene"><option value="">All model classifications</option><option value="unknown">No model classification</option></select></label>
+            <label class="compact-field"><span>Human review scene</span><select id="corpusHumanScene"><option value="">All human scenes</option><option value="unknown">No human scene</option></select></label>
+            <button class="button button-secondary button-small" type="submit">Apply filters</button>
           </form>
           <div class="matched-stats" id="corpusMatchedStats" hidden></div>
           <div class="table-scroll">
             <table class="data-table">
-              <thead><tr><th>Audio</th><th>Annotator</th><th>Status</th><th>Duration</th><th>来源场景</th><th>来源置信度</th><th>人工核验</th><th>模型分类</th><th>Updated</th><th class="actions-cell"><span class="sr-only">Actions</span></th></tr></thead>
+              <thead><tr><th>Audio</th><th>Annotator</th><th>Status</th><th>Duration</th><th>Source scene</th><th>Source confidence</th><th>Human review</th><th>Model classification</th><th>Updated</th><th class="actions-cell"><span class="sr-only">Actions</span></th></tr></thead>
               <tbody id="corpusTaskBody"></tbody>
             </table>
             <div class="table-state" id="corpusTaskState">Loading tasks…</div>
@@ -435,15 +434,15 @@
       </div>
       <div class="task-detail" id="taskDetail"><div class="table-state"><span class="spinner spinner-small"></span> Loading task…</div></div>
       <form id="adminReviewForm" class="scope-form" hidden>
-        <h3>修正人工核验</h3>
-        <p>在已发布版本上追加管理员核验，不改转写。原提交核验仍可追溯。</p>
+        <h3>Correct human review</h3>
+        <p>Append an administrator review on the published version without changing the transcript. The original submitted review stays in history.</p>
         <p class="overlap-note" id="adminReviewCurrent"></p>
         <p class="form-error" id="adminReviewError" role="alert" hidden></p>
-        <label>核验结论 <select id="adminReviewStatus"><option value="confirmed">确认</option><option value="mixed">多场景</option><option value="out_of_scope">不属于九场景</option><option value="uncertain">无法判断</option><option value="pending">待核验</option></select></label>
+        <label>Review result <select id="adminReviewStatus"><option value="confirmed">Confirm</option><option value="mixed">Multiple scenes</option><option value="out_of_scope">Outside the ten scenes</option><option value="uncertain">Cannot determine</option><option value="pending">Pending</option></select></label>
         <div class="scene-grid" id="adminReviewScenes"></div>
-        <label>备注 <input id="adminReviewNote" maxlength="4000"></label>
-        <label>原因 <input id="adminReviewReason" required maxlength="4000" placeholder="说明为何修正"></label>
-        <button class="button button-secondary" type="submit">保存核验修正</button>
+        <label>Note <input id="adminReviewNote" maxlength="4000"></label>
+        <label>Reason <input id="adminReviewReason" required maxlength="4000" placeholder="Explain why this review is being corrected"></label>
+        <button class="button button-secondary" type="submit">Save review correction</button>
       </form>
       <div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="taskDialog">Close</button><button class="button button-danger" id="revokeFromDetailButton" type="button" hidden>Revoke annotation</button></div>
     </div>

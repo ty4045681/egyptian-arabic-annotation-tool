@@ -20,11 +20,11 @@ def _login_annotator(page, url, username):
 def _select_airport_and_claim(page):
     picker = page.locator("#idleScenePicker")
     expect(picker).to_be_visible(timeout=10000)
-    picker.get_by_role("button", name="机场").click()
+    picker.get_by_role("button", name="Airport").click()
     expect(page.locator("#claimButton")).to_be_visible(timeout=10000)
-    expect(page.locator("#idleScenePicker button[aria-pressed='true']")).to_contain_text("机场", timeout=10000)
+    expect(page.locator("#idleScenePicker button[aria-pressed='true']")).to_contain_text("Airport", timeout=10000)
     page.locator("#claimButton").click()
-    expect(page.locator("#metadataBanner")).to_contain_text("机场", timeout=10000)
+    expect(page.locator("#metadataBanner")).to_contain_text("Airport", timeout=10000)
     expect(page.locator("textarea[data-text='0']")).to_be_visible(timeout=10000)
 
 
@@ -72,17 +72,17 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
         _accept_dialogs(page)
         try:
             _login_annotator(page, url, "browser-workflow")
-            expect(page.locator("#idleScenePicker")).to_contain_text("可领取范围")
+            expect(page.locator("#idleScenePicker")).to_contain_text("Claim scope")
             _select_airport_and_claim(page)
             banner = page.locator("#metadataBanner")
-            expect(banner).to_contain_text("来源置信度高")
-            expect(banner).to_contain_text("场景待核验")
+            expect(banner).to_contain_text("Source confidence High")
+            expect(banner).to_contain_text("Scene review pending")
             disclosure = page.locator("#metadataDisclosure")
             expect(disclosure).to_be_visible()
             assert disclosure.evaluate("el => el.open") is False
             disclosure.locator("summary").click()
             assert disclosure.evaluate("el => el.open") is True
-            expect(disclosure).to_contain_text("来源判断尚未代表人工核验")
+            expect(disclosure).to_contain_text("Source classification is not a human review")
             expect(disclosure).to_contain_text("<script>alert('xss-basis')</script>")
             expect(disclosure).to_contain_text("<img src=x onerror=alert(1)>")
             expect(disclosure.locator("a[href^='https://www.youtube.com']")).to_have_count(1)
@@ -96,11 +96,11 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
                     lambda request: request.method == "PATCH" and request.url.endswith("/api/assignment/current"),
                     timeout=3500,
                 ):
-                    panel.get_by_role("button", name="确认", exact=True).click()
+                    panel.get_by_role("button", name="Confirm", exact=True).click()
                 raise AssertionError("confirmed-without-labels must not autosave")
             except PlaywrightTimeout:
                 pass
-            expect(page.locator("#sceneReviewValidation")).to_contain_text("恰好选择一个场景")
+            expect(page.locator("#sceneReviewValidation")).to_contain_text("exactly one scene")
             panel.locator('input[value="airport"]').check()
             with page.expect_response(
                 lambda response: response.url.endswith("/api/assignment/current") and response.request.method == "PATCH",
@@ -111,8 +111,8 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             assert saved.value.request.post_data_json["scene_review"]["status"] == "confirmed"
             page.reload()
             expect(page.locator('#sceneReviewPanel input[value="airport"]')).to_be_checked(timeout=10000)
-            expect(page.locator("#metadataBanner")).to_contain_text("未提交")
-            expect(page.locator("#metadataBanner")).to_contain_text("机场")
+            expect(page.locator("#metadataBanner")).to_contain_text("not submitted")
+            expect(page.locator("#metadataBanner")).to_contain_text("Airport")
 
             _fill_transcripts(page, "workflow text")
             with page.expect_response(
@@ -135,16 +135,16 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             page.goto(url + "/completed.html")
             expect(page.locator("[data-view]").first).to_be_visible(timeout=10000)
             page.locator("[data-view]").first.click()
-            expect(page.locator("#completedMetadata")).to_contain_text("机场", timeout=10000)
-            expect(page.locator("#completedMetadata")).to_contain_text("场景已确认")
-            expect(page.locator("#completedMetadata")).not_to_contain_text("未提交")
-            expect(page.locator("#completedMetadataDisclosure")).to_contain_text("已提交")
-            expect(page.locator("#completedMetadataDisclosure")).to_contain_text("机场")
+            expect(page.locator("#completedMetadata")).to_contain_text("Airport", timeout=10000)
+            expect(page.locator("#completedMetadata")).to_contain_text("Scene confirmed")
+            expect(page.locator("#completedMetadata")).not_to_contain_text("not submitted")
+            expect(page.locator("#completedMetadataDisclosure")).to_contain_text("Submitted")
+            expect(page.locator("#completedMetadataDisclosure")).to_contain_text("Airport")
             page.locator("#correctButton").click()
             expect(page.locator("#sceneReviewPanel")).to_be_visible(timeout=15000)
-            expect(page.locator(".review-reference")).to_contain_text("上次已发布的核验")
-            expect(page.locator(".review-reference")).to_contain_text("场景已确认")
-            expect(page.locator("#metadataBanner")).to_contain_text("场景待核验")
+            expect(page.locator(".review-reference")).to_contain_text("Last published review")
+            expect(page.locator(".review-reference")).to_contain_text("Scene confirmed")
+            expect(page.locator("#metadataBanner")).to_contain_text("Scene review pending")
             _screenshot(page, artifacts, "desktop-reopen-reference.png")
             page.set_viewport_size({"width": 390, "height": 844})
             _screenshot(page, artifacts, "mobile-reopen-reference.png")
@@ -157,33 +157,32 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             page.locator("#adminKey").fill(site["admin_key"])
             page.locator("#loginButton").click()
             expect(page.locator("#adminApp")).to_be_visible(timeout=15000)
-            expect(page.locator("#sourceSceneGroups")).to_contain_text("机场", timeout=10000)
-            expect(page.locator("#sourceSceneGroups")).to_contain_text("任务数")
-            expect(page.locator("#confidenceGroups")).to_contain_text("来源置信度")
-            expect(page.locator("#reviewStatusGroups")).to_contain_text("已确认")
-            expect(page.locator("#metadataOverviewPanel")).to_contain_text("分组可重叠")
+            expect(page.locator("#sourceSceneGroups")).to_contain_text("Airport", timeout=10000)
+            expect(page.locator("#sourceSceneGroups")).to_contain_text("Tasks")
+            expect(page.locator("#confidenceGroups")).to_contain_text("Source confidence")
+            expect(page.locator("#reviewStatusGroups")).to_contain_text("Confirmed")
+            expect(page.locator("#metadataOverviewPanel")).to_contain_text("may overlap")
 
             page.locator("[data-view='corpus']").click()
             expect(page.locator("#corpusSourceScene")).to_be_visible(timeout=5000)
             page.locator("#corpusSourceScene").select_option("airport")
             page.locator("#corpusStatus").select_option("annotated")
             page.locator("#corpusFilterForm button[type='submit']").click()
-            expect(page.locator("#corpusMatchedStats")).to_contain_text("条任务", timeout=10000)
-            expect(page.locator("#corpusTaskBody")).to_contain_text("机场", timeout=10000)
-            expect(page.locator("#corpusTaskBody")).to_contain_text("已确认")
-            expect(page.locator("#corpusTaskBody")).to_contain_text("Airport")
+            expect(page.locator("#corpusMatchedStats")).to_contain_text("tasks", timeout=10000)
+            expect(page.locator("#corpusTaskBody")).to_contain_text("Airport", timeout=10000)
+            expect(page.locator("#corpusTaskBody")).to_contain_text("Confirmed")
 
             page.locator("[data-task-action='view-corpus']").first.click()
-            expect(page.locator("#adminTaskMetadataBanner")).to_contain_text("机场", timeout=10000)
-            expect(page.locator("#adminReviewCurrent")).to_contain_text("机场")
+            expect(page.locator("#adminTaskMetadataBanner")).to_contain_text("Airport", timeout=10000)
+            expect(page.locator("#adminReviewCurrent")).to_contain_text("Airport")
             page.locator("#adminReviewStatus").select_option("confirmed")
             for box in page.locator("#adminReviewScenes input[type=checkbox]").all():
                 box.set_checked(box.get_attribute("value") == "shopping")
-            page.locator("#adminReviewReason").fill("内容实际是购物")
+            page.locator("#adminReviewReason").fill("Content is actually Shopping")
             page.locator("#adminReviewForm button[type='submit']").click()
-            expect(page.locator("#adminReviewCurrent")).to_contain_text("购物", timeout=10000)
-            expect(page.locator("#adminTaskMetadataBanner")).to_contain_text("购物")
-            expect(page.locator("#adminTaskMetadataBanner")).not_to_contain_text("场景已确认（机场）")
+            expect(page.locator("#adminReviewCurrent")).to_contain_text("Shopping", timeout=10000)
+            expect(page.locator("#adminTaskMetadataBanner")).to_contain_text("Shopping")
+            expect(page.locator("#adminTaskMetadataBanner")).not_to_contain_text("Scene confirmed (Airport)")
             page.get_by_role("dialog").get_by_label("Close").click()
             expect(page.locator("#taskDialog")).not_to_be_visible(timeout=5000)
 
@@ -194,7 +193,7 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             page.locator("#scopeMode").select_option("restricted")
             for box in page.locator("#scopeSceneGrid input[type=checkbox]").all():
                 box.set_checked(box.get_attribute("value") == "airport")
-            page.locator("#scopeReason").fill("只开放机场领取")
+            page.locator("#scopeReason").fill("Restrict claims to Airport")
             page.locator("#sceneScopeForm button[type='submit']").click()
             expect(page.locator("#scopeMode")).to_have_value("restricted", timeout=10000)
             _screenshot(page, artifacts, "desktop-admin-scope.png")
@@ -237,12 +236,12 @@ def test_same_evidence_historical_and_layout(provenance_site, tmp_path):
             _login_annotator(page, url, "browser-same-evidence")
             _select_airport_and_claim(page)
             banner = page.locator("#metadataBanner")
-            expect(banner).to_contain_text("机场", timeout=10000)
-            expect(banner).to_contain_text("来源置信度中")
-            expect(banner).not_to_contain_text("来源置信度高")
+            expect(banner).to_contain_text("Airport", timeout=10000)
+            expect(banner).to_contain_text("Source confidence Medium")
+            expect(banner).not_to_contain_text("Source confidence High")
             page.locator("#metadataDisclosure summary").click()
-            expect(page.locator("#metadataDisclosure")).to_contain_text("购物")
-            expect(page.locator("#metadataDisclosure")).to_contain_text("来源置信度高")
+            expect(page.locator("#metadataDisclosure")).to_contain_text("Shopping")
+            expect(page.locator("#metadataDisclosure")).to_contain_text("Source confidence High")
             _screenshot(page, artifacts, "desktop-same-evidence.png")
 
             with db.db_conn() as conn:
@@ -260,11 +259,11 @@ def test_same_evidence_historical_and_layout(provenance_site, tmp_path):
                 url="https://example.com/current",
             )
             page.reload()
-            expect(page.locator("#metadataBanner")).to_contain_text("来源置信度中", timeout=10000)
+            expect(page.locator("#metadataBanner")).to_contain_text("Source confidence Medium", timeout=10000)
             page.locator("#metadataDisclosure summary").click()
-            expect(page.locator("#metadataDisclosure")).to_contain_text("领取时的来源")
-            expect(page.locator("#metadataDisclosure")).to_contain_text("当前来源")
-            expect(page.locator("#metadataDisclosure")).to_contain_text("来源置信度低")
+            expect(page.locator("#metadataDisclosure")).to_contain_text("Source at claim time")
+            expect(page.locator("#metadataDisclosure")).to_contain_text("Current sources")
+            expect(page.locator("#metadataDisclosure")).to_contain_text("Source confidence Low")
 
             if page.locator("#metadataDisclosure").evaluate("el => el.open"):
                 page.locator("#metadataDisclosure summary").click()

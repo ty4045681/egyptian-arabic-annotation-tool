@@ -9,7 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from annotation_metadata.contracts import TaskFilter
-from annotation_metadata.taxonomy import SCENE_CODES
+from annotation_metadata.taxonomy import (
+    FALLBACK_SOURCE_SCENE,
+    MODEL_LABEL_TO_SCENE,
+    SCENE_CODES,
+    is_source_fallback_code,
+    is_source_fallback_filter,
+)
 
 
 @dataclass
@@ -31,14 +37,31 @@ class SceneScope:
             return False
         return True
 
+    def allows_fallback_source(self) -> bool:
+        """Spoken languages, including legacy no-source / NULL source rows."""
+        if self.mode == "none":
+            return False
+        if self.mode == "all":
+            return True
+        return self.allow_unknown or FALLBACK_SOURCE_SCENE in self.scene_codes
+
+    def effective_scene_codes(self) -> list[str]:
+        """Restricted codes with legacy allow_unknown surfaced as Spoken languages."""
+        if self.mode == "all":
+            return []
+        codes = list(self.scene_codes)
+        if self.allow_unknown and FALLBACK_SOURCE_SCENE not in codes:
+            codes.append(FALLBACK_SOURCE_SCENE)
+        return codes
+
     def allows_scene(self, scene_code: str | None) -> bool:
         if self.mode == "none":
             return False
-        if scene_code in (None, "", "unknown"):
-            return self.mode == "all" or self.allow_unknown
+        if is_source_fallback_code(scene_code):
+            return self.allows_fallback_source()
         if self.mode == "all":
             return scene_code in SCENE_CODES
-        return scene_code in self.scene_codes
+        return scene_code in self.effective_scene_codes()
 
 
 CONFIDENCE_CASE = """
@@ -81,8 +104,12 @@ def _source_row_clauses(filters: TaskFilter, *, src_alias: str = "src") -> tuple
     scene = filters.source_scene_value()
     clauses: list[str] = [f"{src_alias}.is_current"]
     params: list = []
-    if scene == "unknown":
-        clauses.append(f"{src_alias}.scene_code IS NULL")
+    if is_source_fallback_filter(scene):
+        # Spoken languages: explicit rows, plus NULL scene_code on a source row.
+        clauses.append(
+            f"({src_alias}.scene_code IS NULL OR {src_alias}.scene_code = %s)"
+        )
+        params.append(FALLBACK_SOURCE_SCENE)
     elif scene:
         clauses.append(f"{src_alias}.scene_code = %s")
         params.append(scene)
@@ -126,9 +153,10 @@ def published_review_status_sql(*, task_alias: str = "t") -> str:
 def source_exists_sql(filters: TaskFilter, *, task_alias: str = "t") -> tuple[str, list]:
     """EXISTS predicate: every source condition hits the same current row.
 
-    ``unknown`` covers both legacy tasks with no current sources and current
-    evidence rows whose scene_code is NULL. A batch filter never matches a
-    virtual (no-row) unknown task, because that task has no batch evidence.
+    Spoken languages covers legacy tasks with no current sources, current
+    evidence rows whose scene_code is NULL, and explicit spoken_languages
+    rows. A batch filter never matches a virtual (no-row) task, because
+    that task has no batch evidence.
     """
     scene = filters.source_scene_value()
     if not scene and not filters.source_confidence and not filters.batch_code:
@@ -176,13 +204,18 @@ def prediction_filter_sql(filters: TaskFilter, *, task_alias: str = "t") -> tupl
             f"WHERE p.task_id = {task_alias}.id)",
             [],
         )
+    labels = [
+        label for label, code in MODEL_LABEL_TO_SCENE.items()
+        if code == filters.prediction_scene
+    ]
     return (
         f"EXISTS (SELECT 1 FROM task_scene_predictions p "
         f"WHERE p.task_id = {task_alias}.id AND p.id = ("
         f"SELECT p2.id FROM task_scene_predictions p2 "
         f"WHERE p2.task_id = {task_alias}.id ORDER BY p2.created_at DESC, p2.id DESC "
-        f"LIMIT 1) AND p.predicted_scene_code = %s)",
-        [filters.prediction_scene],
+        f"LIMIT 1) AND (p.predicted_scene_code = %s"
+        f" OR (p.predicted_scene_code IS NULL AND p.predicted_label = ANY(%s))))",
+        [filters.prediction_scene, labels],
     )
 
 
@@ -235,8 +268,11 @@ def best_source_lateral(*, scope: SceneScope, filters: TaskFilter,
     selected = filters.source_scene_value()
     clauses = ["ts.task_id = t.id", "ts.is_current"]
     params: list = []
-    if selected == "unknown":
-        clauses.append("ts.scene_code IS NULL")
+    if is_source_fallback_filter(selected):
+        clauses.append(
+            "(ts.scene_code IS NULL OR ts.scene_code = %s)"
+        )
+        params.append(FALLBACK_SOURCE_SCENE)
     elif selected:
         clauses.append("ts.scene_code = %s")
         params.append(selected)
@@ -250,13 +286,9 @@ def best_source_lateral(*, scope: SceneScope, filters: TaskFilter,
         )
         params.append(filters.batch_code)
     if not scope.all_scenes:
-        scope_parts: list[str] = []
-        if scope.scene_codes:
-            scope_parts.append("ts.scene_code = ANY(%s)")
-            params.append(scope.scene_codes)
-        if scope.allow_unknown:
-            scope_parts.append("ts.scene_code IS NULL")
-        clauses.append("(" + " OR ".join(scope_parts) + ")" if scope_parts else "false")
+        scope_sql, scope_params = _scope_source_clause(scope, src_alias="ts")
+        clauses.append(scope_sql)
+        params.extend(scope_params)
     conf_rank = CONFIDENCE_CASE.format(expr="ts.confidence")
     sql = f"""
 LEFT JOIN LATERAL (
@@ -281,22 +313,24 @@ def claim_match_predicate(scope: SceneScope, filters: TaskFilter,
 
     ``source_confidence=unknown`` is not a no-op: it matches explicit unknown
     evidence or legacy tasks with no current sources, never high/medium/low
-    evidence.
+    evidence. Spoken languages (including source_scene=unknown) may match
+    virtual no-source tasks when confidence/batch allow it.
     """
     if not scope.can_claim:
         return "false"
     no_sources = NO_CURRENT_SOURCES.format(task="t")
-    virtual_ok = scope.all_scenes or scope.allow_unknown
+    virtual_ok = scope.allows_fallback_source()
     if filters.requires_source_row():
         return f"{best_alias}.id IS NOT NULL"
-    if (filters.source_scene_value() == "unknown"
+    selected = filters.source_scene_value()
+    if (is_source_fallback_filter(selected)
             or filters.source_confidence == "unknown"):
         if virtual_ok:
             return f"({best_alias}.id IS NOT NULL OR {no_sources})"
         return f"{best_alias}.id IS NOT NULL"
     if scope.all_scenes:
         return "true"
-    if scope.allow_unknown:
+    if virtual_ok:
         return f"({best_alias}.id IS NOT NULL OR {no_sources})"
     return f"{best_alias}.id IS NOT NULL"
 
@@ -307,11 +341,16 @@ def _scope_source_clause(scope: SceneScope, *, src_alias: str = "src") -> tuple[
         return "true", []
     parts: list[str] = []
     params: list = []
-    if scope.scene_codes:
+    codes = scope.effective_scene_codes()
+    named = [code for code in codes if not is_source_fallback_code(code)]
+    if named:
         parts.append(f"{src_alias}.scene_code = ANY(%s)")
-        params.append(scope.scene_codes)
-    if scope.allow_unknown:
-        parts.append(f"{src_alias}.scene_code IS NULL")
+        params.append(named)
+    if scope.allows_fallback_source():
+        parts.append(
+            f"({src_alias}.scene_code IS NULL OR {src_alias}.scene_code = %s)"
+        )
+        params.append(FALLBACK_SOURCE_SCENE)
     if not parts:
         return "false", []
     return "(" + " OR ".join(parts) + ")", params
@@ -336,17 +375,18 @@ def claim_source_exists_sql(scope: SceneScope, filters: TaskFilter,
         f" AND " + " AND ".join(clauses) + ")"
     )
     no_sources = NO_CURRENT_SOURCES.format(task=task_alias)
-    virtual_ok = scope.all_scenes or scope.allow_unknown
+    virtual_ok = scope.allows_fallback_source()
     if filters.requires_source_row():
         return exists_row, params
-    if (filters.source_scene_value() == "unknown"
+    selected = filters.source_scene_value()
+    if (is_source_fallback_filter(selected)
             or filters.source_confidence == "unknown"):
         if virtual_ok:
             return f"({exists_row} OR {no_sources})", params
         return exists_row, params
     if scope.all_scenes:
         return "true", []
-    if scope.allow_unknown:
+    if virtual_ok:
         return f"({exists_row} OR {no_sources})", params
     return exists_row, params
 
@@ -364,10 +404,12 @@ def matching_source_task_ids_sql(scope: SceneScope, filters: TaskFilter) -> tupl
         clauses.append(scope_sql)
         params.extend(scope_params)
     sql = "SELECT src.task_id FROM task_sources src WHERE " + " AND ".join(clauses)
+    selected = filters.source_scene_value()
     if filters.allows_virtual_unknown() and (
-            not scope.all_scenes or filters.source_scene_value() == "unknown"
+            not scope.all_scenes
+            or is_source_fallback_filter(selected)
             or filters.source_confidence == "unknown"):
-        if scope.all_scenes or scope.allow_unknown:
+        if scope.allows_fallback_source():
             sql += (
                 " UNION SELECT t0.id FROM annotation_tasks t0 "
                 "WHERE t0.status = 'pending' AND t0.eligible AND "

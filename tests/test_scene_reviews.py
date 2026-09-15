@@ -67,8 +67,8 @@ def test_unpublished_confirmed_headline_uses_human_labels_not_published_wording(
     assert saved["scene_review"]["status"] == "confirmed"
     current = repo.get_assignment(user["id"])
     headline = current["metadata"]["headline"]
-    assert "未提交" in headline
-    assert "购物" in headline
+    assert "not submitted" in headline
+    assert "Shopping" in headline
     assert current["metadata"]["scene_review"]["submitted"] is False
 
 

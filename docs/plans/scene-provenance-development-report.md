@@ -2,6 +2,10 @@
 
 Date: 2026-09-14. Branch: `codex/scene-provenance`.
 
+## English ten-scene catalog (this follow-up)
+
+The annotation UI is English. The canonical catalog is ten scenes in this order: Restaurant, Hotel, Taxi, Airport, Clinic, Tourism information, Emergencies, Spoken languages, Business negotiation, Shopping. Migration `005_ten_scene_catalog.sql` adds `spoken_languages` and updates labels/order without editing 001–004. Unknown SOURCE (no current source rows, NULL `scene_code`, explicit `spoken_languages`, and compatible `source_scene=unknown`) is one Spoken languages bucket. Model/human `unknown` still means absent. Legacy `allow_unknown=true` is Spoken languages permission; the scope UI is ten checkboxes with no separate unknown control.
+
 ## Product defaults (accepted)
 
 - Annotators may submit scene verification with the task; administrators can audit and correct it.
@@ -15,7 +19,7 @@ Final implementation pass on `codex/scene-provenance` (base `897954c`). Phases A
 1. **100k load script.** `scripts/load_test_100k.py` now seeds a uniquely named disposable database (never `DROP DATABASE` on an arbitrary configured DSN): 100,000 tasks with baseline + draft/published versions and two segments each, 300,589 current source rows (~308k including history), 20 scoped users plus dedicated claim users, high-heavy airport / high-rare shopping / narrow taxi / empty emergencies, and 20 concurrent new claims. COPY via pgserver/psycopg; no production DSN; no real audio. `--keep` retains the cluster and prints paths; default deletes the unique database and pgdata.
 2. **HTTP measurement.** After pytest, the script starts Gunicorn with `gunicorn_config.py` **2 workers × 4 threads** (isolated 4-core/~8GB preview). Authentication is outside the timer. New-claim samples require distinct task IDs and `resumed=false` (20 concurrent workers; users are not reused). Release/reset is not used between new-claim samples, so later samples are not turned into reserved/resume paths. Artifacts: `docs/plans/load-test-100k/{results.json,samples.jsonl,dataset.json,explain-*.json}`.
 3. **Measured gates (pgserver PostgreSQL 16.2, this host).** New-claim API p95 **172 ms** (target ≤500 ms); 50-row admin list p95 **53 ms** (≤500 ms); 100k overview p95 **1907 ms** (≤2 s). Empty-pool 409 keeps `no_matching_scene`; lock-busy 409 keeps `temporarily_busy`. 20 concurrent claims: 20 unique IDs, 213 claims/s. Claim SQL `EXPLAIN (ANALYZE, BUFFERS)` for the high band is **0.18 ms**.
-4. **Fixes that made the gates real.** Batched scene counts; reservation-then-confidence-band `SKIP LOCKED` (no sort of 85k pending rows); named-scene source-first `IN` so empty emergencies is O(1); overview snapshot temp table + `work_mem`/`jit=off`/parallel workers for source groups; additive `migrations/004_claim_capacity.sql` indexes. Scope/unknown-confidence still cannot claim legacy unknown when restricted. Multiple publication cycles replay without false audit conflicts (match events by task/type/version/`created_at`).
+4. **Fixes that made the gates real.** Batched scene counts; reservation-then-confidence-band `SKIP LOCKED` (no sort of 85k pending rows); named-scene source-first `IN` so empty emergencies is O(1); overview snapshot temp table + `work_mem`/`jit=off`/parallel workers for source groups; additive `migrations/004_claim_capacity.sql` indexes. Restricted airport scope still cannot claim legacy no-source tasks; restricted Spoken languages (and legacy `allow_unknown`) can. Multiple publication cycles replay without false audit conflicts (match events by task/type/version/`created_at`).
 5. **PG 16/18 matrix.** `tests/pg_runtime.py` + `scripts/run_pytest_with_postgres.py` select an explicit bindir and/or `ANNOTATION_TEST_PG_ADMIN_DSN`. Dump/restore refuse a client/server major mismatch and still refuse any non-system user schema object before `pg_restore`. GitHub Actions `.github/workflows/test.yml` runs the **full suite including Playwright** on postgres:16 and postgres:18 services (required, not skipped).
 6. **CLI copy.** `restore-postgres` help matches the user-schema-object guard. DSN arguments are password-free; libpq uses `PGPASSWORD` / `~/.pgpass` / `PGSERVICEFILE`.
 
@@ -89,7 +93,7 @@ Backend-only. Admin UI polish and scene-only save were delivered in Phase C. Exp
 - Source evidence, model predictions, and version-linked reviews stay separate tables.
 - Claim policy Strategy: `source_confidence` (default) vs `fifo`. Scope enforcement stays on when fifo is selected.
 - Feature flags: `ANNOTATION_CLAIM_POLICY`, `ANNOTATION_SCENE_REVIEW_WRITE`, `ANNOTATION_METADATA_UI`, `ANNOTATION_METADATA_WRITE`.
-- Schema versions `[1,2,3,4]`. Migration 004 adds claim/list/overview indexes only.
+- Schema versions `[1,2,3,4,5]`. Migration 004 adds claim/list/overview indexes only. Migration 005 adds the Spoken languages catalog row and sets the ten-scene English order/labels without rewriting 001–004 or historical source/review/prediction rows.
 - Claim selection: reserved row, then confidence bands with `FOR UPDATE SKIP LOCKED`; named scenes use a source-first `IN` list.
 - Admin write lock order: operation advisory lock → `admin_sessions` → annotator (when the command targets a person) → task/version in stable id order.
 - 4-core/~8GB Gunicorn measurement and isolated preview: 2 workers × 4 threads (`GUNICORN_WORKERS`/`GUNICORN_THREADS` or CLI). `gunicorn_config.py` still defaults to 4 workers for larger hosts.

@@ -36,7 +36,7 @@ def register_metadata_routes(app, *, login_required, admin_required,
             taxonomy = list_active_scenes(cur, active_only=True)
         claim_scenes = taxonomy
         if not scope.all_scenes:
-            allowed = set(scope.scene_codes)
+            allowed = set(scope.effective_scene_codes())
             claim_scenes = [item for item in taxonomy if item["code"] in allowed]
         return jsonify({
             "schema_version": SCHEMA_VERSION,

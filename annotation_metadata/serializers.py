@@ -17,8 +17,10 @@ from annotation_metadata.repository import (
 )
 from annotation_metadata.taxonomy import (
     confidence_label,
+    effective_source_scene,
     review_label,
     scene_label,
+    source_scene_label,
 )
 
 
@@ -32,10 +34,12 @@ def _safe_url(url: str | None) -> str | None:
 
 
 def public_source(item: dict) -> dict:
+    raw_code = item.get("scene_code")
+    code = effective_source_scene(raw_code)
     return {
         "id": item.get("id"),
-        "scene_code": item.get("scene_code"),
-        "scene_label": item.get("scene_label") or scene_label(item.get("scene_code")),
+        "scene_code": code,
+        "scene_label": source_scene_label(raw_code),
         "confidence": item.get("confidence") or "unknown",
         "confidence_basis": item.get("confidence_basis") or "",
         "provider": item.get("provider"),
@@ -48,7 +52,7 @@ def public_source(item: dict) -> dict:
 
 
 def _distinct_source_scene_count(sources: list[dict]) -> int:
-    return len({(item.get("scene_code") or "unknown") for item in sources})
+    return len({effective_source_scene(item.get("scene_code")) for item in sources})
 
 
 def _claim_primary_source(claim: dict | None) -> dict | None:
@@ -59,9 +63,10 @@ def _claim_primary_source(claim: dict | None) -> dict | None:
     if selected and (selected.get("scene_code") or selected.get("confidence")):
         return selected
     if claim.get("scene_code"):
+        code = effective_source_scene(claim.get("scene_code"))
         return {
-            "scene_code": claim.get("scene_code"),
-            "scene_label": scene_label(claim.get("scene_code")),
+            "scene_code": code,
+            "scene_label": source_scene_label(claim.get("scene_code")),
             "confidence": claim.get("confidence") or "unknown",
         }
     return None
@@ -75,21 +80,24 @@ def headline(metadata: dict) -> str:
         primary = sources[0]
     distinct_scenes = _distinct_source_scene_count(sources)
     if not sources and primary is None:
-        scene_part = "来源场景未知"
-        conf_part = "来源置信度未知"
+        scene_part = source_scene_label(None)
+        conf_part = confidence_label("unknown")
     elif primary is not None:
-        scene_part = primary.get("scene_label") or scene_label(primary.get("scene_code"))
+        scene_part = (
+            primary.get("scene_label")
+            or source_scene_label(primary.get("scene_code"))
+        )
         conf_part = confidence_label(primary.get("confidence") or claim.get("confidence"))
         if distinct_scenes > 1:
-            scene_part = f"{scene_part}（{distinct_scenes} 个来源场景）"
+            scene_part = f"{scene_part} ({distinct_scenes} source scenes)"
     else:
         labels = [
-            f"{item.get('scene_label') or scene_label(item.get('scene_code'))}·"
+            f"{item.get('scene_label') or source_scene_label(item.get('scene_code'))}·"
             f"{confidence_label(item.get('confidence'))}"
             for item in sources
         ]
-        scene_part = "；".join(labels)
-        conf_part = "来源置信度按场景"
+        scene_part = "; ".join(labels)
+        conf_part = "Source confidence by scene"
     review_part = _review_headline_part(metadata)
     return f"{scene_part} · {conf_part} · {review_part}"
 
@@ -98,7 +106,7 @@ def _human_scene_suffix(review: dict | None) -> str:
     codes = list((review or {}).get("scene_codes") or [])
     if not codes:
         return ""
-    return "（" + "、".join(scene_label(code) for code in codes) + "）"
+    return " (" + ", ".join(scene_label(code) for code in codes) + ")"
 
 
 def _review_headline_part(metadata: dict) -> str:
@@ -109,13 +117,13 @@ def _review_headline_part(metadata: dict) -> str:
     if draft is not None and not submitted:
         status = draft.get("status") or "pending"
         if status == "pending" and not (draft.get("id") or draft.get("scene_codes")):
-            return "场景待核验"
-        return "本人已保存，未提交" + _human_scene_suffix(draft)
+            return review_label("pending")
+        return "Saved, not submitted" + _human_scene_suffix(draft)
     if not submitted:
         status = review.get("status") or "pending"
         if status == "pending":
-            return "场景待核验"
-        return review_label(status) + _human_scene_suffix(review) + " · 未提交"
+            return review_label("pending")
+        return review_label(status) + _human_scene_suffix(review) + " · not submitted"
     return review_label(review.get("status")) + _human_scene_suffix(review)
 
 
@@ -192,7 +200,7 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
             "source_confidence": not sources,
             "scene_review": scene_review.get("status") == "pending",
         },
-        "notice": "来源判断尚未代表人工核验",
+        "notice": "Source classification is not a human review",
         "features": feature_flags(),
     }
     payload["headline"] = headline(payload)
@@ -221,19 +229,24 @@ def _serialize_claim_context(cur, claim_context: dict | None,
         else:
             historical = get_source(cur, source_id)
             selected = public_source(historical) if historical else None
+            claimed = effective_source_scene(claim_context.get("scene_code"))
             current_evidence = [
                 item for item in sources
-                if item.get("scene_code") == claim_context.get("scene_code")
+                if effective_source_scene(item.get("scene_code")) == claimed
             ]
-    if selected is None and (
-            claim_context.get("scene_code") or claim_context.get("confidence")
-    ):
+    if selected is None and claim_context.get("scene_code"):
         selected = {
-            "scene_code": claim_context.get("scene_code"),
-            "scene_label": scene_label(claim_context.get("scene_code")),
+            "scene_code": effective_source_scene(claim_context.get("scene_code")),
+            "scene_label": source_scene_label(claim_context.get("scene_code")),
             "confidence": claim_context.get("confidence") or "unknown",
         }
-    scene_code = claim_context.get("scene_code") or (selected or {}).get("scene_code")
+    raw_scene = claim_context.get("scene_code") or (selected or {}).get("scene_code")
+    if raw_scene:
+        scene_code = effective_source_scene(raw_scene)
+    elif not sources:
+        scene_code = effective_source_scene(None)
+    else:
+        scene_code = None
     confidence = claim_context.get("confidence") or (selected or {}).get("confidence")
     return {
         "scene_code": scene_code,
