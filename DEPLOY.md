@@ -424,6 +424,18 @@ Legacy `export-json` field contract is unchanged. Training `data.json` is
 unchanged; scene evidence is `scene_metadata.json` (audio-level, not segment
 labels). Excel adds source scene/confidence/batch and human verification columns.
 
+## 17. 全英文界面与十场景目录升级（2026-09-15）
+
+该版本包含 `005_ten_scene_catalog.sql`。按 Restaurant、Hotel、Taxi、Airport、Clinic、Tourism information、Emergencies、Spoken languages、Business negotiation、Shopping 的顺序提供场景选项，页面文案使用英文。
+
+部署前备份目标数据库，并保留对应的旧代码版本；在维护窗口内停止该应用的写入，用迁移角色执行 `uv run python manage_state.py apply-migrations`，然后启动包含迁移 001–005 的新版本。`/api/health` 应返回 `[1,2,3,4,5]`。腾讯云合成预览使用独立数据库 `annotation_scene_preview`；本次不迁移真实标注库或音频。
+
+没有来源行、来源场景为 NULL，以及明确标记为 `spoken_languages` 的来源，统一按 Spoken languages 筛选、统计和分配。来源 API 仍兼容 `source_scene=unknown`；置信度 Unknown、无模型结果和无人工核验结果分别保留原意。旧的 `allow_unknown` 权限在限定场景模式下归入 Spoken languages，页面只有一组十场景选项。
+
+迁移只调整目录；来源原始记录、历史预测和人工核验不改写。完整元数据导出保留原始 NULL 场景，公共来源接口提供归类后的场景。已存在且标签明确为 Spoken languages 的模型结果可被新筛选识别，原始预测记录保持可追溯。
+
+升级后检查十个场景选项、Spoken languages 与旧 unknown 来源筛选一致、仅 Airport 的用户不能领取其他来源、重新打开任务仍显示正确来源，以及元数据导出/验证/试导入。数据库迁移后不应仅切回缺少 005 的旧代码；兼容回退继续使用同一迁移版本及上一节的功能开关。恢复数据库备份应在独立目标库验证，并另行处理备份后产生的数据。
+
 ## 常用命令
 
 ```bash
