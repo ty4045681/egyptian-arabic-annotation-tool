@@ -267,12 +267,15 @@
           </div>
           <article class="panel" id="sceneScopePanel">
             <div class="panel-heading"><div><h3>Scene scope</h3><p>Restrict which source scenes this annotator may claim. Existing assignments are not released.</p></div></div>
-            <form id="sceneScopeForm" class="scope-form">
-              <label>Scope mode <select id="scopeMode"><option value="all">All source scenes</option><option value="restricted">Restricted scenes</option><option value="none">Cannot claim</option></select></label>
-              <div class="scene-grid" id="scopeSceneGrid"></div>
-              <label>Reason <input id="scopeReason" required maxlength="4000" placeholder="Explain why this claim scope is changing"></label>
-              <p class="form-error" id="scopeError" role="alert" hidden></p>
-              <button class="button button-secondary" type="submit">Save claim scope</button>
+            <form id="sceneScopeForm" class="scope-form" data-scope-ready="0" aria-busy="true">
+              <p id="scopeEditorStatus" class="scope-editor-status" role="status">Loading claim scope…</p>
+              <fieldset id="scopeEditorFields" disabled hidden>
+                <label>Scope mode <select id="scopeMode"><option value="all">All source scenes</option><option value="restricted">Restricted scenes</option><option value="none">Cannot claim</option></select></label>
+                <div class="scene-grid" id="scopeSceneGrid"></div>
+                <label>Reason <input id="scopeReason" required maxlength="4000" placeholder="Explain why this claim scope is changing"></label>
+                <p class="form-error" id="scopeError" role="alert" hidden></p>
+                <button class="button button-secondary" type="submit">Save claim scope</button>
+              </fieldset>
             </form>
           </article>
 

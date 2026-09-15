@@ -190,11 +190,13 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             expect(page.locator("[data-annotator-id]").first).to_be_visible(timeout=10000)
             page.locator("[data-annotator-id]").first.click()
             expect(page.locator("#sceneScopeForm")).to_be_visible(timeout=10000)
+            expect(page.locator("#sceneScopeForm")).to_have_attribute("data-scope-ready", "1", timeout=10000)
             page.locator("#scopeMode").select_option("restricted")
             for box in page.locator("#scopeSceneGrid input[type=checkbox]").all():
                 box.set_checked(box.get_attribute("value") == "airport")
             page.locator("#scopeReason").fill("Restrict claims to Airport")
             page.locator("#sceneScopeForm button[type='submit']").click()
+            expect(page.locator("#sceneScopeForm")).to_have_attribute("data-scope-ready", "1", timeout=10000)
             expect(page.locator("#scopeMode")).to_have_value("restricted", timeout=10000)
             _screenshot(page, artifacts, "desktop-admin-scope.png")
 

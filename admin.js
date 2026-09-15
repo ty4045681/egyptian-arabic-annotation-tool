@@ -49,6 +49,11 @@ const state = {
   pendingRevoke: null,
   pendingDeactivate: null,
   requestEpoch: 0,
+  scopeLoadToken: 0,
+  scopeSaving: false,
+  scopeSavingId: "",
+  scopeEditorBound: null,
+  scopeCatalogFailed: false,
   sceneLabels: {},
   metadataFilters: {},
 };
@@ -604,8 +609,13 @@ async function loadMetadataFacets() {
         reviewGrid.appendChild(label);
       });
     }
+    state.scopeCatalogFailed = false;
+    tryBindCurrentScopeEditor();
   } catch (_) {
-    // Facets are progressive enhancement.
+    // Facets are progressive enhancement, but a missing catalog must not
+    // leave the claim-scope editor editable with an empty scene list.
+    state.scopeCatalogFailed = true;
+    tryBindCurrentScopeEditor();
   }
 }
 
@@ -1102,9 +1112,91 @@ function normaliseAnnotatorDetail(data) {
   return { ...data, annotator: base, stats };
 }
 
+function scopeCatalogReady() {
+  return Boolean($("scopeSceneGrid")?.querySelector("input[type=checkbox]"));
+}
+
+function isCurrentAnnotatorLoad(id, epoch, token) {
+  return epoch === state.requestEpoch && id === state.selectedAnnotatorId && token === state.scopeLoadToken;
+}
+
+function resetScopeEditorFields() {
+  formError($("scopeError"));
+  if ($("scopeMode")) $("scopeMode").value = "all";
+  if ($("scopeReason")) $("scopeReason").value = "";
+  for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) box.checked = false;
+}
+
+function setScopeEditorUnavailable(message, { hideFields = true } = {}) {
+  const form = $("sceneScopeForm");
+  const fields = $("scopeEditorFields");
+  const status = $("scopeEditorStatus");
+  if (fields) {
+    fields.disabled = true;
+    fields.hidden = hideFields;
+  }
+  if (form) {
+    form.dataset.scopeReady = "0";
+    form.setAttribute("aria-busy", "true");
+    delete form.dataset.annotatorId;
+    delete form.dataset.revision;
+    delete form.dataset.loadToken;
+  }
+  if (status) {
+    status.hidden = !message;
+    status.textContent = message || "";
+  }
+}
+
+function applySceneScopeFields(scope) {
+  if (!$("scopeMode")) return;
+  $("scopeMode").value = pick(scope, ["mode"], "all");
+  $("scopeReason").value = "";
+  const allowed = new Set(listValue(scope, ["scene_codes"]));
+  if (boolValue(pick(scope, ["allow_unknown"], false))) allowed.add("spoken_languages");
+  for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) {
+    box.checked = allowed.has(box.value);
+  }
+}
+
+function bindScopeEditor(id, token, data) {
+  const form = $("sceneScopeForm");
+  const fields = $("scopeEditorFields");
+  const status = $("scopeEditorStatus");
+  const scope = pick(data, ["scene_scope", "scope"], {});
+  applySceneScopeFields(scope);
+  if (!form || !fields) return;
+  if (!scopeCatalogReady()) {
+    setScopeEditorUnavailable(state.scopeCatalogFailed ? "Could not load claim scope." : "Loading claim scope…");
+    return;
+  }
+  fields.hidden = false;
+  fields.disabled = false;
+  form.dataset.scopeReady = "1";
+  form.dataset.annotatorId = id;
+  form.dataset.loadToken = String(token);
+  form.dataset.revision = String(pick(scope, ["revision"], 0));
+  form.setAttribute("aria-busy", "false");
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
+}
+
+function tryBindCurrentScopeEditor() {
+  const bound = state.scopeEditorBound;
+  if (!bound || bound.token !== state.scopeLoadToken || bound.id !== state.selectedAnnotatorId) return;
+  if (!state.annotatorDetail) return;
+  bindScopeEditor(bound.id, bound.token, state.annotatorDetail);
+}
+
 async function loadAnnotator(id, epoch = state.requestEpoch) {
+  const token = ++state.scopeLoadToken;
+  state.scopeEditorBound = null;
   $("annotatorEmptyState").hidden = true;
   $("annotatorDetail").hidden = false;
+  setScopeEditorUnavailable("Loading claim scope…");
+  resetScopeEditorFields();
   setTaskTableState("annotator", "Loading annotations…");
   state.selectedTaskIds.clear();
   const encoded = encodeURIComponent(id);
@@ -1113,11 +1205,15 @@ async function loadAnnotator(id, epoch = state.requestEpoch) {
     api.get(apiUrl(`/api/admin/annotators/${encoded}/annotations`, { limit: 50, lifecycle: "published" })),
     api.get(apiUrl("/api/admin/timeseries", { annotator_id: id })),
   ]);
-  if (epoch !== state.requestEpoch || id !== state.selectedAnnotatorId) return;
+  if (!isCurrentAnnotatorLoad(id, epoch, token)) return;
   if (detailResult.status === "fulfilled") {
     state.annotatorDetail = normaliseAnnotatorDetail(detailResult.value);
     if (seriesResult.status === "fulfilled") state.annotatorDetail.timeseries = normaliseTimeseries(seriesResult.value);
     renderAnnotatorDetail(state.annotatorDetail);
+    state.scopeEditorBound = { id, token };
+    bindScopeEditor(id, token, state.annotatorDetail);
+  } else {
+    setScopeEditorUnavailable("Could not load claim scope.");
   }
   if (tasksResult.status === "fulfilled") {
     state.annotatorTasks = listValue(tasksResult.value, ["items", "annotations", "tasks", "results"]).map(normaliseTask);
@@ -1159,17 +1255,6 @@ function renderAnnotatorDetail(data) {
     Revoked: pick(stats, ["revoked"], 0),
   });
   renderDistribution($("annotatorLabelMix"), labelMix);
-  const scope = pick(data, ["scene_scope", "scope"], {});
-  if ($("scopeMode")) {
-    $("scopeMode").value = pick(scope, ["mode"], "all");
-    $("scopeReason").value = "";
-    $("sceneScopeForm").dataset.revision = String(pick(scope, ["revision"], 0));
-    const allowed = new Set(listValue(scope, ["scene_codes"]));
-    if (boolValue(pick(scope, ["allow_unknown"], false))) allowed.add("spoken_languages");
-    for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) {
-      box.checked = allowed.has(box.value);
-    }
-  }
 }
 
 function statusBadge(status) {
@@ -1999,7 +2084,14 @@ function setupEvents() {
   $("exportCorpusButton").addEventListener("click", () => exportTasks(state.corpusTasks, "corpus-tasks"));
   $("sceneScopeForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!state.selectedAnnotatorId) return;
+    const form = $("sceneScopeForm");
+    const fields = $("scopeEditorFields");
+    const annotatorId = form?.dataset.annotatorId || "";
+    const token = Number(form?.dataset.loadToken || 0);
+    if (!form || form.dataset.scopeReady !== "1") return;
+    if (!annotatorId || annotatorId !== state.selectedAnnotatorId) return;
+    if (token !== state.scopeLoadToken) return;
+    if ((state.scopeSaving && state.scopeSavingId === annotatorId) || fields?.disabled) return;
     formError($("scopeError"));
     const codes = Array.from(document.querySelectorAll("#scopeSceneGrid input[type=checkbox]:checked")).map((box) => box.value);
     const reason = $("scopeReason").value.trim();
@@ -2008,24 +2100,56 @@ function setupEvents() {
       $("scopeReason").focus();
       return;
     }
+    const revision = Number(form.dataset.revision || 0);
+    const mode = $("scopeMode").value;
+    const body = {
+      operation_id: uuid(),
+      expected_revision: revision,
+      mode,
+      scene_codes: mode === "restricted" ? codes : [],
+      allow_unknown: mode === "restricted" && codes.includes("spoken_languages"),
+      reason,
+    };
+    state.scopeSaving = true;
+    state.scopeSavingId = annotatorId;
+    const saveToken = ++state.scopeLoadToken;
+    setScopeEditorUnavailable("Saving claim scope…", { hideFields: false });
+    if (fields) fields.disabled = true;
     try {
-      await api.request(`/api/admin/annotators/${encodeURIComponent(state.selectedAnnotatorId)}/scene-scope`, {
+      await api.request(`/api/admin/annotators/${encodeURIComponent(annotatorId)}/scene-scope`, {
         method: "PUT",
-        body: {
-          operation_id: uuid(),
-          expected_revision: Number($("sceneScopeForm").dataset.revision || 0),
-          mode: $("scopeMode").value,
-          scene_codes: $("scopeMode").value === "restricted" ? codes : [],
-          allow_unknown: $("scopeMode").value === "restricted" && codes.includes("spoken_languages"),
-          reason,
-        },
+        body,
       });
       toast("Claim scope saved. Existing assignments are not released.");
-      $("scopeReason").value = "";
-      await loadAnnotator(state.selectedAnnotatorId);
+      if (annotatorId === state.selectedAnnotatorId && state.scopeLoadToken === saveToken) {
+        $("scopeReason").value = "";
+        await loadAnnotator(annotatorId);
+      }
     } catch (error) {
       formError($("scopeError"), error.message);
       toast(error.message, "error");
+      if (annotatorId === state.selectedAnnotatorId && state.scopeLoadToken === saveToken) {
+        state.scopeEditorBound = { id: annotatorId, token: saveToken };
+        form.dataset.scopeReady = "1";
+        form.dataset.annotatorId = annotatorId;
+        form.dataset.loadToken = String(saveToken);
+        form.dataset.revision = String(revision);
+        form.setAttribute("aria-busy", "false");
+        if (fields) {
+          fields.disabled = false;
+          fields.hidden = false;
+        }
+        const status = $("scopeEditorStatus");
+        if (status) {
+          status.hidden = true;
+          status.textContent = "";
+        }
+      }
+    } finally {
+      if (state.scopeSavingId === annotatorId) {
+        state.scopeSaving = false;
+        state.scopeSavingId = "";
+      }
     }
   });
   $("adminReviewForm")?.addEventListener("submit", async (event) => {

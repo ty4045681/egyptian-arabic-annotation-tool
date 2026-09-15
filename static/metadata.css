@@ -33,6 +33,8 @@
 .review-reference-title{font-weight:650;margin-bottom:4px;color:var(--text,#e7e8ef)}
 .admin-metadata-filters{display:flex;flex-wrap:wrap;gap:8px}
 .scope-form{margin-top:12px;padding:12px;border:1px solid var(--line,#e1e2e3);border-radius:8px;background:var(--surface-subtle,#f3f4f4)}
+.scope-form fieldset{border:0;margin:0;padding:0;min-inline-size:0}
+.scope-editor-status{margin:0 0 8px;color:var(--muted,#6b6f76);font-size:13px}
 .scope-form .scene-grid{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .metadata-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:4px 2px 8px}
 .metadata-group-table{width:100%;border-collapse:collapse;font-size:12px}
