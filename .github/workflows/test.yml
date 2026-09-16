@@ -1,0 +1,75 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  postgres:
+    name: PostgreSQL ${{ matrix.postgres }} (pytest + Playwright)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["16", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ANNOTATION_TEST_PG_ADMIN_DSN: postgresql://postgres@127.0.0.1:5432/postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - name: Install matching PostgreSQL client
+        run: |
+          set -euo pipefail
+          major="${{ matrix.postgres }}"
+          sudo apt-get update
+          if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "postgresql-client-${major}"; then
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+            . /etc/os-release
+            echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+              | sudo tee /etc/apt/sources.list.d/pgdg.list
+            sudo apt-get update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "postgresql-client-${major}"
+          fi
+          bindir="/usr/lib/postgresql/${major}/bin"
+          echo "ANNOTATION_PG_BINDIR=${bindir}" >> "${GITHUB_ENV}"
+          export ANNOTATION_PG_BINDIR="${bindir}"
+          "${bindir}/pg_dump" --version
+          python3 - <<'PY'
+          import os, re, subprocess
+          executable = os.path.join(os.environ["ANNOTATION_PG_BINDIR"], "pg_dump")
+          text = subprocess.check_output([executable, "--version"], text=True)
+          major = re.search(r"(\d+)\.", text).group(1)
+          expected = os.environ["MATRIX_MAJOR"]
+          assert major == expected, (text, expected)
+          PY
+        env:
+          MATRIX_MAJOR: ${{ matrix.postgres }}
+      - name: Install Python dependencies
+        run: uv sync --frozen --group dev
+      - name: Install Chromium for required Playwright tests
+        run: uv run playwright install --with-deps chromium
+      - name: Full suite including browser, restore, migrations, flags
+        run: |
+          uv run python scripts/run_pytest_with_postgres.py \
+            --bin-dir "${ANNOTATION_PG_BINDIR}" \
+            --admin-dsn "${ANNOTATION_TEST_PG_ADMIN_DSN}" \
+            -q --tb=line

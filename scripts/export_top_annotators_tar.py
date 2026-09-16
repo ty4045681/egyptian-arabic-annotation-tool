@@ -24,6 +24,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import psycopg
 import soundfile as sf
 
@@ -104,6 +108,12 @@ def parse_args() -> argparse.Namespace:
         default="ANNOTATION_BACKUP_DSN",
         help="Environment variable containing a read-only PostgreSQL DSN",
     )
+    parser.add_argument("--source-scene", help="same-evidence source scene filter")
+    parser.add_argument("--source-confidence", help="same-evidence source confidence filter")
+    parser.add_argument("--batch-code", help="same-evidence source batch filter")
+    parser.add_argument("--review-status", help="published human review status filter")
+    parser.add_argument("--prediction-scene", help="latest model prediction scene filter")
+    parser.add_argument("--human-scene", help="published human scene label filter")
     return parser.parse_args()
 
 
@@ -475,6 +485,31 @@ def create_dataset(
     return items, path_mappings, converted_sources
 
 
+def pair_items_with_segments(
+    items: list[dict[str, object]], segments: list[Segment],
+) -> list[dict[str, object]]:
+    """Reconstruct the create_dataset grouping so sidecars cannot drift."""
+    by_task: dict[tuple[int, str, str, str], list[Segment]] = defaultdict(list)
+    for segment in segments:
+        key = (segment.rank, segment.username, segment.task_id, segment.rel_path)
+        by_task[key].append(segment)
+    links: list[dict[str, object]] = []
+    index = 0
+    for task_segments in by_task.values():
+        for segment in task_segments:
+            if index >= len(items):
+                raise RuntimeError("Exported items are shorter than source segments")
+            links.append({
+                "audio": items[index]["audio"],
+                "task_id": segment.task_id,
+                "segment_id": segment.segment_id,
+            })
+            index += 1
+    if index != len(items):
+        raise RuntimeError("Exported items are longer than source segments")
+    return links
+
+
 def write_json(target: Path, items: object) -> None:
     with target.open("w", encoding="utf-8", newline="\n") as handle:
         json.dump(items, handle, ensure_ascii=False, indent=2)
@@ -565,6 +600,9 @@ def create_tar(staging: Path, output: Path) -> None:
             metadata = staging / "export_metadata.json"
             if metadata.exists():
                 archive.add(metadata, arcname="export_metadata.json")
+            scene_metadata = staging / "scene_metadata.json"
+            if scene_metadata.exists():
+                archive.add(scene_metadata, arcname="scene_metadata.json")
             archive.add(staging / "audio", arcname="audio")
         temp_tar.replace(output)
     except BaseException:
@@ -593,6 +631,20 @@ def main() -> int:
     audio_dir = args.audio_dir.expanduser().resolve()
     output = args.output.expanduser().resolve()
 
+    from annotation_metadata.export_metadata import (
+        AUDIO_LEVEL_NOTICE, applied_filter_context, build_training_scene_sidecar,
+        parse_task_filter,
+    )
+    from annotation_metadata.queries import metadata_filter_sql
+
+    task_filter = parse_task_filter({
+        "source_scene": args.source_scene,
+        "source_confidence": args.source_confidence,
+        "batch_code": args.batch_code,
+        "review_status": args.review_status,
+        "prediction_scene": args.prediction_scene,
+        "human_scene": args.human_scene,
+    })
     snapshot = load_snapshot(
         dsn,
         None if args.all_qualifying else args.top_n,
@@ -603,6 +655,18 @@ def main() -> int:
     )
     annotators = snapshot.annotators
     segments = snapshot.segments
+    if task_filter is not None:
+        with psycopg.connect(dsn) as conn:
+            sql, params = metadata_filter_sql(task_filter)
+            matching = {
+                str(row[0])
+                for row in conn.execute(
+                    f"SELECT id FROM annotation_tasks t WHERE {sql}", params,
+                ).fetchall()
+            }
+        segments = [item for item in segments if item.task_id in matching]
+        if not segments:
+            raise RuntimeError("Task filter excluded every selected segment")
     print("Selected annotators:", flush=True)
     for annotator in annotators:
         print(
@@ -642,10 +706,21 @@ def main() -> int:
         write_json(staging / "data.json", items)
         write_json(staging / "source_path_mapping.json", path_mappings)
         total_frames = verify_staging(staging, items, path_mappings)
+        links = pair_items_with_segments(items, segments)
+        with psycopg.connect(dsn) as conn:
+            scene_sidecar = build_training_scene_sidecar(
+                conn, links=links,
+                applied_filters=applied_filter_context(task_filter),
+            )
+        write_json(staging / "scene_metadata.json", scene_sidecar)
         write_json(
             staging / "export_metadata.json",
             {
                 "exported_at": datetime.now(timezone.utc).isoformat(),
+                "scene_metadata": "scene_metadata.json",
+                "scene_level": "audio",
+                "scene_notice": AUDIO_LEVEL_NOTICE,
+                "applied_task_filters": applied_filter_context(task_filter),
                 "selection": (
                     "all_qualifying"
                     if args.all_qualifying
@@ -683,6 +758,7 @@ def main() -> int:
                 "exported_segments": len(items),
                 "exported_audio_seconds": total_frames / TARGET_SAMPLE_RATE,
                 "audio_format": "16 kHz mono PCM-16 WAV",
+                "data_json_fields": ["audio", "text", "asr_text"],
             },
         )
         print(

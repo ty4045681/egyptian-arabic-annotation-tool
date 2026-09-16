@@ -15,6 +15,12 @@ import time
 from pathlib import Path
 
 from db import db_conn, db_tx
+from annotation_metadata.predictions import (
+    CLASSIFY_PROMPT_VERSION,
+    freeze_classification_snapshot,
+    task_inference_snapshot,
+    version_inference_snapshot,
+)
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 CONFIG_PATH = SCRIPT_DIR / "config.json"
@@ -83,35 +89,57 @@ def call_classify(text: str, api_key: str, model: str) -> str:
 
 def load_batch(after_order: int, *, force: bool, size: int = 200) -> list[dict]:
     category_filter = "" if force else "AND t.category IS NULL"
-    with db_conn() as conn:
-        rows = conn.execute(
-            f"""SELECT t.id, t.allocation_order, t.filename, t.category,
-                       btrim(string_agg(
-                         COALESCE(NULLIF(btrim(s.text), ''), s.asr_text),
-                         ' ' ORDER BY s.segment_id
-                       )) AS transcription
+    with db_conn() as conn, conn.cursor() as cur:
+        rows = cur.execute(
+            f"""SELECT t.id, t.allocation_order, t.filename, t.category, v.id
                 FROM annotation_tasks t
                 JOIN annotation_versions v ON v.task_id = t.id AND (
                      v.id = t.current_published_version_id OR
                      (t.current_published_version_id IS NULL AND v.lifecycle = 'draft')
                 )
-                LEFT JOIN segments s ON s.version_id = v.id
                 WHERE t.allocation_order > %s {category_filter}
-                GROUP BY t.id
                 ORDER BY t.allocation_order
                 LIMIT %s""",
             (after_order, size),
         ).fetchall()
-    return [
-        {"id": row[0], "order": row[1], "filename": row[2],
-         "category": row[3], "text": row[4] or ""}
-        for row in rows
-    ]
+        batch = []
+        for row in rows:
+            snap = version_inference_snapshot(cur, row[4])
+            batch.append({
+                "id": row[0], "order": row[1], "filename": row[2],
+                "category": row[3],
+                "text": (snap or {}).get("input_text") or "",
+            })
+        return batch
 
 
-def update_category(task_id, category: str) -> None:
-    with db_tx() as conn:
-        conn.execute(
+def freeze_task_snapshot(task_id, *, model_name: str,
+                         prompt_version: str = CLASSIFY_PROMPT_VERSION) -> dict | None:
+    """Capture version, revision, input text/digest, and model before inference."""
+    with db_conn() as conn, conn.cursor() as cur:
+        snapshot = task_inference_snapshot(cur, task_id)
+    if snapshot is None:
+        return None
+    return freeze_classification_snapshot(
+        snapshot, model_name=model_name, prompt_version=prompt_version,
+    )
+
+
+def update_category(task_id, category: str, *, snapshot: dict, score=None) -> None:
+    from annotation_metadata.repository import insert_prediction
+    from annotation_metadata.taxonomy import model_scene_code
+    with db_tx() as conn, conn.cursor() as cur:
+        insert_prediction(
+            cur, task_id=task_id, predicted_label=category,
+            model_name=snapshot["model_name"],
+            prompt_version=snapshot.get("prompt_version") or CLASSIFY_PROMPT_VERSION,
+            input_version_id=snapshot.get("version_id"),
+            input_revision=snapshot.get("revision"),
+            input_digest=snapshot["input_digest"],
+            score=score,
+            predicted_scene_code=model_scene_code(category),
+        )
+        cur.execute(
             "UPDATE annotation_tasks SET category = %s, updated_at = now() WHERE id = %s",
             (category, task_id),
         )
@@ -162,8 +190,12 @@ def main() -> None:
     started = time.monotonic()
     for index, task in enumerate(candidates, 1):
         try:
-            category = call_classify(task["text"], api_key, args.model)
-            update_category(task["id"], category)
+            snapshot = freeze_task_snapshot(task["id"], model_name=args.model)
+            if snapshot is None or not snapshot.get("input_text"):
+                print(f"[{index}/{len(candidates)}] {task['filename']} skipped: no inference text")
+                continue
+            category = call_classify(snapshot["input_text"], api_key, args.model)
+            update_category(task["id"], category, snapshot=snapshot, score=None)
             stats[category] = stats.get(category, 0) + 1
             print(f"[{index}/{len(candidates)}] {task['filename']} -> {category}")
         except Exception as exc:  # external API errors are isolated per task

@@ -36,6 +36,10 @@ vad_tool/output/
 # pgserver 测试数据库运行时目录
 .pgdata/
 
+# Load-test runtime logs/locks (JSON artifacts under docs/plans/load-test-100k are kept)
+docs/plans/load-test-100k/*.log
+docs/plans/load-test-100k/.load_test_100k.lock
+
 # Local tool state and generated deliverables
 .pytest_cache/
 .worktrees/

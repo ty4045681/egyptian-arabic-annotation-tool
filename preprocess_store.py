@@ -9,6 +9,7 @@ import base64
 import hashlib
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import psycopg
 from psycopg.types.json import Json
@@ -36,6 +37,13 @@ def store_preprocessed_task(
     skip_if_human_modified: bool = True,
     eligible: bool | None = None,
     task_extra: dict | None = None,
+    sources=None,
+    identity=None,
+    pcm_sha256: str | None = None,
+    processing_token: str | None = None,
+    metadata_only: bool = False,
+    batch_code: str | None = None,
+    before_complete=None,
 ) -> dict:
     """Insert or refresh a pending task with a draft version.
 
@@ -45,16 +53,36 @@ def store_preprocessed_task(
     """
     task_eligible = bool(segments) if eligible is None else bool(eligible)
     with conn.transaction(), conn.cursor() as cur:
-        cur.execute(
-            """SELECT id, current_published_version_id, status,
-                      baseline_version_id
-               FROM annotation_tasks WHERE rel_path = %s FOR UPDATE""",
-            (rel_path,),
-        )
-        row = cur.fetchone()
+        from annotation_metadata.ingestion import find_task_row_for_audio_path
+        row = find_task_row_for_audio_path(cur, rel_path)
+
+        def _sync_sources(task_id):
+            if not sources and identity is None and not pcm_sha256:
+                return "unchanged"
+            from annotation_metadata.ingestion import apply_store_side_effects
+            from annotation_metadata.contracts import PreprocessedTaskInput
+            payload = PreprocessedTaskInput(
+                rel_path=rel_path, filename=filename, folder=folder,
+                duration=float(duration), segments=[],
+                sources=list(sources or []), identity=identity,
+                pcm_sha256=pcm_sha256, processing_token=None,
+                metadata_only=True, batch_code=batch_code,
+            )
+            return apply_store_side_effects(cur, task_id, payload)
 
         if row is not None:
-            task_id, published_vid, status, baseline_vid = row
+            task_id, published_vid, status, baseline_vid = row[0], row[1], row[2], row[3]
+            canonical_rel = row[4] if len(row) > 4 else rel_path
+            if canonical_rel != rel_path:
+                names = cur.execute(
+                    "SELECT filename, folder FROM annotation_tasks WHERE id = %s",
+                    (task_id,),
+                ).fetchone()
+                if names:
+                    filename, folder = names
+            if not metadata_only:
+                from annotation_metadata.processing import require_processing_token
+                require_processing_token(cur, task_id, processing_token)
             protected = published_vid is not None or cur.execute(
                 "SELECT 1 FROM assignments WHERE task_id = %s", (task_id,)
             ).fetchone()
@@ -65,12 +93,26 @@ def store_preprocessed_task(
                 (task_id,),
             ).fetchone()
             protected = protected or (draft and draft[2])
-            if protected:
-                if skip_if_human_modified:
-                    return {"action": "skipped_human", "task_id": str(task_id)}
-                raise TaskProtectedError(
-                    f"{rel_path}: task is assigned, published, or human-modified"
-                )
+            if protected or metadata_only:
+                metadata_action = _sync_sources(task_id)
+                if processing_token and not metadata_only:
+                    from annotation_metadata.processing import complete_processing
+                    complete_processing(cur, task_id, processing_token)
+                if protected:
+                    if skip_if_human_modified:
+                        return {
+                            "action": "skipped_human",
+                            "task_id": str(task_id),
+                            "metadata_action": metadata_action,
+                        }
+                    raise TaskProtectedError(
+                        f"{rel_path}: task is assigned, published, or human-modified"
+                    )
+                return {
+                    "action": metadata_action,
+                    "task_id": str(task_id),
+                    "metadata_action": metadata_action,
+                }
             if draft:
                 draft_vid = draft[0]
                 _replace_draft(cur, task_id, draft_vid, duration, segments)
@@ -81,7 +123,14 @@ def store_preprocessed_task(
                             duration=duration, eligible=task_eligible,
                             preprocessed_at=preprocessed_at,
                             category=category, extra=task_extra)
-                return {"action": "updated", "task_id": str(task_id)}
+                metadata_action = _sync_sources(task_id)
+                if before_complete is not None:
+                    before_complete()
+                if processing_token:
+                    from annotation_metadata.processing import complete_processing
+                    complete_processing(cur, task_id, processing_token)
+                return {"action": "updated", "task_id": str(task_id),
+                        "metadata_action": metadata_action}
 
         # New task
         task_id = uuid.uuid4()
@@ -118,7 +167,82 @@ def store_preprocessed_task(
             (baseline_id, task_id),
         )
         _upsert_waveform(cur, task_id, waveform_payload)
-        return {"action": "created", "task_id": str(task_id)}
+        metadata_action = _sync_sources(task_id)
+        if before_complete is not None:
+            before_complete()
+        if processing_token:
+            from annotation_metadata.processing import complete_processing
+            complete_processing(cur, task_id, processing_token)
+        return {"action": "created", "task_id": str(task_id),
+                "metadata_action": metadata_action}
+
+
+def finalize_rejected_task(
+    conn: psycopg.Connection,
+    *,
+    rel_path: str,
+    filename: str,
+    folder: str,
+    duration: float,
+    segments: list[dict],
+    waveform_payload: bytes | None = None,
+    preprocessed_at: datetime | None = None,
+    processing_token: str | None = None,
+    reason: str,
+    asr_checkpoint_incomplete: bool = False,
+    delete_path: str | Path | None = None,
+) -> dict:
+    """Fence no-speech and content-inspection the same way.
+
+    Rechecks the processing token and human protection while the task
+    and draft version are locked. The task is marked ineligible and the
+    rejection is recorded before any optional local-file delete. The
+    file is parked in the same short transaction, before the lease is
+    released, so a lost token never unlinks another worker's audio. A
+    later commit/unlink failure restores the original path when the DB
+    write does not land.
+    """
+    source = Path(delete_path) if delete_path is not None else None
+    parked = None
+
+    def _park_if_requested():
+        nonlocal parked
+        if source is None:
+            return
+        if not source.exists():
+            return
+        parked = source.with_name(source.name + f".rejecting-{uuid.uuid4().hex}")
+        source.replace(parked)
+
+    try:
+        result = store_preprocessed_task(
+            conn,
+            rel_path=rel_path,
+            filename=filename,
+            folder=folder,
+            duration=duration,
+            segments=segments,
+            waveform_payload=waveform_payload,
+            preprocessed_at=preprocessed_at,
+            skip_if_human_modified=True,
+            eligible=False,
+            task_extra={
+                "preprocess_rejection": reason,
+                "asr_checkpoint_incomplete": bool(asr_checkpoint_incomplete),
+            },
+            processing_token=processing_token,
+            before_complete=_park_if_requested,
+        )
+    except Exception:
+        if parked is not None and source is not None and parked.exists() and not source.exists():
+            parked.replace(source)
+        raise
+    if parked is not None:
+        try:
+            parked.unlink()
+        except OSError:
+            pass
+    return result
 
 
 def _replace_draft(cur, task_id, draft_vid, duration, segments) -> None:
@@ -203,9 +327,9 @@ def _touch_task(cur, task_id, *, filename, folder, duration, eligible,
 
 
 def ingestion_states(conn: psycopg.Connection) -> dict[str, dict]:
-    """Return preprocessing state keyed by audio path."""
+    """Return preprocessing state keyed by canonical and alias audio paths."""
     rows = conn.execute(
-        """SELECT t.rel_path,
+        """SELECT t.id, t.rel_path,
                   t.current_published_version_id IS NOT NULL AS published,
                   EXISTS (SELECT 1 FROM assignments a WHERE a.task_id = t.id) AS assigned,
                   EXISTS (
@@ -214,20 +338,47 @@ def ingestion_states(conn: psycopg.Connection) -> dict[str, dict]:
                       AND v.human_modified
                   ) AS human_modified,
                   t.eligible,
-                  t.extra->>'preprocess_rejection' AS rejection
+                  t.extra->>'preprocess_rejection' AS rejection,
+                  t.extra->'path_aliases' AS path_aliases
            FROM annotation_tasks t"""
     ).fetchall()
-    return {
-        row[0]: {
-            "protected": bool(row[1] or row[2] or row[3]),
-            "published": bool(row[1]),
-            "assigned": bool(row[2]),
-            "human_modified": bool(row[3]),
-            "eligible": bool(row[4]),
-            "rejection": row[5],
+    by_id: dict = {}
+    by_path: dict[str, dict] = {}
+    for row in rows:
+        state = {
+            "task_id": str(row[0]),
+            "canonical_rel_path": row[1],
+            "protected": bool(row[2] or row[3] or row[4]),
+            "published": bool(row[2]),
+            "assigned": bool(row[3]),
+            "human_modified": bool(row[4]),
+            "eligible": bool(row[5]),
+            "rejection": row[6],
         }
-        for row in rows
-    }
+        by_id[row[0]] = state
+        if row[1]:
+            by_path[row[1]] = state
+        aliases = row[7] or []
+        if isinstance(aliases, str):
+            aliases = [aliases]
+        for alias in aliases:
+            if alias and alias not in by_path:
+                by_path[alias] = state
+    source_paths = conn.execute(
+        """SELECT task_id,
+                  raw_record->>'relative_path',
+                  raw_record->>'rel_path',
+                  raw_record->>'audio_path'
+           FROM task_sources WHERE is_current"""
+    ).fetchall()
+    for task_id, *paths in source_paths:
+        state = by_id.get(task_id)
+        if not state:
+            continue
+        for path in paths:
+            if path and path not in by_path:
+                by_path[path] = state
+    return by_path
 
 
 def load_draft_segments(conn: psycopg.Connection, rel_path: str) -> list[dict]:

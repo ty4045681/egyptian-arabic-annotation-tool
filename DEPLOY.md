@@ -91,7 +91,7 @@ maintenance_work_mem = 1GB
 work_mem = 16MB
 ```
 
-应用池：4 Gunicorn workers × 每 worker `max_size=16`，理论上限 64，按需建立；至少 50 个连接留给迁移、预处理、备份、管理和监控。
+应用池：较大主机可用 4 Gunicorn workers × 每 worker `max_size=16`（理论上限 64）。本仓库 4 核/~8GB 隔离预览与容量测试使用 **2 workers × 4 threads**（`GUNICORN_WORKERS=2 GUNICORN_THREADS=4`）。至少 50 个连接留给迁移、预处理、备份、管理和监控。
 
 ```bash
 sudo systemctl restart postgresql
@@ -127,7 +127,8 @@ uv run python -c 'import hashlib,secrets; k=secrets.token_urlsafe(32); print("AD
 migration 使用 owner DSN 临时导出到当前 shell，不写入仓库：
 
 ```bash
-export ANNOTATION_DB_DSN='postgresql://annotation_owner:...@127.0.0.1:5432/annotation_tool'
+# DSN without a password; libpq reads PGPASSWORD, ~/.pgpass, or PGSERVICEFILE.
+export ANNOTATION_DB_DSN='postgresql://annotation_owner@127.0.0.1:5432/annotation_tool'
 uv run python manage_state.py apply-migrations
 uv run python manage_state.py schema
 ```
@@ -359,6 +360,82 @@ uv run python manage_state.py export-json --output /home/ck/rollback-json-$(date
 
 核对导出后，旧应用指向新目录；不能覆盖迁移前快照。PostgreSQL、迁移前 JSON 和回滚导出全部保留审计。
 
+## 16. 场景元数据导出/导入与兼容回退
+
+**Checking out git `5567209` after migration 003 is not schema rollback.**
+`assert_schema_current()` requires the running build to ship every applied
+migration file. The compatibility path is the **same new-schema build** with
+feature flags off.
+
+Placeholders only; never point these at a live staging DSN:
+
+```bash
+export ANNOTATION_DB_DSN='$ANNOTATION_DB_DSN'
+export TARGET_DB_DSN='$TARGET_DB_DSN'
+export BACKUP_DUMP='$BACKUP_DIR/annotation_tool.dump'
+export PG_BINDIR='/usr/lib/postgresql/16/bin'   # or /usr/lib/postgresql/18/bin
+export METADATA_DIR='$BACKUP_DIR/metadata'
+export MAPPING_JSON='$BACKUP_DIR/identity-mapping.json'
+```
+
+Feature flags (scope enforcement stays on even with fifo):
+
+```bash
+export ANNOTATION_METADATA_UI=0
+export ANNOTATION_METADATA_WRITE=0
+export ANNOTATION_SCENE_REVIEW_WRITE=0
+export ANNOTATION_CLAIM_POLICY=fifo
+# Then start the same migrated build and check /api/health.
+```
+
+PostgreSQL custom dump is the complete backup (tasks, versions, segments,
+assignments, provenance, reviews, audit). Metadata JSON is a sidecar round
+trip, not a substitute:
+
+```bash
+uv run python manage_state.py dump-postgres --output "$BACKUP_DUMP" --pg-bindir "$PG_BINDIR"
+# Restore only into a newly created database with no user schema objects
+# (any non-system table/view/sequence, not merely annotation_tasks rows).
+# Pass --target-dsn without a password; libpq reads PGPASSWORD, ~/.pgpass,
+# or PGSERVICE/PGSERVICEFILE.
+createdb --maintenance-db="$ADMIN_DSN" new_annotation_restore
+uv run python manage_state.py restore-postgres \
+  --dump "$BACKUP_DUMP" --target-dsn "$TARGET_DB_DSN" --pg-bindir "$PG_BINDIR"
+```
+
+Versioned metadata (exact task/version/user IDs, or an explicit UUID mapping
+file; never username or pathname remaps):
+
+```bash
+uv run python manage_state.py export-metadata --output "$METADATA_DIR"
+uv run python manage_state.py verify-metadata --input "$METADATA_DIR"
+uv run python manage_state.py import-metadata --input "$METADATA_DIR" --dry-run
+uv run python manage_state.py import-metadata --input "$METADATA_DIR"
+# Optional explicit mapping + scope replace:
+uv run python manage_state.py import-metadata \
+  --input "$METADATA_DIR" --mapping "$MAPPING_JSON" --replace-scopes
+```
+
+Verify a restore by comparing task/version/segment/assignment/source/review
+counts and relationships before declaring the target usable. Real production
+data migration remains deferred.
+
+Legacy `export-json` field contract is unchanged. Training `data.json` is
+unchanged; scene evidence is `scene_metadata.json` (audio-level, not segment
+labels). Excel adds source scene/confidence/batch and human verification columns.
+
+## 17. 全英文界面与十场景目录升级（2026-09-15）
+
+该版本包含 `005_ten_scene_catalog.sql`。按 Restaurant、Hotel、Taxi、Airport、Clinic、Tourism information、Emergencies、Spoken languages、Business negotiation、Shopping 的顺序提供场景选项，页面文案使用英文。
+
+部署前备份目标数据库，并保留对应的旧代码版本；在维护窗口内停止该应用的写入，用迁移角色执行 `uv run python manage_state.py apply-migrations`，然后启动包含迁移 001–005 的新版本。`/api/health` 应返回 `[1,2,3,4,5]`。腾讯云合成预览使用独立数据库 `annotation_scene_preview`；本次不迁移真实标注库或音频。
+
+没有来源行、来源场景为 NULL，以及明确标记为 `spoken_languages` 的来源，统一按 Spoken languages 筛选、统计和分配。来源 API 仍兼容 `source_scene=unknown`；置信度 Unknown、无模型结果和无人工核验结果分别保留原意。旧的 `allow_unknown` 权限在限定场景模式下归入 Spoken languages，页面只有一组十场景选项。
+
+迁移只调整目录；来源原始记录、历史预测和人工核验不改写。完整元数据导出保留原始 NULL 场景，公共来源接口提供归类后的场景。已存在且标签明确为 Spoken languages 的模型结果可被新筛选识别，原始预测记录保持可追溯。
+
+升级后检查十个场景选项、Spoken languages 与旧 unknown 来源筛选一致、仅 Airport 的用户不能领取其他来源、重新打开任务仍显示正确来源，以及元数据导出/验证/试导入。数据库迁移后不应仅切回缺少 005 的旧代码；兼容回退继续使用同一迁移版本及上一节的功能开关。恢复数据库备份应在独立目标库验证，并另行处理备份后产生的数据。
+
 ## 常用命令
 
 ```bash
@@ -371,3 +448,8 @@ uv run pytest -q
 sudo systemctl status postgresql nginx audio-annotator cloudflared-tunnel annotation-backup.timer
 sudo journalctl -u postgresql -u nginx -u audio-annotator -u cloudflared-tunnel -n 100 --no-pager
 ```
+
+
+## 容量验收对应的运行设置
+
+本次4核、约8GB主机验收使用2个Gunicorn进程、每进程4个线程；PG16与PG18全量功能测试通过，PG18独立10万任务HTTP验收记录见[容量报告](docs/plans/load-test-100k-pg18/README.md)。管理员概览使用局部`work_mem=256MB`、`temp_buffers=128MB`、JIT关闭、最多2个并行查询worker及局部查询规划成本设置。work_mem按单个排序/哈希操作计，temp_buffers按会话按需使用；提高并发或合并ASR负载后需按实际总内存和延迟复测。报告保留p99、稀少场景与空池延迟，避免把p95门槛理解为单次响应上限。

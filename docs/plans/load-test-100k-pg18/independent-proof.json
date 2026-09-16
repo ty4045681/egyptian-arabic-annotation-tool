@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "server_version": "18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)",
+  "schema_versions": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "distinct_new_task_ids_across_all_scenarios": 220,
+  "confidence_priority_verified_against_database": true,
+  "all_list_and_overview_payloads_verified": true,
+  "p95_recomputed_from_raw_samples": true,
+  "actual_query_plans": {
+    "statements": 33,
+    "explained_statements": 26,
+    "largest_sort_kb": 34066,
+    "largest_hash_kb": 24601,
+    "max_temp_blocks_written": 1125,
+    "max_parallel_workers_launched": 2
+  },
+  "note": "Operator memory maxima are individual EXPLAIN nodes, not aggregate process or concurrent request memory."
+}

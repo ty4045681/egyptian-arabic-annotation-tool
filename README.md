@@ -21,6 +21,7 @@
 | 安全撤销/停用 | 不删除历史；原子撤销当前版本、重建 baseline draft、回收任务并阻止原提交者重领 |
 | 无损迁移 | JSON manifest、SHA-256、可重入导入、round-trip 校验、兼容 JSON 回导 |
 | 备份 | PostgreSQL custom dump + 校验 + 恢复演练 + 兼容 JSON 快照 |
+| 场景元数据 | 版本化 `export-metadata` / `import-metadata`；训练旁文件；Excel 来源/核验列 |
 
 ## 架构
 
@@ -43,7 +44,7 @@ server.py                   Flask API / page / audio authorization
 annotation_repository.py    所有业务事务和权限规则
 db.py                       psycopg 连接池与 migration runner
 migrations/                 PostgreSQL schema
-manage_state.py             JSON 盘点、迁移、验证、回导、assignment 管理
+manage_state.py             JSON 盘点、迁移、验证、回导、元数据导入导出、assignment 管理
 preprocess.py               VAD + ASR，直接写 PostgreSQL
 preprocess_store.py         预处理入库与人工标注保护
 classify.py                 从 PostgreSQL 分类并更新 category
@@ -209,13 +210,31 @@ uv run --group preprocess python classify.py
 uv run python server.py --port 8081
 ```
 
-完整测试：
+完整测试（含 Playwright；本机已安装 Chromium，不要用 skip 掩盖失败）：
 
 ```bash
-uv run pytest -q
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run pytest -q
 ```
 
-测试通过范围包括：并发领取、同名登录竞态、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、baseline 回填、JSON round-trip、Excel 和音频 Range。
+默认使用测试夹具里的隔离 PostgreSQL。当前 pgserver 捆绑的是 **PostgreSQL 16.2**，不能把它跑两遍当成 16/18 矩阵。指定本机 PostgreSQL 18.6 二进制（仍是一次性隔离集群，不是 live 库）：
+
+```bash
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run --no-sync python \
+  scripts/run_pytest_with_postgres.py /usr/lib/postgresql/18/bin -q
+```
+
+GitHub Actions 用 PostgreSQL 16 与 18 **service** 矩阵，并通过 `ANNOTATION_TEST_PG_ADMIN_DSN` + 同主版本 `pg_dump`/`pg_restore` 创建一次性测试库。不要把生产 DSN 传给测试。`--target-dsn` / `ANNOTATION_DB_DSN` 不要带密码；libpq 从 `PGPASSWORD`、`~/.pgpass` 或 `PGSERVICEFILE` 读凭据。
+
+100k 容量（一次性独立库，测完删除；Gunicorn 2 workers × 4 threads，与本机 4 核/~8GB 预览一致）：
+
+```bash
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python \
+  scripts/load_test_100k.py --artifact-dir docs/plans/load-test-100k
+```
+
+产物：`results.json`、`samples.jsonl`、`dataset.json`、`explain-*.json`。
+
+测试通过范围包括：并发领取、同名登录竞态、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、管理员来源筛选/统计、场景范围锁顺序、baseline 回填、JSON round-trip、Excel 和音频 Range、元数据导出/导入、dump/restore、Playwright 场景流程。
 
 ## 标注工作流
 

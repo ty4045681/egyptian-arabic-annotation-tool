@@ -49,6 +49,29 @@ const state = {
   pendingRevoke: null,
   pendingDeactivate: null,
   requestEpoch: 0,
+  scopeLoadToken: 0,
+  scopeSaving: false,
+  scopeSavingId: "",
+  scopeEditorBound: null,
+  scopeCatalogFailed: false,
+  sceneLabels: {},
+  metadataFilters: {},
+};
+
+const CONF_LABEL = {
+  high: "Source confidence High",
+  medium: "Source confidence Medium",
+  low: "Source confidence Low",
+  unknown: "Source confidence Unknown",
+};
+const REVIEW_STATUS_LABEL = {
+  pending: "Pending (published)",
+  confirmed: "Confirmed",
+  mixed: "Multiple scenes",
+  out_of_scope: "Outside the ten scenes",
+  uncertain: "Cannot determine",
+  unreviewed_unpublished: "Unpublished, not reviewed",
+  unreviewed_published: "Published, not reviewed",
 };
 
 const charts = {
@@ -408,7 +431,7 @@ async function enterApp(session) {
   $("loginView").hidden = true;
   $("adminApp").hidden = false;
   renderViewShell();
-  const results = await Promise.allSettled([loadAnnotators(), loadCurrentView()]);
+  const results = await Promise.allSettled([loadAnnotators(), loadCurrentView(), loadMetadataFacets()]);
   const failed = results.find((result) => result.status === "rejected" && result.reason?.name !== "AbortError");
   if (failed && failed.reason?.status !== 401) showStatus(failed.reason.message || "Some dashboard data could not be loaded.");
 }
@@ -485,6 +508,115 @@ function normaliseAnnotator(raw) {
     currentCount: numberValue(pick(raw, ["current_count", "current_contributions", "annotated"], 0))
       || numberValue(pick(raw, ["current.annotated_count"], 0)) + numberValue(pick(raw, ["current.skipped_count"], 0)),
   };
+}
+
+function sceneDisplayName(scene) {
+  return scene.label_en || scene.label || scene.label_zh || scene.code;
+}
+
+function sceneLabel(code) {
+  if (!code || code === "unknown") return "";
+  return state.sceneLabels[code] || (window.AnnotationMetadata && AnnotationMetadata.sceneLabel(code)) || code;
+}
+
+function fillSelect(select, items, { allText, extra = [] } = {}) {
+  if (!select) return;
+  const current = select.value;
+  select.replaceChildren(element("option", { value: "", text: allText }));
+  extra.forEach((item) => select.appendChild(element("option", { value: item.value, text: item.text })));
+  items.forEach((item) => select.appendChild(element("option", {
+    value: item.value,
+    text: item.text,
+  })));
+  if (Array.from(select.options).some((option) => option.value === current)) select.value = current;
+}
+
+function readNamedFilters(prefix) {
+  const fields = {
+    source_scene: $(`${prefix}SourceScene`),
+    source_confidence: $(`${prefix}SourceConfidence`),
+    batch_code: $(`${prefix}Batch`),
+    review_status: $(`${prefix}ReviewStatus`),
+    prediction_scene: $(`${prefix}PredictionScene`),
+    human_scene: $(`${prefix}HumanScene`),
+  };
+  const extra = {};
+  for (const [key, node] of Object.entries(fields)) {
+    if (node && node.value) extra[key] = node.value;
+  }
+  return extra;
+}
+
+function writeNamedFilters(prefix, filters) {
+  const map = {
+    SourceScene: filters.source_scene || "",
+    SourceConfidence: filters.source_confidence || "",
+    Batch: filters.batch_code || "",
+    ReviewStatus: filters.review_status || "",
+    PredictionScene: filters.prediction_scene || "",
+    HumanScene: filters.human_scene || "",
+  };
+  for (const [suffix, value] of Object.entries(map)) {
+    const node = $(prefix + suffix);
+    if (node) node.value = value;
+  }
+}
+
+function syncMetadataFilters(fromPrefix) {
+  const filters = readNamedFilters(fromPrefix);
+  state.metadataFilters = filters;
+  writeNamedFilters(fromPrefix === "corpus" ? "overview" : "corpus", filters);
+  return filters;
+}
+
+async function loadMetadataFacets() {
+  try {
+    const data = await api.get("/api/admin/metadata/facets");
+    const scenes = listValue(data, ["scenes"]);
+    const batches = listValue(data, ["batches"]);
+    state.sceneLabels = Object.fromEntries(scenes.map((scene) => [scene.code, sceneDisplayName(scene)]));
+    const sceneOptions = scenes.map((scene) => ({ value: scene.code, text: sceneDisplayName(scene) }));
+    const batchOptions = batches.map((batch) => ({ value: batch.batch_code, text: batch.name ? `${batch.batch_code} · ${batch.name}` : batch.batch_code }));
+    fillSelect($("corpusSourceScene"), sceneOptions, { allText: "All source scenes" });
+    fillSelect($("overviewSourceScene"), sceneOptions, { allText: "All source scenes" });
+    fillSelect($("corpusBatch"), batchOptions, { allText: "All batches" });
+    fillSelect($("overviewBatch"), batchOptions, { allText: "All batches" });
+    fillSelect($("corpusPredictionScene"), sceneOptions, { allText: "All model classifications", extra: [{ value: "unknown", text: "No model classification" }] });
+    fillSelect($("overviewPredictionScene"), sceneOptions, { allText: "All model classifications", extra: [{ value: "unknown", text: "No model classification" }] });
+    fillSelect($("corpusHumanScene"), sceneOptions, { allText: "All human scenes", extra: [{ value: "unknown", text: "No human scene" }] });
+    fillSelect($("overviewHumanScene"), sceneOptions, { allText: "All human scenes", extra: [{ value: "unknown", text: "No human scene" }] });
+    const grid = $("scopeSceneGrid");
+    if (grid && !grid.childElementCount) {
+      scenes.forEach((scene) => {
+        const label = element("label");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = scene.code;
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(sceneDisplayName(scene)));
+        grid.appendChild(label);
+      });
+    }
+    const reviewGrid = $("adminReviewScenes");
+    if (reviewGrid && !reviewGrid.childElementCount) {
+      scenes.forEach((scene) => {
+        const label = element("label");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = scene.code;
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(sceneDisplayName(scene)));
+        reviewGrid.appendChild(label);
+      });
+    }
+    state.scopeCatalogFailed = false;
+    tryBindCurrentScopeEditor();
+  } catch (_) {
+    // Facets are progressive enhancement, but a missing catalog must not
+    // leave the claim-scope editor editable with an empty scene list.
+    state.scopeCatalogFailed = true;
+    tryBindCurrentScopeEditor();
+  }
 }
 
 async function loadAnnotators() {
@@ -566,8 +698,12 @@ function overviewStats(data) {
 }
 
 async function loadOverview(epoch = state.requestEpoch) {
+  writeNamedFilters("overview", state.metadataFilters);
+  const metadata = readNamedFilters("overview");
+  state.metadataFilters = metadata;
+  writeNamedFilters("corpus", metadata);
   const [overviewResult, seriesResult] = await Promise.allSettled([
-    api.get(apiUrl("/api/admin/overview")),
+    api.get(apiUrl("/api/admin/overview", metadata)),
     api.get(apiUrl("/api/admin/timeseries")),
   ]);
   if (epoch !== state.requestEpoch) return;
@@ -639,6 +775,85 @@ function renderOverview(data) {
   const distributions = pick(data, ["distributions"], {});
   renderDistribution($("categoryDistribution"), pick(distributions, ["categories", "category"], pick(data, ["categories"], [])));
   renderDistribution($("skipDistribution"), pick(distributions, ["skip_reasons", "skipReasons"], pick(data, ["skip_reasons"], [])));
+  renderMetadataGroups(data);
+}
+
+function groupRows(items, labelFn) {
+  return (items || []).map((item) => ({
+    key: item.scene_code || item.batch_code || item.confidence || item.status || item.label,
+    label: labelFn(item),
+    tasks: numberValue(item.task_count),
+    duration: numberValue(item.duration_seconds),
+    overlapping: boolValue(item.overlapping, false),
+  }));
+}
+
+function renderGroupTable(container, rows, emptyText) {
+  clear(container);
+  if (!rows.length) {
+    container.appendChild(element("div", { className: "empty-inline", text: emptyText }));
+    return;
+  }
+  const table = element("table", { className: "metadata-group-table" });
+  table.appendChild(element("thead", {}, element("tr", {}, [
+    element("th", { text: "Group" }),
+    element("th", { className: "num", text: "Tasks" }),
+    element("th", { className: "num", text: "Source audio duration" }),
+  ])));
+  const body = element("tbody");
+  for (const row of rows) {
+    body.appendChild(element("tr", {}, [
+      element("td", { text: row.label }),
+      element("td", { className: "num", text: formatInteger(row.tasks) }),
+      element("td", { className: "num", text: formatDuration(row.duration, false) }),
+    ]));
+  }
+  table.appendChild(body);
+  container.appendChild(table);
+}
+
+function renderMetadataGroups(data) {
+  renderGroupTable(
+    $("sourceSceneGroups"),
+    groupRows(listValue(data, ["source_scenes"]), (item) => item.label || sceneLabel(item.scene_code)),
+    "No source scene groups.",
+  );
+  renderGroupTable(
+    $("confidenceGroups"),
+    groupRows(listValue(data, ["confidence_buckets"]), (item) => CONF_LABEL[item.confidence] || item.confidence || "Unknown"),
+    "No source confidence groups.",
+  );
+  renderGroupTable(
+    $("sourceBatchGroups"),
+    groupRows(listValue(data, ["source_batches"]), (item) => item.batch_code || "Unknown batch"),
+    "No source batch groups.",
+  );
+  renderGroupTable(
+    $("reviewStatusGroups"),
+    groupRows(listValue(data, ["review_statuses"]), (item) => REVIEW_STATUS_LABEL[item.status] || item.status),
+    "No published review groups.",
+  );
+}
+
+function renderMatchedStats(data) {
+  const node = $("corpusMatchedStats");
+  if (!node) return;
+  if (!data) {
+    node.hidden = true;
+    node.replaceChildren();
+    return;
+  }
+  const totals = pick(data, ["totals"], {});
+  const tasks = numberValue(pick(totals, ["total_audio_count"], 0));
+  const duration = numberValue(pick(totals, ["total_audio_duration_seconds"], 0));
+  node.hidden = false;
+  node.replaceChildren();
+  node.append(
+    element("strong", { text: `${formatInteger(tasks)} tasks` }),
+    document.createTextNode(" · "),
+    element("span", { text: `${formatDuration(duration, false)} source audio` }),
+    document.createTextNode(" · Source scene/batch groups below may overlap; source confidence and published review are mutually exclusive."),
+  );
 }
 
 function normaliseDistribution(raw) {
@@ -897,9 +1112,91 @@ function normaliseAnnotatorDetail(data) {
   return { ...data, annotator: base, stats };
 }
 
+function scopeCatalogReady() {
+  return Boolean($("scopeSceneGrid")?.querySelector("input[type=checkbox]"));
+}
+
+function isCurrentAnnotatorLoad(id, epoch, token) {
+  return epoch === state.requestEpoch && id === state.selectedAnnotatorId && token === state.scopeLoadToken;
+}
+
+function resetScopeEditorFields() {
+  formError($("scopeError"));
+  if ($("scopeMode")) $("scopeMode").value = "all";
+  if ($("scopeReason")) $("scopeReason").value = "";
+  for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) box.checked = false;
+}
+
+function setScopeEditorUnavailable(message, { hideFields = true } = {}) {
+  const form = $("sceneScopeForm");
+  const fields = $("scopeEditorFields");
+  const status = $("scopeEditorStatus");
+  if (fields) {
+    fields.disabled = true;
+    fields.hidden = hideFields;
+  }
+  if (form) {
+    form.dataset.scopeReady = "0";
+    form.setAttribute("aria-busy", "true");
+    delete form.dataset.annotatorId;
+    delete form.dataset.revision;
+    delete form.dataset.loadToken;
+  }
+  if (status) {
+    status.hidden = !message;
+    status.textContent = message || "";
+  }
+}
+
+function applySceneScopeFields(scope) {
+  if (!$("scopeMode")) return;
+  $("scopeMode").value = pick(scope, ["mode"], "all");
+  $("scopeReason").value = "";
+  const allowed = new Set(listValue(scope, ["scene_codes"]));
+  if (boolValue(pick(scope, ["allow_unknown"], false))) allowed.add("spoken_languages");
+  for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) {
+    box.checked = allowed.has(box.value);
+  }
+}
+
+function bindScopeEditor(id, token, data) {
+  const form = $("sceneScopeForm");
+  const fields = $("scopeEditorFields");
+  const status = $("scopeEditorStatus");
+  const scope = pick(data, ["scene_scope", "scope"], {});
+  applySceneScopeFields(scope);
+  if (!form || !fields) return;
+  if (!scopeCatalogReady()) {
+    setScopeEditorUnavailable(state.scopeCatalogFailed ? "Could not load claim scope." : "Loading claim scope…");
+    return;
+  }
+  fields.hidden = false;
+  fields.disabled = false;
+  form.dataset.scopeReady = "1";
+  form.dataset.annotatorId = id;
+  form.dataset.loadToken = String(token);
+  form.dataset.revision = String(pick(scope, ["revision"], 0));
+  form.setAttribute("aria-busy", "false");
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
+}
+
+function tryBindCurrentScopeEditor() {
+  const bound = state.scopeEditorBound;
+  if (!bound || bound.token !== state.scopeLoadToken || bound.id !== state.selectedAnnotatorId) return;
+  if (!state.annotatorDetail) return;
+  bindScopeEditor(bound.id, bound.token, state.annotatorDetail);
+}
+
 async function loadAnnotator(id, epoch = state.requestEpoch) {
+  const token = ++state.scopeLoadToken;
+  state.scopeEditorBound = null;
   $("annotatorEmptyState").hidden = true;
   $("annotatorDetail").hidden = false;
+  setScopeEditorUnavailable("Loading claim scope…");
+  resetScopeEditorFields();
   setTaskTableState("annotator", "Loading annotations…");
   state.selectedTaskIds.clear();
   const encoded = encodeURIComponent(id);
@@ -908,11 +1205,15 @@ async function loadAnnotator(id, epoch = state.requestEpoch) {
     api.get(apiUrl(`/api/admin/annotators/${encoded}/annotations`, { limit: 50, lifecycle: "published" })),
     api.get(apiUrl("/api/admin/timeseries", { annotator_id: id })),
   ]);
-  if (epoch !== state.requestEpoch || id !== state.selectedAnnotatorId) return;
+  if (!isCurrentAnnotatorLoad(id, epoch, token)) return;
   if (detailResult.status === "fulfilled") {
     state.annotatorDetail = normaliseAnnotatorDetail(detailResult.value);
     if (seriesResult.status === "fulfilled") state.annotatorDetail.timeseries = normaliseTimeseries(seriesResult.value);
     renderAnnotatorDetail(state.annotatorDetail);
+    state.scopeEditorBound = { id, token };
+    bindScopeEditor(id, token, state.annotatorDetail);
+  } else {
+    setScopeEditorUnavailable("Could not load claim scope.");
   }
   if (tasksResult.status === "fulfilled") {
     state.annotatorTasks = listValue(tasksResult.value, ["items", "annotations", "tasks", "results"]).map(normaliseTask);
@@ -1040,20 +1341,44 @@ async function loadCorpus(append = false, epoch = state.requestEpoch) {
     setTaskTableState("corpus", "Loading tasks…");
     clear($("corpusTaskBody"));
   }
+  if (!append) writeNamedFilters("corpus", state.metadataFilters);
+  const metadata = readNamedFilters("corpus");
+  state.metadataFilters = metadata;
+  writeNamedFilters("overview", metadata);
   const extra = {
     limit: 50,
     cursor: append ? state.corpusTaskCursor : "",
     q: $("corpusSearch").value.trim(),
     status: $("corpusStatus").value,
-    lifecycle: "published",
+    ...metadata,
   };
   try {
-    const data = await api.get(apiUrl("/api/admin/tasks", extra));
+    const requests = [api.get(apiUrl("/api/admin/tasks", extra))];
+    if (!append) requests.push(api.get(apiUrl("/api/admin/overview", {
+      q: extra.q,
+      status: extra.status,
+      ...metadata,
+    })));
+    const [listResult, overviewResult] = await Promise.allSettled(requests);
     if (epoch !== state.requestEpoch) return;
+    if (listResult.status !== "fulfilled") throw listResult.reason;
+    const data = listResult.value;
     const incoming = listValue(data, ["items", "annotations", "tasks", "results"]).map(normaliseTask);
     state.corpusTasks = append ? state.corpusTasks.concat(incoming) : incoming;
     state.corpusTaskCursor = pick(data, ["next_cursor", "cursor"], null);
     renderCorpusTasks();
+    if (!append) {
+      const overviewData = overviewResult && overviewResult.status === "fulfilled"
+        ? overviewResult.value
+        : null;
+      renderMatchedStats({
+        totals: {
+          total_audio_count: numberValue(pick(data, ["matched_count"], state.corpusTasks.length)),
+          total_audio_duration_seconds: numberValue(pick(data, ["matched_duration_seconds"], 0)),
+        },
+      });
+      if (overviewData) renderMetadataGroups(overviewData);
+    }
     hideStatus();
   } catch (error) {
     if (error.status === 404) setTaskTableState("corpus", "Global task browsing is not available on this server yet. Use Annotators to inspect current records.");
@@ -1072,8 +1397,15 @@ function renderCorpusTasks() {
     row.appendChild(element("td", { text: item.annotatorName }));
     row.appendChild(element("td", {}, statusBadge(item.status)));
     row.appendChild(element("td", { className: "mono-cell", text: formatDuration(item.durationSeconds) }));
-    row.appendChild(element("td", { text: item.category }));
-    row.appendChild(element("td", { text: formatDateTime(item.submittedAt) }));
+    const sourceScenes = (item.source_scenes || item.sourceScenes || []).map(sceneLabel);
+    row.appendChild(element("td", { text: sourceScenes.join(", ") || "Spoken languages" }));
+    row.appendChild(element("td", { text: CONF_LABEL[item.source_confidence || item.sourceConfidence] || item.source_confidence || "Source confidence Unknown" }));
+    const humanScenes = (item.human_scenes || item.humanScenes || []).map(sceneLabel);
+    const reviewStatus = item.review_status || item.reviewStatus || "pending";
+    const reviewText = (REVIEW_STATUS_LABEL[reviewStatus] || reviewStatus) + (humanScenes.length ? ` · ${humanScenes.join(", ")}` : "");
+    row.appendChild(element("td", { text: reviewText }));
+    row.appendChild(element("td", { text: item.prediction_label || item.predictionLabel || sceneLabel(item.prediction_scene) || "—" }));
+    row.appendChild(element("td", { text: formatDateTime(item.submittedAt || item.updated_at) }));
     const actions = element("td", { className: "actions-cell" });
     actions.appendChild(element("button", { className: "table-action", text: "View", type: "button", dataset: { taskAction: "view-corpus", taskId: item.taskId } }));
     if (item.revocable) actions.appendChild(element("button", { className: "table-action", text: "Revoke", type: "button", dataset: { taskAction: "revoke-corpus", taskId: item.taskId } }));
@@ -1246,6 +1578,39 @@ function renderTaskDetail(data, task) {
     $("taskDetail").appendChild(element("div", { className: "table-state", text: "No segment detail is available." }));
   }
   $("revokeFromDetailButton").hidden = !task.revocable;
+  const metadata = pick(data, ["metadata"], null);
+  if (metadata && window.AnnotationMetadata) {
+    const banner = element("div", { attrs: { id: "adminTaskMetadataBanner" } });
+    $("taskDetail").insertBefore(banner, $("taskDetail").firstChild);
+    AnnotationMetadata.renderBanner(banner, metadata);
+    const details = element("div", { attrs: { id: "adminTaskMetadataDetails" } });
+    banner.after(details);
+    AnnotationMetadata.renderDetails(details, metadata, { open: false, disclosureId: "adminMetadataDisclosure" });
+  }
+  const form = $("adminReviewForm");
+  if (form) {
+    const publishedId = pick(data, ["current_version_id"], "") || "";
+    const review = pick(metadata, ["scene_review"], {}) || {};
+    const writeEnabled = boolValue(pick(metadata, ["features.scene_review_write", "features.metadata_ui"], true), true);
+    form.hidden = !publishedId || !writeEnabled;
+    form.dataset.taskId = task.taskId || "";
+    form.dataset.versionId = publishedId;
+    form.dataset.reviewId = review.id || "";
+    formError($("adminReviewError"));
+    $("adminReviewStatus").value = review.status || "pending";
+    $("adminReviewNote").value = review.note || "";
+    $("adminReviewReason").value = "";
+    const selected = new Set(listValue(review, ["scene_codes"]));
+    for (const box of document.querySelectorAll("#adminReviewScenes input[type=checkbox]")) {
+      box.checked = selected.has(box.value);
+    }
+    const current = $("adminReviewCurrent");
+    if (current) {
+      const human = (review.scene_codes || []).map(sceneLabel).join("、");
+      const sourceText = (metadata?.sources || []).map((item) => item.scene_label || sceneLabel(item.scene_code)).join(", ") || "Spoken languages";
+      current.textContent = `Current published review: ${REVIEW_STATUS_LABEL[review.status] || review.status || "Pending"}${human ? " · " + human : ""}. Source scenes: ${sourceText}.`;
+    }
+  }
 }
 
 function revokeItemsForTasks(tasks) {
@@ -1699,8 +2064,17 @@ function setupEvents() {
 
   $("corpusFilterForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    state.corpusTaskCursor = null;
+    syncMetadataFilters("corpus");
     syncUrl();
     await loadCorpus(false, ++state.requestEpoch);
+  });
+  $("overviewFilterForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.corpusTaskCursor = null;
+    syncMetadataFilters("overview");
+    syncUrl();
+    await loadCurrentView();
   });
   $("loadMoreCorpusTasks").addEventListener("click", async () => {
     setButtonBusy($("loadMoreCorpusTasks"), true, "Loading…");
@@ -1708,6 +2082,114 @@ function setupEvents() {
     setButtonBusy($("loadMoreCorpusTasks"), false);
   });
   $("exportCorpusButton").addEventListener("click", () => exportTasks(state.corpusTasks, "corpus-tasks"));
+  $("sceneScopeForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = $("sceneScopeForm");
+    const fields = $("scopeEditorFields");
+    const annotatorId = form?.dataset.annotatorId || "";
+    const token = Number(form?.dataset.loadToken || 0);
+    if (!form || form.dataset.scopeReady !== "1") return;
+    if (!annotatorId || annotatorId !== state.selectedAnnotatorId) return;
+    if (token !== state.scopeLoadToken) return;
+    if ((state.scopeSaving && state.scopeSavingId === annotatorId) || fields?.disabled) return;
+    formError($("scopeError"));
+    const codes = Array.from(document.querySelectorAll("#scopeSceneGrid input[type=checkbox]:checked")).map((box) => box.value);
+    const reason = $("scopeReason").value.trim();
+    if (!reason) {
+      formError($("scopeError"), "Please enter a reason for this change.");
+      $("scopeReason").focus();
+      return;
+    }
+    const revision = Number(form.dataset.revision || 0);
+    const mode = $("scopeMode").value;
+    const body = {
+      operation_id: uuid(),
+      expected_revision: revision,
+      mode,
+      scene_codes: mode === "restricted" ? codes : [],
+      allow_unknown: mode === "restricted" && codes.includes("spoken_languages"),
+      reason,
+    };
+    state.scopeSaving = true;
+    state.scopeSavingId = annotatorId;
+    const saveToken = ++state.scopeLoadToken;
+    setScopeEditorUnavailable("Saving claim scope…", { hideFields: false });
+    if (fields) fields.disabled = true;
+    try {
+      await api.request(`/api/admin/annotators/${encodeURIComponent(annotatorId)}/scene-scope`, {
+        method: "PUT",
+        body,
+      });
+      toast("Claim scope saved. Existing assignments are not released.");
+      if (annotatorId === state.selectedAnnotatorId && state.scopeLoadToken === saveToken) {
+        $("scopeReason").value = "";
+        await loadAnnotator(annotatorId);
+      }
+    } catch (error) {
+      formError($("scopeError"), error.message);
+      toast(error.message, "error");
+      if (annotatorId === state.selectedAnnotatorId && state.scopeLoadToken === saveToken) {
+        state.scopeEditorBound = { id: annotatorId, token: saveToken };
+        form.dataset.scopeReady = "1";
+        form.dataset.annotatorId = annotatorId;
+        form.dataset.loadToken = String(saveToken);
+        form.dataset.revision = String(revision);
+        form.setAttribute("aria-busy", "false");
+        if (fields) {
+          fields.disabled = false;
+          fields.hidden = false;
+        }
+        const status = $("scopeEditorStatus");
+        if (status) {
+          status.hidden = true;
+          status.textContent = "";
+        }
+      }
+    } finally {
+      if (state.scopeSavingId === annotatorId) {
+        state.scopeSaving = false;
+        state.scopeSavingId = "";
+      }
+    }
+  });
+  $("adminReviewForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = $("adminReviewForm");
+    const taskId = form.dataset.taskId;
+    if (!taskId) return;
+    formError($("adminReviewError"));
+    const codes = Array.from(document.querySelectorAll("#adminReviewScenes input[type=checkbox]:checked")).map((box) => box.value);
+    const status = $("adminReviewStatus").value;
+    const reason = $("adminReviewReason").value.trim();
+    if (!reason) {
+      formError($("adminReviewError"), "Please enter a reason for this correction.");
+      $("adminReviewReason").focus();
+      return;
+    }
+    const check = window.AnnotationMetadata
+      ? AnnotationMetadata.validateReview({ status, scene_codes: codes })
+      : { ok: true };
+    if (!check.ok) {
+      formError($("adminReviewError"), check.error);
+      return;
+    }
+    try {
+      await api.post(`/api/admin/annotations/${encodeURIComponent(taskId)}/scene-review`, {
+        operation_id: uuid(),
+        expected_version_id: form.dataset.versionId,
+        expected_review_id: form.dataset.reviewId || null,
+        status,
+        scene_codes: codes,
+        note: $("adminReviewNote").value,
+        reason,
+      });
+      toast("Human review correction appended.");
+      await showTask(taskId);
+    } catch (error) {
+      formError($("adminReviewError"), error.message);
+      toast(error.message, "error");
+    }
+  });
 
   $("auditFilterForm").addEventListener("submit", async (event) => {
     event.preventDefault();

@@ -1,0 +1,49 @@
+{
+  "title": "overview matched snapshot",
+  "sql": "SELECT t.id, t.duration, t.status\n                    FROM annotation_tasks t\n                    LEFT JOIN annotation_versions v\n                      ON v.id = t.current_published_version_id\n                    WHERE true",
+  "plan": [
+    {
+      "Plan": {
+        "Node Type": "Seq Scan",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "annotation_tasks",
+        "Alias": "t",
+        "Startup Cost": 0.0,
+        "Total Cost": 5295.0,
+        "Plan Rows": 100000,
+        "Plan Width": 32,
+        "Actual Startup Time": 8.496,
+        "Actual Total Time": 25.27,
+        "Actual Rows": 100000.0,
+        "Actual Loops": 1,
+        "Disabled": false,
+        "Shared Hit Blocks": 635,
+        "Shared Read Blocks": 3660,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 68,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning": {
+        "Shared Hit Blocks": 3,
+        "Shared Read Blocks": 0,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.098,
+      "Triggers": [],
+      "Execution Time": 29.856
+    }
+  ]
+}

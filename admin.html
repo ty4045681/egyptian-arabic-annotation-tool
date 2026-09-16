@@ -209,6 +209,30 @@
               <div><h4>Skip reasons</h4><div class="bar-list" id="skipDistribution"></div></div>
             </div>
           </article>
+
+          <article class="panel panel-wide" id="metadataOverviewPanel">
+            <div class="panel-heading">
+              <div>
+                <h3>Sources and review</h3>
+                <p>Statistics use the current filters. Source scene and batch groups may overlap; source confidence and published review are mutually exclusive.</p>
+              </div>
+            </div>
+            <form class="filter-bar admin-metadata-filters" id="overviewFilterForm">
+              <label class="compact-field"><span>Source scene</span><select id="overviewSourceScene"><option value="">All source scenes</option></select></label>
+              <label class="compact-field"><span>Source confidence</span><select id="overviewSourceConfidence"><option value="">All confidence</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="unknown">Unknown</option></select></label>
+              <label class="compact-field"><span>Source batch</span><select id="overviewBatch"><option value="">All batches</option></select></label>
+              <label class="compact-field"><span>Human review status</span><select id="overviewReviewStatus"><option value="">All reviews</option><option value="pending">Pending (published)</option><option value="confirmed">Confirmed</option><option value="mixed">Multiple scenes</option><option value="out_of_scope">Outside the ten scenes</option><option value="uncertain">Cannot determine</option><option value="unreviewed_published">Published, not reviewed</option><option value="unreviewed_unpublished">Unpublished, not reviewed</option></select></label>
+              <label class="compact-field"><span>Model classification</span><select id="overviewPredictionScene"><option value="">All model classifications</option><option value="unknown">No model classification</option></select></label>
+              <label class="compact-field"><span>Human review scene</span><select id="overviewHumanScene"><option value="">All human scenes</option><option value="unknown">No human scene</option></select></label>
+              <button class="button button-secondary button-small" type="submit">Apply filters</button>
+            </form>
+            <div class="metadata-overview-grid">
+              <div><h4>Source scenes</h4><p class="overlap-note">The same task can appear in more than one source scene; group totals can exceed the task count.</p><div id="sourceSceneGroups"></div></div>
+              <div><h4>Source confidence</h4><p class="overlap-note">Mutually exclusive buckets using the highest matching source evidence in the current filter.</p><div id="confidenceGroups"></div></div>
+              <div><h4>Source batches</h4><p class="overlap-note">The same task can appear in more than one batch; group totals can exceed the task count.</p><div id="sourceBatchGroups"></div></div>
+              <div><h4>Published review</h4><p class="overlap-note">Counts the current published version only; draft reviews are not published verification. Groups are mutually exclusive.</p><div id="reviewStatusGroups"></div></div>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -241,6 +265,19 @@
             <article class="metric-card"><div class="metric-label">Median turnaround</div><strong class="metric-value" id="annotatorMedian">—</strong><p>P90 <span id="annotatorP90">—</span></p></article>
             <article class="metric-card"><div class="metric-label">Admin revoke rate</div><strong class="metric-value" id="annotatorRevokeRate">—</strong><p><span id="annotatorRevoked">—</span> revoked submissions</p></article>
           </div>
+          <article class="panel" id="sceneScopePanel">
+            <div class="panel-heading"><div><h3>Scene scope</h3><p>Restrict which source scenes this annotator may claim. Existing assignments are not released.</p></div></div>
+            <form id="sceneScopeForm" class="scope-form" data-scope-ready="0" aria-busy="true">
+              <p id="scopeEditorStatus" class="scope-editor-status" role="status">Loading claim scope…</p>
+              <fieldset id="scopeEditorFields" disabled hidden>
+                <label>Scope mode <select id="scopeMode"><option value="all">All source scenes</option><option value="restricted">Restricted scenes</option><option value="none">Cannot claim</option></select></label>
+                <div class="scene-grid" id="scopeSceneGrid"></div>
+                <label>Reason <input id="scopeReason" required maxlength="4000" placeholder="Explain why this claim scope is changing"></label>
+                <p class="form-error" id="scopeError" role="alert" hidden></p>
+                <button class="button button-secondary" type="submit">Save claim scope</button>
+              </fieldset>
+            </form>
+          </article>
 
           <div class="detail-grid">
             <article class="panel panel-wide">
@@ -288,11 +325,18 @@
           <form class="filter-bar" id="corpusFilterForm">
             <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search audio tasks</span><input id="corpusSearch" type="search" placeholder="Search filename, folder, or category"></label>
             <label class="compact-field"><span class="sr-only">Task status</span><select id="corpusStatus"><option value="">All statuses</option><option value="annotated">Annotated</option><option value="skipped">Skipped</option><option value="pending">Pending</option><option value="assigned">Assigned</option></select></label>
+            <label class="compact-field"><span>Source scene</span><select id="corpusSourceScene"><option value="">All source scenes</option></select></label>
+            <label class="compact-field"><span>Source confidence</span><select id="corpusSourceConfidence"><option value="">All confidence</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="unknown">Unknown</option></select></label>
+            <label class="compact-field"><span>Source batch</span><select id="corpusBatch"><option value="">All batches</option></select></label>
+            <label class="compact-field"><span>Human review status</span><select id="corpusReviewStatus"><option value="">All reviews</option><option value="pending">Pending (published)</option><option value="confirmed">Confirmed</option><option value="mixed">Multiple scenes</option><option value="out_of_scope">Outside the ten scenes</option><option value="uncertain">Cannot determine</option><option value="unreviewed_published">Published, not reviewed</option><option value="unreviewed_unpublished">Unpublished, not reviewed</option></select></label>
+            <label class="compact-field"><span>Model classification</span><select id="corpusPredictionScene"><option value="">All model classifications</option><option value="unknown">No model classification</option></select></label>
+            <label class="compact-field"><span>Human review scene</span><select id="corpusHumanScene"><option value="">All human scenes</option><option value="unknown">No human scene</option></select></label>
             <button class="button button-secondary button-small" type="submit">Apply filters</button>
           </form>
+          <div class="matched-stats" id="corpusMatchedStats" hidden></div>
           <div class="table-scroll">
             <table class="data-table">
-              <thead><tr><th>Audio</th><th>Annotator</th><th>Status</th><th>Duration</th><th>Category</th><th>Updated</th><th class="actions-cell"><span class="sr-only">Actions</span></th></tr></thead>
+              <thead><tr><th>Audio</th><th>Annotator</th><th>Status</th><th>Duration</th><th>Source scene</th><th>Source confidence</th><th>Human review</th><th>Model classification</th><th>Updated</th><th class="actions-cell"><span class="sr-only">Actions</span></th></tr></thead>
               <tbody id="corpusTaskBody"></tbody>
             </table>
             <div class="table-state" id="corpusTaskState">Loading tasks…</div>
@@ -392,12 +436,25 @@
         <button class="icon-button modal-close" type="button" data-close-dialog="taskDialog" aria-label="Close">×</button>
       </div>
       <div class="task-detail" id="taskDetail"><div class="table-state"><span class="spinner spinner-small"></span> Loading task…</div></div>
+      <form id="adminReviewForm" class="scope-form" hidden>
+        <h3>Correct human review</h3>
+        <p>Append an administrator review on the published version without changing the transcript. The original submitted review stays in history.</p>
+        <p class="overlap-note" id="adminReviewCurrent"></p>
+        <p class="form-error" id="adminReviewError" role="alert" hidden></p>
+        <label>Review result <select id="adminReviewStatus"><option value="confirmed">Confirm</option><option value="mixed">Multiple scenes</option><option value="out_of_scope">Outside the ten scenes</option><option value="uncertain">Cannot determine</option><option value="pending">Pending</option></select></label>
+        <div class="scene-grid" id="adminReviewScenes"></div>
+        <label>Note <input id="adminReviewNote" maxlength="4000"></label>
+        <label>Reason <input id="adminReviewReason" required maxlength="4000" placeholder="Explain why this review is being corrected"></label>
+        <button class="button button-secondary" type="submit">Save review correction</button>
+      </form>
       <div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="taskDialog">Close</button><button class="button button-danger" id="revokeFromDetailButton" type="button" hidden>Revoke annotation</button></div>
     </div>
   </dialog>
 
   <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
   <div class="sr-only" id="liveRegion" role="status" aria-live="polite"></div>
+  <link rel="stylesheet" href="/static/metadata.css?v=20260916-ui1">
+  <script src="/static/metadata.js?v=20260916-ui1"></script>
   <script type="module" src="/admin.js"></script>
 </body>
 </html>

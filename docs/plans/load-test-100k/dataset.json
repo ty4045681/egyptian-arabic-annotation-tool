@@ -1,0 +1,22 @@
+{
+  "tasks": 100000,
+  "pending": 85000,
+  "annotated": 10000,
+  "skipped": 5000,
+  "baselines": 100000,
+  "drafts": 85000,
+  "published": 15000,
+  "pending_without_draft": 0,
+  "tasks_without_baseline": 0,
+  "segments": 400000,
+  "sources": 308189,
+  "sources_current": 300589,
+  "emergencies_current": 0,
+  "taxi_current_tasks": 589,
+  "airport_high_current": 85000,
+  "shopping_high_current": 4000,
+  "predictions": 10000,
+  "reviews": 5000,
+  "users": 274,
+  "database_bytes": 498938339
+}

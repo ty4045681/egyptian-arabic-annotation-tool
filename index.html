@@ -47,6 +47,7 @@ aside{border-inline-start:1px solid var(--border);background:var(--panel);paddin
 .task-meta{min-width:180px;flex:1}
 .task-meta h1{font-size:15px;line-height:1.3;margin:0;overflow-wrap:anywhere}
 .task-meta p{margin:3px 0 0;color:var(--muted);font-size:12px}
+.workspace .scene-review{margin:4px 0 6px}
 .task-actions,.skip-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .divider{width:1px;height:32px;background:var(--border)}
 .reason{min-height:34px;padding:5px 11px;border:1px solid var(--border);border-radius:18px;background:var(--panel-2);color:var(--muted);cursor:pointer}
@@ -111,9 +112,10 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
 .font-size-label{min-width:34px;text-align:center;font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 @media(max-width:1050px){.app-shell{grid-template-columns:1fr}aside{border-inline-start:0;border-top:1px solid var(--border)}.leaderboard{max-width:560px}.metric{display:none}}
-@media(max-width:700px){.app-header{align-items:flex-start;flex-wrap:wrap}.brand{width:100%}.assignment-line{order:3;width:100%;flex-basis:100%}.app-shell{min-height:calc(100vh - 104px)}main{padding:8px}.taskbar{align-items:stretch}.task-meta,.audio-wrap{min-width:100%;max-width:none}.task-actions,.skip-actions{width:100%}.divider{display:none}.btn,.link-btn,.reason{min-height:44px}.table-panel{overflow:auto}.transcript{min-width:220px}.time-input{font-size:16px}.play-cell{width:150px}.wave-scroll canvas{height:180px}.user{max-width:90px}}
+@media(max-width:700px){.app-header{align-items:flex-start;flex-wrap:wrap}.brand{width:100%}.assignment-line{order:3;width:100%;flex-basis:100%}.app-shell{min-height:calc(100vh - 104px)}main{padding:8px}.workspace{display:flex;flex-direction:column}.taskbar{align-items:stretch;order:1;padding:8px}.scene-review{order:3}.table-panel{order:2;overflow:auto;min-height:220px}.wave-panel{order:4}.task-meta,.audio-wrap{min-width:100%;max-width:none}.task-actions,.skip-actions{width:100%}.divider{display:none}.btn,.link-btn,.reason{min-height:44px}.transcript{min-width:220px}.time-input{font-size:16px}.play-cell{width:150px}.wave-scroll canvas{height:120px}.user{max-width:90px}.workspace .scene-review{padding:8px}}
 @media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.5s}.toast{transition:none}}
 </style>
+<link rel="stylesheet" href="/static/metadata.css?v=20260916-ui1">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to annotation workspace</a>
@@ -123,7 +125,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
   <div class="header-actions">
     <a class="link-btn" href="/completed.html">Completed data</a>
     <div class="font-ctrl" role="group" aria-label="Arabic transcript font size">
-      <span class="font-ctrl-label">عربي</span>
+      <span class="font-ctrl-label">Arabic</span>
       <button class="font-btn" id="fontDown" type="button" aria-label="Decrease Arabic font size">A−</button>
       <span class="font-size-label" id="fontSizeLabel">18</span>
       <button class="font-btn" id="fontUp" type="button" aria-label="Increase Arabic font size">A+</button>
@@ -146,7 +148,10 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
       <button class="btn btn-secondary" id="returnButton" type="button">Return to current task</button>
     </section>
     <section class="taskbar" id="taskbar" aria-label="Current task controls">
-      <div class="task-meta"><h1 id="taskName">—</h1><p id="taskInfo">—</p></div>
+      <div class="task-meta"><h1 id="taskName">—</h1><p id="taskInfo">—</p>
+        <div id="metadataBanner" class="metadata-banner"></div>
+        <div id="metadataDetails"></div>
+      </div>
       <div class="audio-wrap"><audio id="audio" controls preload="metadata"></audio></div>
       <div class="skip-actions" id="skipActions" aria-label="Skip reason">
         <button class="reason" type="button" data-reason="noisy" aria-pressed="false">Noisy</button>
@@ -162,6 +167,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
       </div>
       <div class="save-state" id="saveState" data-state="saved">Saved</div>
     </section>
+    <section class="scene-review" id="sceneReviewPanel" hidden></section>
     <section class="wave-panel" id="wavePanel" aria-label="Audio waveform">
       <div class="panel-head"><span>Waveform</span><span id="waveStatus">Click a segment to play</span></div>
       <div class="wave-scroll" id="waveScroll"><canvas id="waveCanvas" height="220"></canvas></div>
@@ -182,6 +188,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
 </div>
 <div class="sr-only" id="liveStatus" role="status" aria-live="polite"></div>
 <div id="toastRoot"></div>
+<script src="/static/metadata.js?v=20260916-ui1"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
@@ -191,8 +198,26 @@ const state={
   user:"",assignment:null,task:null,segments:[],waveform:[],waveMax:1e-6,duration:0,
   selected:-1,playing:-1,pxPerSecond:40,dirty:new Set(),saveTimer:null,savePromise:null,pendingSave:null,pendingComplete:null,
   queued:false,saveBlocked:false,review:false,history:[],historyIndex:-1,submitting:false,pendingAbandon:null,
-  transcriptSize:FONT_DEFAULT
+  transcriptSize:FONT_DEFAULT,scenes:[],claimScenes:[],reviewTaxonomy:[],selectedScene:"",sceneReview:null,nextClaimScene:"",
+  features:{},scope:null,reviewDirty:false,lastSavedReview:null
 };
+function cloneJson(value){if(value===undefined)return undefined;return JSON.parse(JSON.stringify(value))}
+function freezeJson(value){
+  const cloned=cloneJson(value);
+  (function freeze(node){
+    if(!node||typeof node!=="object")return;
+    Object.freeze(node);
+    if(Array.isArray(node))node.forEach(freeze);
+    else Object.keys(node).forEach(key=>freeze(node[key]));
+  })(cloned);
+  return cloned;
+}
+function metadataUiEnabled(){return (state.features||{}).metadata_ui!==false}
+function reviewWriteEnabled(){return metadataUiEnabled()&&(state.features||{}).scene_review_write!==false}
+function reviewValidation(review){
+  if(!window.AnnotationMetadata)return {ok:true,error:""};
+  return AnnotationMetadata.validateReview(review);
+}
 function uuid(){return crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==="x"?r:(r&3|8);return v.toString(16)})}
 async function api(url,{method="GET",body,keepalive=false}={}){
   let response;
@@ -234,6 +259,14 @@ async function initialize(){
   loadTranscriptFont();
   try{
     const me=await api("/api/current-user");state.user=me.user;$("currentUser").textContent=me.user;
+    try{
+      const scenes=await api("/api/scenes");
+      state.features=scenes.features||{};
+      state.scope=scenes.scope||null;
+      state.claimScenes=scenes.claim_scenes||scenes.scenes||[];
+      state.reviewTaxonomy=scenes.review_taxonomy||scenes.scenes||[];
+      state.scenes=state.claimScenes;
+    }catch(_){state.scenes=[];state.claimScenes=[];state.reviewTaxonomy=[];state.features={}}
     await refreshDashboard();await loadAssignment()
   }catch(error){stateView("Workspace unavailable",error.message,'<button class="btn btn-primary" type="button" onclick="location.reload()">Try again</button>',"error")}
 }
@@ -253,10 +286,21 @@ async function loadAssignment(){
   state.review=false;state.historyIndex=-1;$("reviewBanner").classList.remove("show");
   stateView("Checking your task","Looking for an unfinished assignment.");
   try{
-    const data=await api("/api/assignment");
+    const q=state.nextClaimScene?("?source_scene="+encodeURIComponent(state.nextClaimScene)):"";
+    const data=await api("/api/assignment"+q);
     if(data.assigned){state.assignment=data;loadTask(data,false);return}
     state.assignment=null;showIdle(data.pool)
   }catch(error){stateView("Could not load your task",error.message,'<button class="btn btn-primary" type="button" onclick="loadAssignment()">Try again</button>',"error")}
+}
+function scopeSummaryText(){
+  const scope=state.scope||{};
+  const sceneName=scene=>scene.label_en||scene.label||scene.label_zh||scene.code;
+  if(scope.mode==="none")return "Claim scope: none";
+  if(scope.mode==="restricted"){
+    const labels=(state.claimScenes||[]).map(sceneName);
+    return "Claim scope: "+(labels.join(", ")||"no scenes");
+  }
+  return "Claim scope: all source scenes";
 }
 function showIdle(pool,successMessage=""){
   const reason=pool?.reason||"available";let title="Ready for another task",description="Your previous task is complete. Claim a task when you are ready.";
@@ -266,19 +310,34 @@ function showIdle(pool,successMessage=""){
   else if(reason==="no_preprocessed"){title="No tasks available";description="Preprocessed audio has not been imported yet."}
   if(successMessage){title=successMessage}
   let actions='<a class="link-btn" href="/completed.html">View completed data</a>';
-  if(reason==="available")actions='<button class="btn btn-primary" id="claimButton" type="button">Claim next task</button> '+actions;
+  if(reason==="no_matching_scene"){title="No matching scene tasks";description="The selected source scene has no tasks you can claim. Existing assignments are not released."}
+  else if(reason==="no_scene_access"){title="No claimable scenes";description="An administrator has not granted you a claimable scene scope. Your current unfinished task is still reserved."}
+  if(reason==="available"||reason==="no_matching_scene")actions='<button class="btn btn-primary" id="claimButton" type="button">Claim next task</button> '+actions;
   else if(reason==="temporarily_busy")actions='<button class="btn btn-primary" id="refreshPoolButton" type="button">Check again</button> '+actions;
   stateView(title,description,actions,successMessage?"success":"");$("assignmentLine").textContent=description;
   const claim=$("claimButton");if(claim)claim.addEventListener("click",claimTask)
   const refresh=$("refreshPoolButton");if(refresh)refresh.addEventListener("click",loadAssignment)
+  const showPicker=window.AnnotationMetadata && metadataUiEnabled() && (reason==="available"||reason==="no_matching_scene"||reason==="no_scene_access");
+  if(showPicker){
+    const host=document.createElement("div");host.id="idleScenePicker";
+    const inner=$("tablePanel").querySelector(".state-inner");if(inner)inner.appendChild(host);
+    AnnotationMetadata.renderScenePicker(host,{
+      scenes:state.claimScenes, pool:pool, selected:state.nextClaimScene,
+      scopeText:scopeSummaryText(),
+      onChange:(code)=>{state.nextClaimScene=code;loadAssignment()}
+    });
+    if(state.assignment) host.appendChild(Object.assign(document.createElement("p"),{textContent:"The next claim will use this scene preference. Your current unfinished task will still resume."}));
+  }
 }
 async function claimTask(){
   const button=$("claimButton");if(button){button.disabled=true;button.textContent="Claiming task…"}
-  try{const data=await api("/api/assignment/claim",{method:"POST",body:{}});state.assignment=data;loadTask(data,false);await refreshDashboard()}
+  try{const body={};if(state.nextClaimScene)body.source_scene=state.nextClaimScene;const data=await api("/api/assignment/claim",{method:"POST",body});state.assignment=data;loadTask(data,false);await refreshDashboard()}
   catch(error){const pool=error.body?.pool;if(pool)showIdle(pool);else stateView("Task claim failed",error.message,'<button class="btn btn-primary" type="button" onclick="claimTask()">Try again</button>',"error")}
 }
 function loadTask(data,review){
   stopSegmentPlayback(true);state.review=review;state.task=data;state.segments=(data.segments||[]).map(s=>({...s}));state.duration=Number(data.duration||0);state.selected=-1;state.playing=-1;state.dirty.clear();state.saveBlocked=false;clearTimeout(state.saveTimer);
+  state.reviewDirty=false;state.pendingSave=null;state.queued=false;state.pendingComplete=null;state.lastSavedReview=null;state.sceneReview=null;
+  if(data.metadata&&data.metadata.features)state.features=data.metadata.features;
   state.waveform=decodeWaveform(data.waveform_b64);state.waveMax=state.waveform.reduce((m,v)=>Math.max(m,Math.abs(v)),1e-6);
   $("taskbar").classList.add("show");$("wavePanel").classList.toggle("show",state.waveform.length>0);$("taskName").textContent=data.filename||data.rel_path;$("taskInfo").textContent=state.duration.toFixed(1)+" s · "+state.segments.length+" segments";
   $("audio").src=audioUrl(data.task_id);$("assignmentLine").textContent=review?"Reviewing completed task: "+data.filename:(data.resumed?"Resumed: ":"Assigned: ")+data.filename;
@@ -286,7 +345,44 @@ function loadTask(data,review){
   $("skipActions").hidden=review;$("taskActions").hidden=review;$("saveState").hidden=review;
   if(review){$("reviewBanner").classList.add("show");$("reviewText").textContent="Viewing "+data.filename+" in read-only mode. Your unfinished task remains reserved."}
   else{$("reviewBanner").classList.remove("show");setSaveState("Saved","saved")}
+  const meta=data.metadata;
+  const showMeta=window.AnnotationMetadata && meta && metadataUiEnabled();
+  $("metadataBanner").hidden=!showMeta;$("metadataDetails").hidden=!showMeta;
+  if(showMeta){
+    AnnotationMetadata.renderBanner($("metadataBanner"), meta);
+    AnnotationMetadata.renderDetails($("metadataDetails"), meta, {open:false});
+  } else {
+    $("metadataBanner").replaceChildren();$("metadataDetails").replaceChildren();
+  }
+  $("sceneReviewPanel").hidden=true;$("sceneReviewPanel").replaceChildren();
+  if(!review && showMeta){
+    const working=cloneJson(meta.draft_review||meta.scene_review||{status:"pending",scene_codes:[],note:""});
+    state.sceneReview=working;
+    state.lastSavedReview=working&&working.id?cloneJson(working):null;
+    $("sceneReviewPanel").hidden=false;
+    AnnotationMetadata.renderReviewControls($("sceneReviewPanel"),{
+      value:working,
+      scenes:state.reviewTaxonomy.length?state.reviewTaxonomy:state.scenes,
+      disabled:!reviewWriteEnabled(),
+      reference:meta.reference_review||null,
+      onChange:(value)=>{
+        if(state.review||state.saveBlocked||!reviewWriteEnabled())return;
+        state.sceneReview=value;
+        state.pendingComplete=null;
+        state.reviewDirty=true;
+        setSaveState("Unsaved","dirty");
+        if(reviewValidation(value).ok)scheduleSave();
+        if(showMeta)AnnotationMetadata.renderBanner($("metadataBanner"), currentMetadataView(meta,value));
+      }
+    });
+  }
   renderSegments();drawWave();setBusy(false)
+}
+function currentMetadataView(meta,working){
+  const view=cloneJson(meta||{});
+  view.draft_review=view.draft_review?working:view.draft_review;
+  if(!view.scene_review||!view.scene_review.submitted)view.scene_review=Object.assign({},view.scene_review||{},working,{submitted:false});
+  return view;
 }
 function decodeWaveform(encoded){if(!encoded)return[];try{const raw=atob(encoded),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return Array.from(new Int16Array(bytes.buffer),v=>v/32767)}catch(error){reportError("waveform",error.message);return[]}}
 function segmentLength(seg){return Math.max(.001,Number(seg.end)-Number(seg.start))}
@@ -358,21 +454,77 @@ function bounds(index){return{min:index?state.segments[index-1].end:0,max:index<
 function changeTime(input){const index=Number(input.dataset.index),field=input.dataset.time,seg=state.segments[index],value=parseTime(input.value),b=bounds(index);if(value===null){input.value=formatTime(seg[field]);return}let next=value;if(field==="start")next=Math.max(b.min,Math.min(next,seg.end-.001));else next=Math.min(b.max,Math.max(next,seg.start+.001));seg[field]=Math.round(next*1000)/1000;seg.duration=Math.round((seg.end-seg.start)*1000)/1000;input.value=formatTime(seg[field]);input.closest("tr").querySelector(".duration").textContent=seg.duration.toFixed(1)+" s";if(state.playing===index){$("audio").dataset.stop=String(seg.end);const audio=$("audio");updateSegmentClock(index,Math.min(segmentLength(seg),Math.max(0,audio.currentTime-seg.start)))}else updateSegmentClock(index,0);markDirty(index);drawWave()}
 function segmentPayload(index){const s=state.segments[index];return{id:s.id,start:s.start,end:s.end,duration:s.duration,text:s.text||"",exclude_from_training:Boolean(s.exclude_from_training)}}
 function markDirty(index){if(state.review||state.saveBlocked)return;state.pendingComplete=null;state.dirty.add(index);setSaveState("Unsaved","dirty");scheduleSave()}
-function scheduleSave(){if(state.review||state.saveBlocked)return;clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>flushDirty(),3000)}
+function scheduleSave(){if(state.review||state.saveBlocked)return;clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>flushDirty().catch(()=>{}),3000)}
+function hasUnsavedWork(){return Boolean(state.dirty.size||state.reviewDirty||state.pendingSave||state.savePromise)}
+function nextSaveNeeded(){
+  if(state.review||state.saveBlocked||!state.assignment)return false;
+  if(state.pendingSave)return true;
+  if(state.dirty.size)return true;
+  return Boolean(state.reviewDirty&&reviewWriteEnabled()&&reviewValidation(state.sceneReview).ok);
+}
+function capturePendingSave(){
+  const indices=Array.from(state.dirty);
+  indices.forEach(i=>state.dirty.delete(i));
+  const sendReview=Boolean(reviewWriteEnabled()&&state.reviewDirty&&reviewValidation(state.sceneReview).ok);
+  if(sendReview)state.reviewDirty=false;
+  const body={
+    lease_token:state.assignment.lease_token,
+    expected_revision:state.assignment.revision,
+    operation_id:uuid(),
+    segments:indices.map(segmentPayload)
+  };
+  if(sendReview)body.scene_review=cloneJson(state.sceneReview);
+  return {indices,body:freezeJson(body),sentReview:sendReview};
+}
 async function flushDirty(){
-  clearTimeout(state.saveTimer);if(state.review||state.saveBlocked||!state.assignment)return state.savePromise;
+  clearTimeout(state.saveTimer);
+  if(state.review||state.saveBlocked||!state.assignment)return state.savePromise;
   if(state.savePromise){state.queued=true;return state.savePromise}
   if(!state.pendingSave){
-    if(!state.dirty.size)return null;
-    const indices=Array.from(state.dirty);indices.forEach(i=>state.dirty.delete(i));
-    state.pendingSave={indices,body:{lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,operation_id:uuid(),segments:indices.map(segmentPayload)}};
+    if(!nextSaveNeeded())return null;
+    state.pendingSave=capturePendingSave();
   }
-  const batch=state.pendingSave;setSaveState("Saving…","saving");
-  state.savePromise=api("/api/assignment/current",{method:"PATCH",body:batch.body}).then(result=>{state.assignment.revision=result.revision;state.pendingSave=null;setSaveState(state.dirty.size?"Unsaved":"Saved",state.dirty.size?"dirty":"saved")}).catch(error=>{if(error.status===409){state.saveBlocked=true;setSaveState("Conflict","error");toast("This task changed elsewhere. Reload before editing further.","error",true)}else{setSaveState("Save failed","error");toast(error.message,"error",true);scheduleRetry()}throw error}).finally(()=>{state.savePromise=null;if(state.queued){state.queued=false;if((state.dirty.size||state.pendingSave)&&!state.saveBlocked)flushDirty().catch(()=>{})}});
-  return state.savePromise
+  const batch=state.pendingSave;
+  setSaveState("Saving…","saving");
+  state.savePromise=api("/api/assignment/current",{method:"PATCH",body:cloneJson(batch.body)}).then(result=>{
+    state.assignment.revision=result.revision;
+    if(batch.sentReview&&result.scene_review)state.lastSavedReview=cloneJson(result.scene_review);
+    state.pendingSave=null;
+    setSaveState(nextSaveNeeded()||state.reviewDirty?"Unsaved":"Saved",nextSaveNeeded()||state.reviewDirty?"dirty":"saved");
+  }).catch(error=>{
+    if(error.status===409){
+      state.saveBlocked=true;
+      setSaveState("Conflict","error");
+      toast("This task changed elsewhere. Reload before editing further.","error",true);
+    }else{
+      setSaveState("Save failed","error");
+      toast(error.message,"error",true);
+      scheduleRetry();
+    }
+    throw error;
+  }).finally(()=>{
+    const failed=Boolean(state.pendingSave);
+    state.savePromise=null;
+    const runQueued=state.queued;
+    state.queued=false;
+    if(state.saveBlocked)return;
+    if(failed){
+      if(runQueued)flushDirty().catch(()=>{});
+      return;
+    }
+    if(runQueued||nextSaveNeeded())flushDirty().catch(()=>{});
+  });
+  return state.savePromise;
 }
-function scheduleRetry(){clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>{if((state.dirty.size||state.pendingSave)&&!state.saveBlocked)flushDirty().catch(()=>{})},8000)}
-async function manualSave(){try{await flushDirty();if(!state.dirty.size&&!state.savePromise)toast("Draft saved") }catch(_){}}
+function scheduleRetry(){clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>{if(nextSaveNeeded()&&!state.saveBlocked)flushDirty().catch(()=>{})},8000)}
+async function drainSaves(){
+  let guard=0;
+  while((nextSaveNeeded()||state.savePromise)&&!state.saveBlocked){
+    await flushDirty();
+    if(++guard>20)break;
+  }
+}
+async function manualSave(){try{await drainSaves();if(!hasUnsavedWork()&&!state.saveBlocked)toast("Draft saved")}catch(_){}}
 function selectedReasons(){return Array.from(document.querySelectorAll(".reason[aria-pressed='true']"),b=>b.dataset.reason)}
 async function submitTask(status){
   if(state.submitting||state.review||!state.assignment)return;
@@ -381,19 +533,23 @@ async function submitTask(status){
   if(status==="annotated"){const empty=state.segments.filter(s=>!(s.text||"").trim()&&!s.exclude_from_training).map(s=>s.id);if(empty.length){toast("Add text or mark Bad quality for segments: "+empty.join(", "),"error",true);return}}
   setBusy(true);clearTimeout(state.saveTimer);
   try{
-    if(state.savePromise)await state.savePromise;
-    if(state.pendingSave)await flushDirty();
-    if(!state.pendingComplete){state.pendingComplete={lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,target_status:status,skip_reasons:reasons,operation_id:uuid(),segments:state.segments.map((_,index)=>segmentPayload(index))}}
-    const body=state.pendingComplete;
+    await drainSaves();
+    if(state.saveBlocked)return;
+    if(!state.pendingComplete){
+      const body={lease_token:state.assignment.lease_token,expected_revision:state.assignment.revision,target_status:status,skip_reasons:reasons,operation_id:uuid(),segments:state.segments.map((_,index)=>segmentPayload(index))};
+      if(reviewWriteEnabled()&&state.reviewDirty&&reviewValidation(state.sceneReview).ok)body.scene_review=cloneJson(state.sceneReview);
+      state.pendingComplete=freezeJson(body);
+    }
+    const body=cloneJson(state.pendingComplete);
     let result;
     try{result=await api("/api/assignment/current/complete",{method:"POST",body})}
     catch(firstError){if(firstError.status!==0)throw firstError;await new Promise(resolve=>setTimeout(resolve,1000));result=await api("/api/assignment/current/complete",{method:"POST",body})}
-    state.pendingComplete=null;state.dirty.clear();state.assignment=null;state.task=null;await refreshDashboard();const current=await api("/api/assignment");showIdle(current.pool,status==="annotated"?"Task completed":"Task skipped");toast(status==="annotated"?"Task completed":"Task skipped")
+    state.pendingComplete=null;state.dirty.clear();state.reviewDirty=false;state.assignment=null;state.task=null;await refreshDashboard();const current=await api("/api/assignment");showIdle(current.pool,status==="annotated"?"Task completed":"Task skipped");toast(status==="annotated"?"Task completed":"Task skipped")
   }catch(error){toast(error.message,"error",true);if(error.status===409&&error.body?.conflict==="revision"){state.saveBlocked=true;setSaveState("Conflict","error")}}
   finally{setBusy(false)}
 }
-async function abandonTask(){if(!state.assignment||state.review||state.submitting)return;if(!confirm("Release this task? Your saved draft will remain, but another annotator may claim it."))return;setBusy(true);try{if(state.dirty.size||state.pendingSave)await flushDirty();if(!state.pendingAbandon)state.pendingAbandon={lease_token:state.assignment.lease_token,operation_id:uuid(),confirm:true};const result=await api("/api/assignment/current/abandon",{method:"POST",body:state.pendingAbandon});state.pendingAbandon=null;state.assignment=null;state.task=null;await refreshDashboard();showIdle(result.pool||{reason:"available"});toast("Task released") }catch(error){toast(error.message,"error",true)}finally{setBusy(false)}}
-async function loadHistory(){try{if(state.savePromise)await state.savePromise;if(state.dirty.size||state.pendingSave)await flushDirty();const data=await api("/api/history/recent?limit=50");state.history=data.items||[];if(!state.history.length){toast("No completed tasks in your history.","error");return}state.historyIndex=0;await showHistoryItem()}catch(error){toast(error.message,"error",true)}}
+async function abandonTask(){if(!state.assignment||state.review||state.submitting)return;if(!confirm("Release this task? Your saved draft will remain, but another annotator may claim it."))return;setBusy(true);try{await drainSaves();if(!state.pendingAbandon)state.pendingAbandon={lease_token:state.assignment.lease_token,operation_id:uuid(),confirm:true};const result=await api("/api/assignment/current/abandon",{method:"POST",body:state.pendingAbandon});state.pendingAbandon=null;state.assignment=null;state.task=null;await refreshDashboard();showIdle(result.pool||{reason:"available"});toast("Task released") }catch(error){toast(error.message,"error",true)}finally{setBusy(false)}}
+async function loadHistory(){try{await drainSaves();const data=await api("/api/history/recent?limit=50");state.history=data.items||[];if(!state.history.length){toast("No completed tasks in your history.","error");return}state.historyIndex=0;await showHistoryItem()}catch(error){toast(error.message,"error",true)}}
 async function showHistoryItem(){const item=state.history[state.historyIndex];if(!item)return;try{const detail=await api("/api/completed/"+encodeURIComponent(item.task_id));loadTask(detail,true);$("reviewText").textContent="Viewing "+detail.filename+" ("+(state.historyIndex+1)+" of "+state.history.length+"). Your unfinished task remains reserved.";$("newerHistoryButton").disabled=state.historyIndex===0;$("olderHistoryButton").disabled=state.historyIndex>=state.history.length-1}catch(error){toast(error.message,"error",true)}}
 async function moveHistory(delta){const next=state.historyIndex+delta;if(next<0||next>=state.history.length)return;state.historyIndex=next;await showHistoryItem()}
 async function returnToTask(){await loadAssignment()}
@@ -438,10 +594,10 @@ for(const button of document.querySelectorAll(".reason"))button.addEventListener
 $("fontDown").addEventListener("click",()=>applyTranscriptFont(state.transcriptSize-FONT_STEP));
 $("fontUp").addEventListener("click",()=>applyTranscriptFont(state.transcriptSize+FONT_STEP));
 $("saveButton").addEventListener("click",manualSave);$("completeButton").addEventListener("click",()=>submitTask("annotated"));$("skipButton").addEventListener("click",()=>submitTask("skipped"));$("abandonButton").addEventListener("click",abandonTask);$("historyButton").addEventListener("click",loadHistory);$("newerHistoryButton").addEventListener("click",()=>moveHistory(-1));$("olderHistoryButton").addEventListener("click",()=>moveHistory(1));$("returnButton").addEventListener("click",returnToTask);
-$("logoutButton").addEventListener("click",async()=>{try{if(state.dirty.size&&!state.saveBlocked)await flushDirty();await api("/api/logout",{method:"POST",body:{}})}catch(_){}location.href="/login.html"});
+$("logoutButton").addEventListener("click",async()=>{try{if(hasUnsavedWork()&&!state.saveBlocked)await drainSaves();await api("/api/logout",{method:"POST",body:{}})}catch(_){}location.href="/login.html"});
 document.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();manualSave()}if((event.ctrlKey||event.metaKey)&&event.key==="Enter"&&!state.review){event.preventDefault();submitTask("annotated")}});
-document.addEventListener("visibilitychange",()=>{if(document.hidden&&state.dirty.size&&!state.saveBlocked)flushDirty().catch(()=>{})});
-window.addEventListener("beforeunload",event=>{if(state.dirty.size||state.savePromise){event.preventDefault();event.returnValue=""}});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&hasUnsavedWork()&&!state.saveBlocked)flushDirty().catch(()=>{})});
+window.addEventListener("beforeunload",event=>{if(hasUnsavedWork()){event.preventDefault();event.returnValue=""}});
 window.addEventListener("resize",()=>{if(state.waveform.length)drawWave()});
 setInterval(()=>{fetch("/api/heartbeat").catch(()=>{})},120000);setInterval(()=>{if(!document.hidden)refreshDashboard()},30000);
 window.onerror=(message,source,line,column)=>{reportError("js_error",message+" @ "+source+":"+line+":"+column);return false};
