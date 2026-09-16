@@ -24,6 +24,13 @@
     ["uncertain", "Cannot determine"],
     ["pending", "Skip review for now"],
   ];
+  const STATUS_META = {
+    confirmed: { title: "Confirm scene", detail: "Choose one scene", icon: "✓", tone: "confirmed", badge: "Choose one scene" },
+    mixed: { title: "Multiple scenes", detail: "Choose two or more", icon: "≋", tone: "mixed", badge: "Choose 2+ scenes" },
+    out_of_scope: { title: "Outside the list", detail: "No matching scene", icon: "↗", tone: "out_of_scope", badge: "Outside the list" },
+    uncertain: { title: "Needs another look", detail: "Keep it uncertain", icon: "?", tone: "uncertain", badge: "Needs review" },
+    pending: { title: "Skip for now", detail: "You can revisit it later", icon: "→", tone: "pending", badge: "Not reviewed" },
+  };
 
   function el(tag, opts, children) {
     const node = document.createElement(tag);
@@ -333,13 +340,32 @@
       scene_codes: Array.isArray(current.scene_codes) ? current.scene_codes.slice() : [],
       note: current.note || "",
     };
-    const heading = el("h2", { text: "Scene review (optional with the task; not required to complete)" });
-    const actions = el("div", { className: "scene-review-actions" });
+    const heading = el("div", { className: "scene-review-heading" });
+    const title = el("div", { className: "scene-review-title" }, [
+      el("p", { className: "scene-review-eyebrow", text: "OPTIONAL QUALITY CHECK" }),
+      el("h2", { text: "Scene review" }),
+    ]);
+    const statusBadge = el("span", { className: "scene-review-status" });
+    heading.appendChild(title);
+    heading.appendChild(statusBadge);
+    const intro = el("p", {
+      className: "scene-review-intro",
+      text: "Confirm the source scene when you are confident. You can finish the task without reviewing it.",
+    });
+    const actions = el("div", {
+      className: "scene-review-actions",
+      attrs: { role: "group", "aria-label": "Scene review result" },
+    });
     const validation = el("p", {
       className: "scene-review-validation",
       attrs: { id: "sceneReviewValidation", role: "status", "aria-live": "polite" },
     });
     const sceneBox = el("div", { className: "scene-review-scenes" });
+    const sceneHead = el("div", { className: "scene-review-section-head" }, [
+      el("strong", { text: "Scene label(s)" }),
+      el("span", { text: "One for Confirm · two or more for Multiple" }),
+    ]);
+    const sceneSection = el("div", { className: "scene-review-scene-section" }, [sceneHead, sceneBox]);
 
     function syncValidation() {
       const result = validateReview(state);
@@ -354,31 +380,53 @@
         options.onChange(reviewPayload(state.status, state.scene_codes, state.note));
       }
     }
-    function setStatus(value) {
-      state.status = value;
-      if (value === "pending" || value === "out_of_scope") state.scene_codes = [];
+    function updateStatusUi() {
+      const meta = STATUS_META[state.status] || STATUS_META.pending;
+      const showScenes = state.status === "confirmed" || state.status === "mixed" || state.status === "uncertain";
+      const selectedCount = showScenes ? state.scene_codes.length : 0;
+      statusBadge.textContent = selectedCount
+        ? selectedCount + (selectedCount === 1 ? " scene selected" : " scenes selected")
+        : meta.badge;
+      statusBadge.dataset.status = state.status;
       Array.from(actions.children).forEach((child, index) => {
         child.setAttribute("aria-pressed", String(STATUS_BUTTONS[index][0] === state.status));
       });
-      const showScenes = value === "confirmed" || value === "mixed" || value === "uncertain";
+      sceneSection.hidden = !showScenes;
       sceneBox.hidden = !showScenes;
       Array.from(sceneBox.querySelectorAll("input[type=checkbox]")).forEach((box) => {
         box.checked = state.scene_codes.includes(box.value);
       });
+    }
+    function setStatus(value) {
+      state.status = value;
+      if (value === "pending" || value === "out_of_scope") state.scene_codes = [];
+      updateStatusUi();
       emit();
     }
 
     STATUS_BUTTONS.forEach(([value, label]) => {
+      const meta = STATUS_META[value] || STATUS_META.pending;
       const button = el("button", {
-        text: label,
-        attrs: { type: "button", "aria-pressed": String(state.status === value) },
-      });
+        className: "scene-review-choice tone-" + meta.tone,
+        attrs: {
+          type: "button",
+          "aria-pressed": String(state.status === value),
+          "aria-label": label,
+          "data-review-status": value,
+        },
+      }, [
+        el("span", { className: "scene-review-choice-icon", text: meta.icon, attrs: { "aria-hidden": "true" } }),
+        el("span", { className: "scene-review-choice-copy", attrs: { "aria-hidden": "true" } }, [
+          el("strong", { text: meta.title }),
+          el("small", { text: meta.detail }),
+        ]),
+      ]);
       button.addEventListener("click", () => setStatus(value));
       actions.appendChild(button);
     });
 
     (options.scenes || []).forEach((scene) => {
-      const label = el("label");
+      const label = el("label", { className: "scene-review-scene" });
       const box = document.createElement("input");
       box.type = "checkbox";
       box.value = scene.code;
@@ -386,24 +434,40 @@
       box.addEventListener("change", () => {
         if (box.checked && !state.scene_codes.includes(scene.code)) state.scene_codes.push(scene.code);
         if (!box.checked) state.scene_codes = state.scene_codes.filter((code) => code !== scene.code);
+        updateStatusUi();
         emit();
       });
       label.appendChild(box);
       label.appendChild(document.createTextNode(sceneDisplayLabel(scene)));
       sceneBox.appendChild(label);
     });
-    sceneBox.hidden = !(state.status === "confirmed" || state.status === "mixed" || state.status === "uncertain");
 
+    const noteWrap = el("div", { className: "scene-review-note" });
+    const noteLabel = el("label", { className: "scene-review-note-label", attrs: { for: "sceneReviewNote" } }, [
+      el("strong", { text: "Reviewer note" }),
+      el("span", { text: "Optional" }),
+    ]);
     const note = document.createElement("textarea");
-    note.placeholder = "Note (optional)";
+    note.id = "sceneReviewNote";
+    note.setAttribute("aria-label", "Reviewer note (optional)");
+    note.placeholder = "Add context for the next reviewer…";
     note.value = state.note;
     note.addEventListener("input", () => { state.note = note.value; emit(); });
+    noteWrap.appendChild(noteLabel);
+    noteWrap.appendChild(note);
+
+    const footer = el("div", { className: "scene-review-footer" }, [
+      validation,
+      el("span", { className: "scene-review-save-hint", text: "Saved with your task after you choose a result." }),
+    ]);
 
     container.appendChild(heading);
+    container.appendChild(intro);
     container.appendChild(actions);
-    container.appendChild(sceneBox);
-    container.appendChild(note);
-    container.appendChild(validation);
+    container.appendChild(sceneSection);
+    container.appendChild(noteWrap);
+    container.appendChild(footer);
+    updateStatusUi();
     syncValidation();
     if (options.reference) renderReviewReference(container, { reference_review: options.reference });
     return state;

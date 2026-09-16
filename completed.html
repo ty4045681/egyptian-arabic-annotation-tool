@@ -37,7 +37,7 @@ dialog{width:min(1040px,calc(100vw - 24px));max-height:calc(100vh - 32px);paddin
 @media(max-width:720px){header{flex-wrap:wrap;padding:10px 12px}.brand{width:100%}.page-name{display:none}.user{flex:1}main{padding:12px}.summary{grid-template-columns:1fr}.summary-item+.summary-item{border-inline-start:0;border-top:1px solid var(--border)}.toolbar{align-items:stretch}.field,.search{width:100%;min-width:0}.filters{overflow:auto}.search,.filter,.btn,.link-btn{min-height:44px}.result-count{margin-inline-start:0;padding:4px 0}.dialog-body{padding:10px}}
 @media(prefers-reduced-motion:reduce){.spinner{animation-duration:1.5s}}
 </style>
-<link rel="stylesheet" href="/static/metadata.css">
+<link rel="stylesheet" href="/static/metadata.css?v=20260916-ui1">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to completed records</a>
@@ -78,7 +78,7 @@ dialog{width:min(1040px,calc(100vw - 24px));max-height:calc(100vh - 32px);paddin
   <div class="dialog-actions"><button class="btn btn-secondary" id="closeBottomButton" type="button">Close</button><button class="btn btn-primary" id="correctButton" type="button">Correct this task</button></div>
 </dialog>
 <div class="sr-only" id="liveStatus" role="status" aria-live="polite"></div><div id="toastRoot"></div>
-<script src="/static/metadata.js"></script>
+<script src="/static/metadata.js?v=20260916-ui1"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);let currentUser="",statusFilter="all",query="",cursor=null,hasAssignment=false,loading=false,currentDetail=null,searchTimer=null,lastTrigger=null;
