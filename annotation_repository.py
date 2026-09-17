@@ -1768,6 +1768,99 @@ def dashboard() -> dict:
     }
 
 
+PUBLIC_ANNOTATION_SPEED_WINDOW_DAYS = 28
+PUBLIC_ANNOTATION_SPEED_WEEK_DAYS = 7
+
+
+def public_annotation_speed(
+    timezone_name: str,
+    *,
+    window_days: int = PUBLIC_ANNOTATION_SPEED_WINDOW_DAYS,
+) -> dict:
+    """Project-level daily added annotated audio for the public login chart.
+
+    Counts currently effective published/annotated versions, bucketed by the
+    version's ``submitted_at`` calendar date in ``timezone_name``. Duration
+    comes from ``annotation_tasks.duration`` (the same "currently valid
+    annotated audio" definition as the leaderboard).
+    """
+    if window_days <= 0 or window_days % PUBLIC_ANNOTATION_SPEED_WEEK_DAYS != 0:
+        raise ValidationError(
+            "window_days must be a positive multiple of "
+            f"{PUBLIC_ANNOTATION_SPEED_WEEK_DAYS}"
+        )
+    try:
+        tz = ZoneInfo(str(timezone_name))
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise ValidationError("Invalid timezone") from exc
+
+    now_utc = utcnow()
+    now_local = now_utc.astimezone(tz)
+    today = now_local.date()
+    start_date = today - timedelta(days=window_days - 1)
+    start_utc = datetime.combine(start_date, datetime.min.time(), tzinfo=tz).astimezone(
+        timezone.utc
+    )
+    end_utc = datetime.combine(
+        today + timedelta(days=1), datetime.min.time(), tzinfo=tz
+    ).astimezone(timezone.utc)
+
+    with db_tx() as conn, conn.cursor() as cur:
+        rows = cur.execute(
+            """SELECT timezone(%s, v.submitted_at)::date AS day,
+                      COALESCE(SUM(t.duration), 0) AS duration_seconds
+               FROM annotation_versions v
+               JOIN annotation_tasks t
+                 ON t.current_published_version_id = v.id
+                AND t.status = 'annotated'
+               WHERE v.lifecycle = 'published'
+                 AND v.target_status = 'annotated'
+                 AND v.submitted_at IS NOT NULL
+                 AND v.submitted_at >= %s
+                 AND v.submitted_at < %s
+               GROUP BY day""",
+            (str(timezone_name), start_utc, end_utc),
+        ).fetchall()
+
+    by_day = {}
+    for day, duration in rows:
+        if day is None:
+            continue
+        if day < start_date or day > today:
+            continue
+        by_day[day] = float(duration)
+
+    days = []
+    for offset in range(window_days):
+        day = start_date + timedelta(days=offset)
+        days.append({
+            "date": day.isoformat(),
+            "duration_seconds": float(by_day.get(day, 0.0)),
+            "is_partial": day == today,
+        })
+
+    weeks = []
+    step = PUBLIC_ANNOTATION_SPEED_WEEK_DAYS
+    for index in range(0, window_days, step):
+        chunk = days[index:index + step]
+        total = sum(item["duration_seconds"] for item in chunk)
+        weeks.append({
+            "start_date": chunk[0]["date"],
+            "end_date": chunk[-1]["date"],
+            "average_daily_duration_seconds": total / float(step),
+        })
+
+    return {
+        "timezone": str(timezone_name),
+        "window_days": window_days,
+        "from": start_date.isoformat(),
+        "through": today.isoformat(),
+        "generated_at": now_local.isoformat(timespec="seconds"),
+        "days": days,
+        "weeks": weeks,
+    }
+
+
 # ============================================================
 # Admin sessions, filters and read models
 # ============================================================

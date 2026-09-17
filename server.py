@@ -27,6 +27,7 @@ from urllib.parse import quote
 from flask import (Flask, jsonify, make_response, redirect, request, send_file,
                    session)
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import annotation_repository as repo
 from db import assert_schema_current, db_conn
@@ -50,6 +51,7 @@ OFFLINE_DRAFT_RETENTION_DAYS = 7
 SESSION_IDLE_WARNING_SECONDS = 120
 TAKEOVER_SALT = "annotator-session-takeover"
 TAKEOVER_PURPOSE = "annotator-session-takeover"
+DEFAULT_PUBLIC_DASHBOARD_TIMEZONE = "Asia/Shanghai"
 
 SESSION_STATUS_MESSAGES = {
     "not_authenticated": "Not authenticated",
@@ -74,6 +76,12 @@ app = Flask(__name__, static_folder=None)
 
 _admin_login_lock = threading.Lock()
 _admin_login_attempts: dict[str, list[float]] = {}
+LEADERBOARD_CACHE_SECONDS = 60
+_leaderboard_cache_lock = threading.Lock()
+_leaderboard_cache: dict = {
+    "expires_monotonic": 0.0,
+    "payload": None,
+}
 
 
 def load_config() -> dict:
@@ -82,6 +90,25 @@ def load_config() -> dict:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             c.update(json.load(f))
     return c
+
+
+def resolve_public_dashboard_timezone(config: dict | None = None) -> str:
+    """Return a validated IANA timezone name. Invalid values fail closed."""
+    raw = (config or {}).get(
+        "public_dashboard_timezone", DEFAULT_PUBLIC_DASHBOARD_TIMEZONE,
+    )
+    if raw is None or str(raw).strip() == "":
+        name = DEFAULT_PUBLIC_DASHBOARD_TIMEZONE
+    else:
+        name = str(raw).strip()
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise RuntimeError(
+            f"Invalid public_dashboard_timezone {name!r}; "
+            "use a valid IANA timezone name such as Asia/Shanghai"
+        ) from exc
+    return name
 
 
 # ============================================================
@@ -1203,10 +1230,50 @@ def api_dashboard():
     return jsonify(dash)
 
 
+def _leaderboard_payload_fresh() -> dict:
+    return {
+        "leaderboard": repo.dashboard()["leaderboard"],
+        "annotation_speed": repo.public_annotation_speed(
+            app.config["PUBLIC_DASHBOARD_TIMEZONE"],
+        ),
+    }
+
+
+def clear_leaderboard_cache() -> None:
+    with _leaderboard_cache_lock:
+        _leaderboard_cache["payload"] = None
+        _leaderboard_cache["expires_monotonic"] = 0.0
+
+
+def public_leaderboard_payload() -> dict:
+    """Serve a 60s in-process snapshot. Tests always recompute."""
+    if app.config.get("TESTING"):
+        return _leaderboard_payload_fresh()
+    now = time.monotonic()
+    with _leaderboard_cache_lock:
+        cached = _leaderboard_cache["payload"]
+        if cached is not None and _leaderboard_cache["expires_monotonic"] > now:
+            return cached
+    payload = _leaderboard_payload_fresh()
+    with _leaderboard_cache_lock:
+        _leaderboard_cache["payload"] = payload
+        _leaderboard_cache["expires_monotonic"] = (
+            time.monotonic() + LEADERBOARD_CACHE_SECONDS
+        )
+    return payload
+
+
 @app.route("/api/leaderboard")
 def api_leaderboard():
-    """Lightweight public leaderboard for the login page."""
-    return jsonify({"leaderboard": repo.dashboard()["leaderboard"]})
+    """Lightweight public leaderboard and 28-day speed chart for the login page.
+
+    Browsers must revalidate (no max-age). Origin load is bounded by the
+    in-process TTL cache rather than HTTP cache, because this path has no
+    Nginx proxy_cache.
+    """
+    response = jsonify(public_leaderboard_payload())
+    response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 
 # ============================================================
@@ -1561,6 +1628,7 @@ def _init_app_config() -> dict:
         else Path(config["audio_dir"])
     )
     app.config["AUDIO_ACCEL_PREFIX"] = config.get("audio_accel_prefix", "")
+    app.config["PUBLIC_DASHBOARD_TIMEZONE"] = resolve_public_dashboard_timezone(config)
 
     app.config["ADMIN_KEY_SHA256"] = os.environ.get(
         "ANNOTATION_ADMIN_KEY_SHA256",

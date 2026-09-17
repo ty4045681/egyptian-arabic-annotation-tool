@@ -78,7 +78,8 @@ def test_003_file_does_not_include_spoken_languages():
     assert third.count("INSERT INTO scenes") == 1
     assert "spoken_languages" in fifth
     for name in ("001_initial.sql", "002_admin.sql", "003_scene_provenance.sql",
-                 "004_claim_capacity.sql", "006_session_takeover.sql"):
+                 "004_claim_capacity.sql", "006_session_takeover.sql",
+                 "007_annotation_speed_indexes.sql"):
         assert (root / name).is_file()
 
 
@@ -136,7 +137,7 @@ def test_005_is_idempotent_and_preserves_null_source_rows(database, seed_tasks):
         assert after[1] == {"keep": "raw"}
         assert after[2] == "d" * 64
         assert pred_after == pred_before == (None, "Spoken languages")
-        assert db.applied_versions(conn) == db.expected_versions() == [1, 2, 3, 4, 5, 6]
+        assert db.applied_versions(conn) == db.expected_versions() == [1, 2, 3, 4, 5, 6, 7]
 
 
 def test_005_applies_after_004_without_rewriting_prior_migrations(
@@ -175,7 +176,7 @@ def test_005_applies_after_004_without_rewriting_prior_migrations(
                 row[0] for row in conn.execute("SELECT code FROM scenes").fetchall()
             }
             newly = db.apply_migrations(conn)
-            assert newly == [5, 6]
+            assert newly == [5, 6, 7]
             rows = conn.execute(
                 "SELECT code, label_en FROM scenes ORDER BY sort_order, code"
             ).fetchall()
@@ -197,7 +198,7 @@ def test_006_adds_session_columns_and_old_insert_shape_still_works(database):
     import annotation_repository as repo
 
     with db.db_conn() as conn:
-        assert db.applied_versions(conn) == [1, 2, 3, 4, 5, 6]
+        assert db.applied_versions(conn) == [1, 2, 3, 4, 5, 6, 7]
         columns = {
             row[0]
             for row in conn.execute(
@@ -234,4 +235,31 @@ def test_006_adds_session_columns_and_old_insert_shape_still_works(database):
         assert int(row[0]) == 1
         assert row[1] is not None
         assert row[2] is not None
+        conn.commit()
+
+
+def test_007_adds_annotation_speed_indexes(database):
+    with db.db_conn() as conn:
+        assert db.applied_versions(conn) == db.expected_versions() == [
+            1, 2, 3, 4, 5, 6, 7,
+        ]
+        names = {
+            row[0]
+            for row in conn.execute(
+                """SELECT indexname FROM pg_indexes
+                   WHERE indexname IN (
+                     'idx_versions_published_annotated_submitted',
+                     'idx_tasks_current_published_annotated'
+                   )"""
+            ).fetchall()
+        }
+        assert names == {
+            "idx_versions_published_annotated_submitted",
+            "idx_tasks_current_published_annotated",
+        }
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "migrations" / "007_annotation_speed_indexes.sql"
+        ).read_text(encoding="utf-8")
+        conn.execute(sql)
         conn.commit()

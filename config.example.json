@@ -10,6 +10,7 @@
   "session_takeover_token_seconds": 60,
   "session_activity_throttle_seconds": 30,
   "offline_draft_retention_days": 7,
+  "public_dashboard_timezone": "Asia/Shanghai",
   "vad": {
     "min_speech_duration_ms": 3000,
     "min_silence_duration_ms": 300,
