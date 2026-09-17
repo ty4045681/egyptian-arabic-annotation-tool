@@ -48,7 +48,7 @@ def test_unknown_scene_includes_legacy_and_null_scene_rows(database, seed_tasks)
                VALUES(%s,%s,'null-row',NULL,'unknown','none',%s)""",
             (explicit, bid, "c" * 64),
         )
-    claimed = repo.claim(user("unknown-scene"), source_scene="unknown")
+    claimed = repo.claim(repo.load_session_fence(user("unknown-scene")), source_scene="unknown")
     assert claimed["task_id"] in {legacy, explicit}
     pool = repo.pool_state(user("unknown-scene-2"), source_scene="unknown")
     assert pool["available"] == 1

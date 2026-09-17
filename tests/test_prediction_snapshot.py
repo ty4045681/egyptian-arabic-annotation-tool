@@ -77,10 +77,10 @@ def test_published_prediction_fresh_then_edit_stale(database, seed_tasks, monkey
     import annotation_repository as repo
     task = seed_tasks(1)[0]
     user, _ = make_user("snapshot-pub")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     assert assignment["task_id"] == task
     repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         full_segments(assignment), str(uuid.uuid4()), "h",
     )
     _classify(monkeypatch, model="published-model")

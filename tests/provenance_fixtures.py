@@ -168,10 +168,10 @@ def build_rich_provenance(seed_tasks):
     legacy_id, rich_id, extra_id = [uuid.UUID(str(item)) for item in seed_tasks(3)]
     annotator, _ = make_user("prov-annotator")
     scoped, _ = make_user("prov-scoped")
-    assignment = repo.claim(annotator["id"])
+    assignment = repo.claim(annotator["fence"])
     assert assignment["task_id"] == str(legacy_id)
     repo.complete(
-        annotator["id"], assignment["lease_token"], assignment["revision"],
+        annotator["fence"], assignment["lease_token"], assignment["revision"],
         "annotated", [], full_segments(assignment, "legacy"),
         str(uuid.uuid4()), "legacy-complete",
     )
@@ -262,15 +262,15 @@ def build_rich_provenance(seed_tasks):
             input_version_id=draft[0], input_revision=int(draft[1]),
             input_digest="d1" * 32, score=None, predicted_scene_code="airport",
         )
-    assignment = repo.claim(annotator["id"])
+    assignment = repo.claim(annotator["fence"])
     assert assignment["task_id"] == str(rich_id)
     saved = repo.save_draft(
-        annotator["id"], assignment["lease_token"], 0,
+        annotator["fence"], assignment["lease_token"], 0,
         full_segments(assignment, "rich"), str(uuid.uuid4()), "rich-save",
         scene_review={"status": "pending", "scene_codes": [], "note": "draft note"},
     )
     completed = repo.complete(
-        annotator["id"], assignment["lease_token"], saved["revision"],
+        annotator["fence"], assignment["lease_token"], saved["revision"],
         "annotated", [], full_segments(assignment, "rich"),
         str(uuid.uuid4()), "rich-complete",
         scene_review={"status": "confirmed", "scene_codes": ["airport"], "note": "submitted"},
@@ -304,10 +304,10 @@ def build_rich_provenance(seed_tasks):
             "reason": "correct mixed scenes",
         },
     )
-    repo.reopen_completed(annotator["id"], str(rich_id), str(uuid.uuid4()))
+    repo.reopen_completed(annotator["fence"], str(rich_id), str(uuid.uuid4()))
     draft_asg = repo.get_assignment(annotator["id"])
     repo.save_draft(
-        annotator["id"], draft_asg["lease_token"], 0,
+        annotator["fence"], draft_asg["lease_token"], 0,
         full_segments(draft_asg, "rich-edit"), str(uuid.uuid4()), "rich-draft",
         scene_review={"status": "uncertain", "scene_codes": [], "note": "working draft"},
     )
@@ -318,7 +318,7 @@ def build_rich_provenance(seed_tasks):
             allow_unknown=False, expected_revision=0,
         )
     extra_user, _ = make_user("prov-extra")
-    extra_asg = repo.claim(extra_user["id"])
+    extra_asg = repo.claim(extra_user["fence"])
     assert extra_asg["task_id"] == str(extra_id)
     return {
         "legacy_id": str(legacy_id),

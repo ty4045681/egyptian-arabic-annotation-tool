@@ -46,7 +46,7 @@ def test_rejected_audio_delete_respects_changed_ownership(seed_tasks, tmp_path, 
                 successor.update(acquire_processing_lease(cur, task))
         else:
             user = repo.login("acceptance-during-vad", str(uuid.uuid4()), 1800)
-            assert repo.claim(user["id"])["task_id"] == task
+            assert repo.claim(user["fence"])["task_id"] == task
         return [], np.zeros(16000), 16000, 16000
 
     monkeypatch.setattr(preprocess, "run_vad", vad)
@@ -117,7 +117,7 @@ def test_content_rejection_delete_respects_changed_ownership(
                 successor.update(acquire_processing_lease(cur, task))
         else:
             user = repo.login("acceptance-content-during-vad", str(uuid.uuid4()), 1800)
-            assert repo.claim(user["id"])["task_id"] == task
+            assert repo.claim(user["fence"])["task_id"] == task
         return _one_segment(), np.zeros(16000), 16000, 16000
 
     monkeypatch.setattr(preprocess, "run_vad", vad)

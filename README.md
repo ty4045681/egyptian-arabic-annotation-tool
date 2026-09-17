@@ -9,7 +9,8 @@
 | VAD + ASR 预处理 | Silero VAD 自动断句，DashScope Qwen3.5-Omni 阿拉伯语预转写 |
 | PostgreSQL 状态 | 任务、segments、波形、assignment、session、历史和修订统一事务管理 |
 | 原子领取 | `FOR UPDATE SKIP LOCKED` + 唯一约束；同一任务最多一人、同一用户最多一条 |
-| 强制续领 | 刷新、Logout、会话超时、重新登录和服务重启后仍恢复同一未完成任务 |
+| 强制续领 | 刷新、Logout、会话超时、重新登录、会话接管和服务重启后仍恢复同一未完成任务 |
+| 会话接管 | 失联设备可被自动替换；仍在线设备需确认后立即接管。旧会话不能再写入 |
 | 串行自动保存 | 当前任务只允许一个在途保存；revision 防陈旧覆盖；operation ID 支持安全重试 |
 | 原子完成/跳过 | 最后修改、状态、历史和 assignment 释放在一个数据库事务中提交 |
 | 历史浏览 | Previous completed / Newer / Older 只读浏览，不释放当前任务 |
@@ -97,6 +98,12 @@ uv run gunicorn -c gunicorn_config.py server:app
   "audio_accel_prefix": "/_protected_audio",
   "secret_key": "随机 64 位十六进制字符串",
   "session_timeout_minutes": 30,
+  "session_absolute_timeout_hours": 20,
+  "session_presence_heartbeat_seconds": 30,
+  "session_presence_lease_seconds": 150,
+  "session_takeover_token_seconds": 60,
+  "session_activity_throttle_seconds": 30,
+  "offline_draft_retention_days": 7,
   "vad": {},
   "asr": {}
 }
@@ -234,11 +241,19 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python \
 
 产物：`results.json`、`samples.jsonl`、`dataset.json`、`explain-*.json`。
 
-测试通过范围包括：并发领取、同名登录竞态、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、管理员来源筛选/统计、场景范围锁顺序、baseline 回填、JSON round-trip、Excel 和音频 Range、元数据导出/导入、dump/restore、Playwright 场景流程。
+测试通过范围包括：并发领取、同名登录竞态、会话接管与写入栅栏、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、管理员来源筛选/统计、场景范围锁顺序、baseline 回填、JSON round-trip、Excel 和音频 Range、元数据导出/导入、dump/restore、Playwright 场景流程与会话接管。
+
+## 标注员会话
+
+同一用户名同一时间只有一个可写入的网页会话。浏览器每 30 秒报告在线状态；150 秒没有心跳即可在新设备自动接管。仍在线的会话需要明确确认后才能立即接管，不必等待 30 分钟。30 分钟无真实操作会空闲退出；从登录或接管起最多 20 小时，不因心跳或操作延长。被动心跳、排行榜轮询不能续期空闲期限。
+
+接管、退出或会话过期都不释放未完成任务。新设备恢复原 assignment、草稿、revision 和 lease token。原设备未得到服务器确认的编辑只保存在该浏览器的 IndexedDB 中，默认保留 7 天；新设备只能看到服务器已经确认的内容。
+
+用户名登录不是身份认证。任何知道该用户名的人都可以尝试强制接管并查看该用户可见的数据。接管确认令牌只防止盲目重放和并发误踢，不能证明现实身份。
 
 ## 标注工作流
 
-1. 输入固定用户名登录。
+1. 输入固定用户名登录。若该名字仍在另一设备在线，需要确认后才能继续。
 2. 有未完成任务时自动恢复；没有任务时点击 **Claim next task**。
 3. 编辑文本、时间和 Bad quality。修改停止 3 秒后合并自动保存。
 4. 点击 **Mark done**，或选择一个/多个 skip reason 后点击 **Skip task**。

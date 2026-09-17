@@ -436,6 +436,31 @@ labels). Excel adds source scene/confidence/batch and human verification columns
 
 升级后检查十个场景选项、Spoken languages 与旧 unknown 来源筛选一致、仅 Airport 的用户不能领取其他来源、重新打开任务仍显示正确来源，以及元数据导出/验证/试导入。数据库迁移后不应仅切回缺少 005 的旧代码；兼容回退继续使用同一迁移版本及上一节的功能开关。恢复数据库备份应在独立目标库验证，并另行处理备份后产生的数据。
 
+## 18. 会话接管与离线草稿（006）
+
+该版本包含 `006_session_takeover.sql`。它只增加 `active_sessions.generation`、`last_activity_at`、`absolute_expires_at` 和 `annotator_session_events`，保留原来的 `expires_at`（从此表示空闲期限）。不要回滚这条迁移。
+
+部署：
+
+1. 备份 PostgreSQL，记录当前代码 commit。
+2. 维护窗口执行 `uv run python manage_state.py apply-migrations`。
+3. 部署后端和新 HTML/JS，重启 Gunicorn。
+4. `/api/health` 必须返回 `[1, 2, 3, 4, 5, 6]`。
+5. 用两个浏览器完成 login → conflict → takeover → 旧会话无法保存。
+6. 再测 offline → 关闭页面 → 原设备恢复本地草稿；新设备只看到服务器草稿。assignment 不变。
+7. 前 24 小时观察接管量、session rejection、保存冲突和心跳写入。
+
+页面脚本内嵌于 HTML，已打开的页面不会自动换成新逻辑。部署时保留旧 `GET /api/heartbeat` 一个兼容周期：它只更新在线心跳，不再延长 30 分钟空闲期限。登录页、工作区和会话 API 使用 `Cache-Control: no-store`。正在标注的用户需要刷新一次。
+
+同 schema 回退（不回滚 006）：
+
+1. 停止新代码写入并部署上一版本。
+2. 上一版本忽略新列，恢复原“未过期即冲突、需等 30 分钟”的行为。
+3. 不删除 generation、absolute 或审计数据。旧版 INSERT 不提供新列时，数据库 DEFAULT 仍能创建会话。
+4. 回退会重新引入失联后等待 30 分钟的问题，只作为故障恢复。
+
+用户名登录无法防止恶意冒用。接管确认只绑定观察到的 generation 和 SID 指纹，不是身份证明。
+
 ## 常用命令
 
 ```bash

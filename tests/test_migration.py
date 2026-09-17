@@ -198,14 +198,14 @@ def test_post_migration_completion_exports_current_audit(database, tmp_path):
     migrate_manifest(manifest)
     sid = str(ms.uuid.uuid4())
     user = repo.login("alice", sid, 1800)
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     segments = [{
         "id": segment["id"], "start": segment["start"], "end": segment["end"],
         "duration": segment["duration"], "text": "current text",
         "exclude_from_training": False,
     } for segment in assignment["segments"]]
     repo.complete(
-        user["id"], assignment["lease_token"], assignment["revision"],
+        user["fence"], assignment["lease_token"], assignment["revision"],
         "annotated", [], segments, str(ms.uuid.uuid4()), "complete-audit",
     )
     out = tmp_path / "current-export"

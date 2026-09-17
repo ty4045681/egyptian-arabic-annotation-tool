@@ -18,7 +18,7 @@ def test_unknown_confidence_does_not_bypass_restricted_scene_scope(seed_tasks, o
         if reserve_legacy:
             conn.execute('UPDATE annotation_tasks SET reserved_for_user_id=%s WHERE id=%s', (uid, legacy))
     if operation == 'claim':
-        assignment = repo.claim(uid, source_confidence='unknown')
+        assignment = repo.claim(repo.load_session_fence(uid), source_confidence='unknown')
         assert assignment['task_id'] == airport, 'Unknown confidence must not authorize a legacy task outside the scene scope'
         assert assignment['task_id'] != legacy
     else:

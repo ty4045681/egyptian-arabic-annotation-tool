@@ -17,8 +17,8 @@ from tests.test_regression_admin_metadata import source
 def restored_document(seed_tasks):
     tasks = seed_tasks(2)
     user, _ = make_user('restore-integrity-reviewer')
-    assignment = repo.claim(user['id'])
-    repo.complete(user['id'], assignment['lease_token'], 0, 'annotated', [],
+    assignment = repo.claim(user['fence'])
+    repo.complete(user['fence'], assignment['lease_token'], 0, 'annotated', [],
                   full_segments(assignment), str(uuid.uuid4()), 'restore-integrity',
                   scene_review={'status': 'confirmed', 'scene_codes': ['airport']})
     with db.db_conn() as conn:

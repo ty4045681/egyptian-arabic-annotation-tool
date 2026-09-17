@@ -50,6 +50,11 @@ body{
 }
 .btn-p{background:var(--pri);color:#fff}.btn-p:hover{opacity:.9}
 .btn-p:disabled{opacity:.5;cursor:not-allowed}
+.btn-secondary{background:transparent;color:var(--text);border:1px solid var(--bdr2)}
+.conflict{display:none;margin-top:14px;padding:12px 14px;border:1px solid rgba(251,191,36,.35);border-radius:8px;background:rgba(251,191,36,.08);color:#fde68a;font-size:13px;text-align:left}
+.conflict.show{display:block}
+.conflict p{margin:0 0 10px}
+.warn{color:var(--warn);font-size:12px;margin-top:8px}
 .err{
   margin-top:10px;padding:8px 14px;border-radius:6px;
   background:rgba(248,113,113,.12);color:var(--err);
@@ -86,9 +91,15 @@ body{
   <button class="btn btn-p" id="joinBtn" onclick="doLogin()">Join</button>
 
   <div class="err" id="errMsg"></div>
+  <div class="conflict" id="conflictBox">
+    <p id="conflictText">This name was just used on another device.</p>
+    <p class="warn">Continuing will sign out the other page. It will not be able to save afterwards. Username login does not prove identity — anyone who knows this name can try to take over.</p>
+    <button class="btn btn-p" id="takeoverBtn" type="button">Continue and sign out the other device</button>
+    <button class="btn btn-secondary" id="cancelTakeoverBtn" type="button">Change the name</button>
+  </div>
 
   <div class="hint">
-    Please keep your account name consistent throughout your participation. The name you provide will be associated with the annotations you create to help identify your contributions.
+    Enter a name to start annotating. Keep the same name throughout your participation so your work stays associated with you. This is not a verified account: anyone who knows the name can sign in as that annotator.
   </div>
 
   <div class="lb-card" id="lbCard">
@@ -104,15 +115,45 @@ body{
 </div>
 
 <script>
-var _busy = false;
-async function doLogin(){
-  if(_busy)return;
-  var name = document.getElementById('username').value.trim();
+var loginState = 'idle';
+var takeoverToken = '';
+var takeoverUsername = '';
+function $(id){return document.getElementById(id)}
+function setBusy(busy, label){
+  loginState = busy ? (loginState === 'taking_over' ? 'taking_over' : 'submitting') : 'idle';
+  var btn = $('joinBtn');
+  btn.disabled = busy;
+  btn.textContent = label || (busy ? 'Joining…' : 'Join');
+  $('takeoverBtn').disabled = busy;
+  $('username').disabled = busy && loginState !== 'active_conflict';
+}
+function showErr(m){var e=$('errMsg');e.textContent=m;e.classList.add('show')}
+function hideErr(){$('errMsg').classList.remove('show')}
+function hideConflict(){$('conflictBox').classList.remove('show');takeoverToken='';}
+function showConflict(payload){
+  loginState = 'active_conflict';
+  takeoverToken = payload.takeover_token || '';
+  takeoverUsername = $('username').value.trim();
+  var seen = payload.active_session && payload.active_session.last_seen_at
+    ? new Date(payload.active_session.last_seen_at).toLocaleString()
+    : 'just now';
+  $('conflictText').textContent = 'This name was just used on another device. Last seen: ' + seen + '.';
+  $('conflictBox').classList.add('show');
+  $('joinBtn').disabled = true;
+}
+function reasonMessage(reason){
+  if(reason==='session_replaced') return 'This name signed in on another device. Sign in again if that was you.';
+  if(reason==='idle_timeout') return 'Your previous session ended after a period without activity.';
+  if(reason==='absolute_timeout') return 'Your previous session reached its 20-hour limit.';
+  if(reason==='account_deactivated') return 'This account has been deactivated.';
+  return '';
+}
+async function postLogin(){
+  if(loginState==='submitting'||loginState==='taking_over')return;
+  var name = $('username').value.trim();
   if(!name){showErr('Please enter a name.');return}
-  _busy = true;
-  var btn = document.getElementById('joinBtn');
-  btn.disabled = true; btn.textContent = 'Joining…';
-  hideErr();
+  hideErr(); hideConflict();
+  setBusy(true, 'Joining…');
   try{
     var r = await fetch('/api/login',{
       method:'POST',
@@ -120,12 +161,54 @@ async function doLogin(){
       body:JSON.stringify({username:name})
     });
     var j = await r.json();
-    if(!r.ok){showErr(j.error||'Login failed');_busy=false;btn.disabled=false;btn.textContent='Join';return}
-    window.location.href = '/';
-  }catch(e){showErr('Network error. Please try again.');_busy=false;btn.disabled=false;btn.textContent='Join'}
+    if(r.status===409 && j.code==='session_active'){
+      setBusy(false);
+      showConflict(j);
+      return;
+    }
+    if(!r.ok){showErr(j.error||'Login failed');setBusy(false);return}
+    loginState='success';
+    location.replace('/');
+  }catch(e){showErr('Network error. Please try again.');setBusy(false)}
 }
-function showErr(m){var e=document.getElementById('errMsg');e.textContent=m;e.classList.add('show')}
-function hideErr(){var e=document.getElementById('errMsg');e.classList.remove('show')}
+async function submitTakeover(){
+  if(!takeoverToken){showErr('Sign-in confirmation expired. Try again.');hideConflict();return}
+  loginState='taking_over';
+  setBusy(true, 'Continuing…');
+  hideErr();
+  try{
+    var r = await fetch('/api/login/takeover',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:takeoverUsername, takeover_token:takeoverToken})
+    });
+    var j = await r.json();
+    if(r.status===409 && j.code==='session_changed'){
+      loginState='session_changed';
+      setBusy(false);
+      hideConflict();
+      showErr('The other session changed. Checking again…');
+      await postLogin();
+      return;
+    }
+    if(!r.ok){
+      setBusy(false);
+      hideConflict();
+      showErr(j.error||'Could not continue on this device.');
+      return;
+    }
+    loginState='success';
+    location.replace('/');
+  }catch(e){showErr('Network error. Please try again.');setBusy(false)}
+}
+function cancelTakeover(){
+  hideConflict();
+  setBusy(false);
+  loginState='idle';
+  $('joinBtn').disabled=false;
+  $('username').focus();
+}
+async function doLogin(){await postLogin()}
 
 function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML.replaceAll('"','&quot;').replaceAll("'",'&#39;')}
 function formatHoursMinutes(seconds){
@@ -147,6 +230,13 @@ async function loadLeaderboard(){
   }catch(e){empty.textContent='Failed to load'}
 }
 document.getElementById('username').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
+$('takeoverBtn').addEventListener('click', submitTakeover);
+$('cancelTakeoverBtn').addEventListener('click', cancelTakeover);
+(function showReason(){
+  var reason = new URLSearchParams(location.search).get('reason');
+  var message = reasonMessage(reason);
+  if(message) showErr(message);
+})();
 loadLeaderboard();
 </script>
 </body>

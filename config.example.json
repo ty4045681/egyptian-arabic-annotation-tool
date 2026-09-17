@@ -4,6 +4,12 @@
   "audio_accel_prefix": "/_protected_audio",
   "secret_key": "generate-with-uv-run-python-secrets",
   "session_timeout_minutes": 30,
+  "session_absolute_timeout_hours": 20,
+  "session_presence_heartbeat_seconds": 30,
+  "session_presence_lease_seconds": 150,
+  "session_takeover_token_seconds": 60,
+  "session_activity_throttle_seconds": 30,
+  "offline_draft_retention_days": 7,
   "vad": {
     "min_speech_duration_ms": 3000,
     "min_silence_duration_ms": 300,
