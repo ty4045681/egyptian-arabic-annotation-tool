@@ -81,10 +81,10 @@ def test_existing_assignment_resumes_after_scope_none(database, seed_tasks):
     task = seed_tasks(1)[0]
     source(task, "shopping", "high", "scope-resume-shopping")
     alice, _ = _make_user("alice")
-    claimed = repo.claim(alice["id"], source_scene="shopping")
+    claimed = repo.claim(alice["fence"], source_scene="shopping")
     admin = _admin_session()
     _set_scope(admin, alice, mode="none", reason="close after claim")
-    resumed = repo.claim(alice["id"], source_scene="airport")
+    resumed = repo.claim(alice["fence"], source_scene="airport")
     assert resumed["resumed"] is True
     assert resumed["task_id"] == claimed["task_id"]
     assert resumed["lease_token"] == claimed["lease_token"]
@@ -177,7 +177,7 @@ def test_scope_and_claim_do_not_deadlock_and_resume_if_assigned(
     def claim() -> dict | str:
         barrier.wait(timeout=10)
         try:
-            return repo.claim(alice["id"])
+            return repo.claim(alice["fence"])
         except (repo.NoTaskAvailable, repo.ForbiddenError) as error:
             return type(error).__name__
 
@@ -189,11 +189,11 @@ def test_scope_and_claim_do_not_deadlock_and_resume_if_assigned(
 
     assert scope_result["success"] is True
     if isinstance(claim_result, dict):
-        resumed = repo.claim(alice["id"], source_scene="airport")
+        resumed = repo.claim(alice["fence"], source_scene="airport")
         assert resumed["resumed"] is True
         assert resumed["task_id"] == task
         assert resumed["lease_token"] == claim_result["lease_token"]
     else:
         assert claim_result in {"NoTaskAvailable", "ForbiddenError"}
         with pytest.raises((repo.NoTaskAvailable, repo.ForbiddenError)):
-            repo.claim(alice["id"])
+            repo.claim(alice["fence"])

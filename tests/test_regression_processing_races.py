@@ -51,7 +51,7 @@ def test_prediction_snapshot_revision_and_text_are_atomic(seed_tasks):
 def test_processing_rechecks_human_protection_before_vad(seed_tasks, tmp_path, monkeypatch):
     task = seed_tasks(1)[0]
     user = repo.login("acceptance-stale-preprocess", str(uuid.uuid4()), 1800)
-    assigned = repo.claim(user["id"])
+    assigned = repo.claim(user["fence"])
     assert assigned["task_id"] == task
     calls = []
 

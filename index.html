@@ -104,6 +104,15 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
 .toast{position:fixed;inset-inline-end:16px;bottom:16px;z-index:100;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--panel-3);box-shadow:0 8px 30px rgba(0,0,0,.35)}
 .toast.success{border-color:rgba(69,214,162,.45);color:#bcffe5}
 .toast.error{border-color:rgba(240,120,120,.5);color:#ffcaca}
+.session-overlay{position:fixed;inset:0;z-index:3000;background:rgba(7,7,13,.86);display:none;align-items:center;justify-content:center;padding:20px}
+.session-overlay.show{display:flex}
+.session-card{width:min(520px,100%);background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:0 20px 80px rgba(0,0,0,.45)}
+.session-card h2{margin:0 0 8px;font-size:18px}
+.session-card p{margin:0 0 16px;color:var(--muted)}
+.session-actions{display:flex;gap:8px;flex-wrap:wrap}
+.conflict-card{width:min(720px,100%)}
+.conflict-export{display:block;width:100%;min-height:180px;max-height:42vh;margin:0 0 16px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2);color:var(--text);font:12px/1.45 var(--mono);resize:vertical}
+.network-flag{color:var(--warning);font-size:12px;font-weight:700;margin-inline-end:8px}
 .font-ctrl{display:flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--border);border-radius:8px;background:var(--panel-2)}
 .font-ctrl-label{color:var(--quiet);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-inline-end:2px;white-space:nowrap}
 .font-btn{width:28px;height:28px;min-height:28px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text);cursor:pointer;font-weight:700}
@@ -130,6 +139,7 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
       <span class="font-size-label" id="fontSizeLabel">18</span>
       <button class="font-btn" id="fontUp" type="button" aria-label="Increase Arabic font size">A+</button>
     </div>
+    <span class="network-flag" id="networkFlag" hidden>Offline</span>
     <span class="user" id="currentUser">—</span>
     <button class="btn btn-secondary" id="logoutButton" type="button">Log out</button>
     <div class="metric"><strong id="annotatedCount">0</strong><span>Confirmed</span></div>
@@ -188,6 +198,30 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
 </div>
 <div class="sr-only" id="liveStatus" role="status" aria-live="polite"></div>
 <div id="toastRoot"></div>
+<div class="session-overlay" id="sessionOverlay" aria-hidden="true" role="alertdialog" aria-labelledby="sessionOverlayTitle" aria-describedby="sessionOverlayBody">
+  <div class="session-card">
+    <h2 id="sessionOverlayTitle">Session ended</h2>
+    <p id="sessionOverlayBody">This page can no longer save to the server.</p>
+    <div class="session-actions">
+      <button class="btn btn-secondary" id="sessionExportButton" type="button">Copy local unsaved text</button>
+      <button class="btn btn-primary" id="sessionReloginButton" type="button">Sign in again</button>
+    </div>
+  </div>
+</div>
+<div class="session-overlay" id="localConflictOverlay" aria-hidden="true" role="alertdialog" aria-modal="true" aria-labelledby="localConflictTitle" aria-describedby="localConflictBody">
+  <div class="session-card conflict-card">
+    <h2 id="localConflictTitle">Local changes need review</h2>
+    <p id="localConflictBody">This device has unsaved work based on an older server revision. It has not been applied or overwritten.</p>
+    <label for="localConflictText" class="sr-only">Local draft JSON</label>
+    <textarea class="conflict-export" id="localConflictText" readonly></textarea>
+    <div class="session-actions">
+      <button class="btn btn-secondary" id="localConflictCopy" type="button">Copy local draft</button>
+      <button class="btn btn-danger" id="localConflictDiscard" type="button">Discard local copy and use server</button>
+    </div>
+  </div>
+</div>
+<script src="/static/offline-drafts.js?v=20260917-session3"></script>
+<script src="/static/annotator-session.js?v=20260917-session3"></script>
 <script src="/static/metadata.js?v=20260916-ui1"></script>
 <script>
 "use strict";
@@ -196,10 +230,10 @@ class ApiError extends Error{constructor(message,status,body){super(message);thi
 const FONT_MIN=14,FONT_MAX=32,FONT_STEP=2,FONT_DEFAULT=18,FONT_KEY="annotator.transcriptFontSize";
 const state={
   user:"",assignment:null,task:null,segments:[],waveform:[],waveMax:1e-6,duration:0,
-  selected:-1,playing:-1,pxPerSecond:40,dirty:new Set(),saveTimer:null,savePromise:null,pendingSave:null,pendingComplete:null,
+  selected:-1,playing:-1,pxPerSecond:40,dirty:new Set(),saveTimer:null,draftTimer:null,savePromise:null,pendingSave:null,pendingComplete:null,
   queued:false,saveBlocked:false,review:false,history:[],historyIndex:-1,submitting:false,pendingAbandon:null,
   transcriptSize:FONT_DEFAULT,scenes:[],claimScenes:[],reviewTaxonomy:[],selectedScene:"",sceneReview:null,nextClaimScene:"",
-  features:{},scope:null,reviewDirty:false,lastSavedReview:null
+  features:{},scope:null,reviewDirty:false,lastSavedReview:null,localConflictDraft:null,outboxReplayPromise:null
 };
 function cloneJson(value){if(value===undefined)return undefined;return JSON.parse(JSON.stringify(value))}
 function freezeJson(value){
@@ -219,13 +253,72 @@ function reviewValidation(review){
   return AnnotationMetadata.validateReview(review);
 }
 function uuid(){return crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==="x"?r:(r&3|8);return v.toString(16)})}
+function pendingDirtySegmentIds(){
+  const indices=new Set(state.dirty);
+  if(state.pendingSave)for(const index of state.pendingSave.indices||[])indices.add(index);
+  return Array.from(indices).map(index=>state.segments[index]&&state.segments[index].id).filter(id=>id!==undefined&&id!==null);
+}
+async function persistWorkspaceDraft(){
+  if(!window.AnnotationOffline||!state.user||!state.assignment)return;
+  const dirtyIds=pendingDirtySegmentIds();
+  const reviewDirty=Boolean(state.reviewDirty||(state.pendingSave&&state.pendingSave.sentReview));
+  await AnnotationOffline.saveWorkingDraft({
+    username:state.user,
+    task_id:state.assignment.task_id,
+    version_id:state.assignment.version_id,
+    lease_token:state.assignment.lease_token,
+    server_revision:state.assignment.revision,
+    segments:state.segments,
+    scene_review:state.sceneReview,
+    dirty_segment_ids:dirtyIds,
+    review_dirty:reviewDirty,
+    status:dirtyIds.length||reviewDirty||state.pendingComplete||state.pendingAbandon?"dirty":"clean"
+  });
+}
+async function copyText(text){
+  try{
+    if(!navigator.clipboard||!navigator.clipboard.writeText)throw new Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+  }catch(_){
+    const area=document.createElement("textarea");area.value=text;area.setAttribute("readonly","");area.style.position="fixed";area.style.opacity="0";document.body.appendChild(area);area.select();
+    const copied=document.execCommand&&document.execCommand("copy");area.remove();if(!copied)throw new Error("Clipboard permission was denied");
+  }
+}
+async function exportLocalDraft(draftOverride){
+  if(!window.AnnotationOffline)return;
+  let draft=draftOverride;
+  if(!draft&&state.assignment){
+    draft=await AnnotationOffline.getWorkingDraft(state.user,state.assignment.task_id);
+  }
+  const payload=AnnotationOffline.exportText(draft||{
+    username:state.user,
+    task_id:state.assignment&&state.assignment.task_id,
+    updated_at:new Date().toISOString(),
+    segments:state.segments,
+    scene_review:state.sceneReview
+  });
+  try{await copyText(payload);toast("Local draft copied")}catch(_){
+    const field=$("localConflictText");if(field){field.value=payload;field.focus();field.select()}
+    toast("Copy was blocked. Select the draft text and copy it manually.","error",true)
+  }
+}
 async function api(url,{method="GET",body,keepalive=false}={}){
+  if(window.AnnotatorSession&&AnnotatorSession.writesFrozen()&&method&&method!=="GET"&&url!=="/api/logout"){
+    throw new ApiError("This session can no longer save.",401,{code:"session_replaced"})
+  }
   let response;
   try{response=await fetch(url,{method,headers:body?{"Content-Type":"application/json"}:undefined,body:body?JSON.stringify(body):undefined,keepalive})}
-  catch(error){reportError("network",url+" :: "+error.message);throw new ApiError("Network connection failed. Your last confirmed save is still safe.",0,{})}
+  catch(error){
+    if(window.AnnotatorSession)AnnotatorSession.setNetworkFlag(true);
+    reportError("network",url+" :: "+error.message);throw new ApiError("Network connection failed. Your last confirmed save is still safe.",0,{})
+  }
   let data={};
   try{data=await response.json()}catch(error){throw new ApiError("The server returned an unreadable response.",response.status,{})}
-  if(response.status===401){location.href="/login.html";throw new ApiError("Session expired",401,data)}
+  if(response.status===401||(response.status===403&&data.code==="account_deactivated")){
+    if(window.AnnotatorSession)await AnnotatorSession.handleUnauthorized(data,{hasDirty:hasUnsavedWork()});
+    else location.href="/login.html";
+    throw new ApiError(data.error||"Session expired",response.status,data)
+  }
   if(!response.ok)throw new ApiError(data.error||("Request failed ("+response.status+")"),response.status,data);
   return data
 }
@@ -239,7 +332,13 @@ function formatHoursMinutes(seconds){const total=Math.max(0,Math.round(Number(se
 function formatTime(seconds){const m=Math.floor(seconds/60),s=(seconds%60).toFixed(3);return String(m).padStart(2,"0")+":"+String(s).padStart(6,"0")}
 function formatWave(seconds){return Math.floor(seconds/60)+":"+String(Math.floor(seconds%60)).padStart(2,"0")}
 function parseTime(value){const parts=value.trim().split(":");const result=parts.length===2?Number(parts[0])*60+Number(parts[1]):Number(value);return Number.isFinite(result)?result:null}
-function setBusy(busy){state.submitting=busy;for(const id of ["completeButton","skipButton","saveButton","abandonButton"]){$(id).disabled=busy||state.review}}
+function setBusy(busy){
+  state.submitting=busy;
+  const locked=busy||state.review||state.saveBlocked||(window.AnnotatorSession&&AnnotatorSession.writesFrozen());
+  for(const id of ["completeButton","skipButton","saveButton","abandonButton"]){$(id).disabled=locked}
+  for(const node of document.querySelectorAll("#tablePanel [data-text],#tablePanel [data-time],#tablePanel [data-quality]"))node.disabled=locked;
+  for(const node of document.querySelectorAll("#sceneReviewPanel button,#sceneReviewPanel input,#sceneReviewPanel textarea,#sceneReviewPanel select"))node.disabled=locked||!reviewWriteEnabled();
+}
 function stateView(title,description,actions="",kind=""){$("taskbar").classList.remove("show");$("wavePanel").classList.remove("show");$("tablePanel").innerHTML='<div class="state '+kind+'"><div class="state-inner"><h1>'+escapeHtml(title)+'</h1><p>'+escapeHtml(description)+'</p>'+actions+'</div></div>'}
 function clampFontSize(value){const n=Number(value);return Number.isFinite(n)?Math.min(FONT_MAX,Math.max(FONT_MIN,Math.round(n))):FONT_DEFAULT}
 function applyTranscriptFont(size,persist){
@@ -255,10 +354,115 @@ function loadTranscriptFont(){
   try{stored=clampFontSize(localStorage.getItem(FONT_KEY)||FONT_DEFAULT)}catch(_){stored=FONT_DEFAULT}
   applyTranscriptFont(stored,false)
 }
+async function replayOutbox(username){
+  if(!window.AnnotationOffline)return {replayed:0,terminal:false,failed:false};
+  if(state.outboxReplayPromise)return state.outboxReplayPromise;
+  state.outboxReplayPromise=(async()=>{
+    const outcome={replayed:0,terminal:false,failed:false};
+    const items=await AnnotationOffline.listOutbox(username);
+    for(const item of items){
+      if(!item||!item.route||!item.body)continue;
+      try{
+        const result=await api(item.route,{method:item.method||"POST",body:item.body});
+        const terminal=/\/complete$|\/abandon$/.test(item.route);
+        await AnnotationOffline.confirmOutbox(item.operation_id,{
+          server_revision:result&&result.revision,
+          clear_dirty:true,
+          delete_draft:terminal
+        });
+        outcome.replayed+=1;
+        outcome.terminal=outcome.terminal||terminal;
+        if(state.assignment&&String(state.assignment.task_id)===String(item.task_id)&&typeof result.revision==="number"){
+          state.assignment.revision=result.revision;
+        }
+      }catch(error){
+        outcome.failed=true;
+        await AnnotationOffline.bumpOutboxAttempt(item.operation_id);
+        break;
+      }
+    }
+    return outcome;
+  })();
+  try{return await state.outboxReplayPromise}finally{state.outboxReplayPromise=null}
+}
+async function recoverOutboxAfterOnline(){
+  if(!state.user||(window.AnnotatorSession&&AnnotatorSession.writesFrozen()))return;
+  await persistWorkspaceDraft();
+  const outcome=await replayOutbox(state.user);
+  if(outcome.failed){if(window.AnnotatorSession)AnnotatorSession.setNetworkFlag(true);return}
+  if(outcome.terminal){location.reload();return}
+  if(state.assignment&&nextSaveNeeded()&&!state.saveBlocked){
+    await flushDirty();
+  }
+}
+function showLocalConflict(draft,assignment,reason){
+  state.localConflictDraft=cloneJson(draft);
+  state.saveBlocked=true;
+  clearTimeout(state.saveTimer);clearTimeout(state.draftTimer);setBusy(true);
+  const localRevision=draft&&draft.server_revision;
+  const serverRevision=assignment&&assignment.revision;
+  $("localConflictBody").textContent=reason||("This device has unsaved work from server revision "+localRevision+", while the server is now at revision "+serverRevision+". The local copy has not been applied or overwritten.");
+  $("localConflictText").value=window.AnnotationOffline?AnnotationOffline.exportText(draft):JSON.stringify(draft,null,2);
+  $("localConflictOverlay").classList.add("show");
+  $("localConflictOverlay").setAttribute("aria-hidden","false");
+  $("localConflictCopy").focus();
+}
+async function discardLocalConflict(){
+  const draft=state.localConflictDraft;if(!draft)return;
+  if(!confirm("Discard this device's local draft and pending requests? This cannot be undone."))return;
+  try{
+    await AnnotationOffline.deleteTaskData(draft.username,draft.task_id);
+    state.localConflictDraft=null;
+    $("localConflictOverlay").classList.remove("show");
+    $("localConflictOverlay").setAttribute("aria-hidden","true");
+    location.reload();
+  }catch(error){toast("Could not discard the local draft: "+error.message,"error",true)}
+}
+async function restoreLocalDraft(assignment){
+  if(!window.AnnotationOffline||!assignment)return;
+  const draft=await AnnotationOffline.getWorkingDraft(state.user,assignment.task_id);
+  if(!draft||!Array.isArray(draft.segments)||!draft.segments.length)return;
+  const draftDirty=draft.status==="dirty"||(draft.dirty_segment_ids||[]).length||draft.review_dirty;
+  if(!draftDirty)return;
+  if(String(draft.lease_token)!==String(assignment.lease_token)||String(draft.version_id)!==String(assignment.version_id)){
+    showLocalConflict(draft,assignment,"This device has unsaved work for an earlier assignment lease or version. It has not been applied. Copy it before discarding the local copy.");
+    return;
+  }
+  if(Number(draft.server_revision)!==Number(assignment.revision)){
+    showLocalConflict(draft,assignment);
+    return;
+  }
+  state.segments=draft.segments;
+  if(Object.prototype.hasOwnProperty.call(draft,"scene_review"))state.sceneReview=draft.scene_review;
+  state.reviewDirty=Boolean(draft.review_dirty);
+  (draft.dirty_segment_ids||[]).forEach(id=>{
+    const index=state.segments.findIndex(seg=>String(seg.id)===String(id));
+    if(index>=0)state.dirty.add(index);
+  });
+  renderSegments();
+  if(state.task&&state.task.metadata&&state.sceneReview)renderSceneReviewEditor(state.task.metadata,state.sceneReview);
+  setSaveState("Local draft restored","dirty");
+  toast("Restored unsaved text from this device.");
+  scheduleSave();
+}
 async function initialize(){
   loadTranscriptFont();
   try{
     const me=await api("/api/current-user");state.user=me.user;$("currentUser").textContent=me.user;
+    if(window.AnnotatorSession){
+      AnnotatorSession.configure(me.session,me.user,{
+        persist:persistWorkspaceDraft,
+        hasDirty:hasUnsavedWork,
+        onFrozen:()=>{state.saveBlocked=true;setBusy(true);},
+        onExport:exportLocalDraft,
+        onOnline:recoverOutboxAfterOnline
+      });
+    }
+    if(window.AnnotationOffline){
+      await AnnotationOffline.purgeExpired((me.session||{}).offline_draft_retention_days||7,me.user);
+      const replayed=await replayOutbox(me.user);
+      if(replayed.terminal){location.reload();return}
+    }
     try{
       const scenes=await api("/api/scenes");
       state.features=scenes.features||{};
@@ -288,7 +492,7 @@ async function loadAssignment(){
   try{
     const q=state.nextClaimScene?("?source_scene="+encodeURIComponent(state.nextClaimScene)):"";
     const data=await api("/api/assignment"+q);
-    if(data.assigned){state.assignment=data;loadTask(data,false);return}
+    if(data.assigned){state.assignment=data;loadTask(data,false);await restoreLocalDraft(data);return}
     state.assignment=null;showIdle(data.pool)
   }catch(error){stateView("Could not load your task",error.message,'<button class="btn btn-primary" type="button" onclick="loadAssignment()">Try again</button>',"error")}
 }
@@ -330,9 +534,33 @@ function showIdle(pool,successMessage=""){
   }
 }
 async function claimTask(){
+  if(window.AnnotatorSession&&AnnotatorSession.writesFrozen())return;
   const button=$("claimButton");if(button){button.disabled=true;button.textContent="Claiming task…"}
   try{const body={};if(state.nextClaimScene)body.source_scene=state.nextClaimScene;const data=await api("/api/assignment/claim",{method:"POST",body});state.assignment=data;loadTask(data,false);await refreshDashboard()}
   catch(error){const pool=error.body?.pool;if(pool)showIdle(pool);else stateView("Task claim failed",error.message,'<button class="btn btn-primary" type="button" onclick="claimTask()">Try again</button>',"error")}
+}
+function renderSceneReviewEditor(meta,value){
+  const showMeta=window.AnnotationMetadata&&meta&&metadataUiEnabled();
+  $("sceneReviewPanel").hidden=true;$("sceneReviewPanel").replaceChildren();
+  if(state.review||!showMeta)return;
+  const working=cloneJson(value||meta.draft_review||meta.scene_review||{status:"pending",scene_codes:[],note:""});
+  state.sceneReview=working;
+  $("sceneReviewPanel").hidden=false;
+  AnnotationMetadata.renderReviewControls($("sceneReviewPanel"),{
+    value:working,
+    scenes:state.reviewTaxonomy.length?state.reviewTaxonomy:state.scenes,
+    disabled:!reviewWriteEnabled()||state.saveBlocked,
+    reference:meta.reference_review||null,
+    onChange:(next)=>{
+      if(state.review||state.saveBlocked||!reviewWriteEnabled())return;
+      state.sceneReview=next;
+      state.pendingComplete=null;
+      state.reviewDirty=true;
+      setSaveState("Unsaved","dirty");
+      if(reviewValidation(next).ok)scheduleSave();
+      AnnotationMetadata.renderBanner($("metadataBanner"),currentMetadataView(meta,next));
+    }
+  });
 }
 function loadTask(data,review){
   stopSegmentPlayback(true);state.review=review;state.task=data;state.segments=(data.segments||[]).map(s=>({...s}));state.duration=Number(data.duration||0);state.selected=-1;state.playing=-1;state.dirty.clear();state.saveBlocked=false;clearTimeout(state.saveTimer);
@@ -354,28 +582,11 @@ function loadTask(data,review){
   } else {
     $("metadataBanner").replaceChildren();$("metadataDetails").replaceChildren();
   }
-  $("sceneReviewPanel").hidden=true;$("sceneReviewPanel").replaceChildren();
   if(!review && showMeta){
     const working=cloneJson(meta.draft_review||meta.scene_review||{status:"pending",scene_codes:[],note:""});
-    state.sceneReview=working;
     state.lastSavedReview=working&&working.id?cloneJson(working):null;
-    $("sceneReviewPanel").hidden=false;
-    AnnotationMetadata.renderReviewControls($("sceneReviewPanel"),{
-      value:working,
-      scenes:state.reviewTaxonomy.length?state.reviewTaxonomy:state.scenes,
-      disabled:!reviewWriteEnabled(),
-      reference:meta.reference_review||null,
-      onChange:(value)=>{
-        if(state.review||state.saveBlocked||!reviewWriteEnabled())return;
-        state.sceneReview=value;
-        state.pendingComplete=null;
-        state.reviewDirty=true;
-        setSaveState("Unsaved","dirty");
-        if(reviewValidation(value).ok)scheduleSave();
-        if(showMeta)AnnotationMetadata.renderBanner($("metadataBanner"), currentMetadataView(meta,value));
-      }
-    });
-  }
+    renderSceneReviewEditor(meta,working);
+  }else{$("sceneReviewPanel").hidden=true;$("sceneReviewPanel").replaceChildren()}
   renderSegments();drawWave();setBusy(false)
 }
 function currentMetadataView(meta,working){
@@ -453,9 +664,9 @@ function selectSegment(index){state.selected=index;for(const row of document.que
 function bounds(index){return{min:index?state.segments[index-1].end:0,max:index<state.segments.length-1?state.segments[index+1].start:state.duration}}
 function changeTime(input){const index=Number(input.dataset.index),field=input.dataset.time,seg=state.segments[index],value=parseTime(input.value),b=bounds(index);if(value===null){input.value=formatTime(seg[field]);return}let next=value;if(field==="start")next=Math.max(b.min,Math.min(next,seg.end-.001));else next=Math.min(b.max,Math.max(next,seg.start+.001));seg[field]=Math.round(next*1000)/1000;seg.duration=Math.round((seg.end-seg.start)*1000)/1000;input.value=formatTime(seg[field]);input.closest("tr").querySelector(".duration").textContent=seg.duration.toFixed(1)+" s";if(state.playing===index){$("audio").dataset.stop=String(seg.end);const audio=$("audio");updateSegmentClock(index,Math.min(segmentLength(seg),Math.max(0,audio.currentTime-seg.start)))}else updateSegmentClock(index,0);markDirty(index);drawWave()}
 function segmentPayload(index){const s=state.segments[index];return{id:s.id,start:s.start,end:s.end,duration:s.duration,text:s.text||"",exclude_from_training:Boolean(s.exclude_from_training)}}
-function markDirty(index){if(state.review||state.saveBlocked)return;state.pendingComplete=null;state.dirty.add(index);setSaveState("Unsaved","dirty");scheduleSave()}
-function scheduleSave(){if(state.review||state.saveBlocked)return;clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>flushDirty().catch(()=>{}),3000)}
-function hasUnsavedWork(){return Boolean(state.dirty.size||state.reviewDirty||state.pendingSave||state.savePromise)}
+function markDirty(index){if(state.review||state.saveBlocked||(window.AnnotatorSession&&AnnotatorSession.writesFrozen()))return;state.pendingComplete=null;state.dirty.add(index);setSaveState("Unsaved","dirty");scheduleSave();clearTimeout(state.draftTimer);state.draftTimer=setTimeout(()=>persistWorkspaceDraft().catch(()=>{}),400)}
+function scheduleSave(){if(state.review||state.saveBlocked||(window.AnnotatorSession&&AnnotatorSession.writesFrozen()))return;clearTimeout(state.saveTimer);state.saveTimer=setTimeout(()=>flushDirty().catch(()=>{}),3000)}
+function hasUnsavedWork(){return Boolean(state.dirty.size||state.reviewDirty||state.pendingSave||state.savePromise||state.pendingComplete||state.pendingAbandon||state.localConflictDraft)}
 function nextSaveNeeded(){
   if(state.review||state.saveBlocked||!state.assignment)return false;
   if(state.pendingSave)return true;
@@ -486,16 +697,36 @@ async function flushDirty(){
   }
   const batch=state.pendingSave;
   setSaveState("Saving…","saving");
-  state.savePromise=api("/api/assignment/current",{method:"PATCH",body:cloneJson(batch.body)}).then(result=>{
+  const sendSave=()=>api("/api/assignment/current",{method:"PATCH",body:cloneJson(batch.body)});
+  const writeOutbox=window.AnnotationOffline
+    ? persistWorkspaceDraft().then(()=>AnnotationOffline.putOutbox({
+        operation_id:batch.body.operation_id,
+        username:state.user,
+        task_id:state.assignment.task_id,
+        route:"/api/assignment/current",
+        method:"PATCH",
+        body:cloneJson(batch.body)
+      }))
+    : Promise.resolve();
+  state.savePromise=writeOutbox.then(sendSave).then(async result=>{
     state.assignment.revision=result.revision;
     if(batch.sentReview&&result.scene_review)state.lastSavedReview=cloneJson(result.scene_review);
     state.pendingSave=null;
+    if(window.AnnotationOffline){
+      await AnnotationOffline.confirmOutbox(batch.body.operation_id,{
+        server_revision:result.revision, clear_dirty:true
+      });
+      await persistWorkspaceDraft();
+    }
     setSaveState(nextSaveNeeded()||state.reviewDirty?"Unsaved":"Saved",nextSaveNeeded()||state.reviewDirty?"dirty":"saved");
-  }).catch(error=>{
+  }).catch(async error=>{
     if(error.status===409){
       state.saveBlocked=true;
       setSaveState("Conflict","error");
-      toast("This task changed elsewhere. Reload before editing further.","error",true);
+      await persistWorkspaceDraft().catch(()=>{});
+      const draft=window.AnnotationOffline?await AnnotationOffline.getWorkingDraft(state.user,state.assignment.task_id):null;
+      if(draft)showLocalConflict(draft,{revision:error.body&&error.body.current_revision});
+      else toast("This task changed elsewhere. Reload before editing further.","error",true);
     }else{
       setSaveState("Save failed","error");
       toast(error.message,"error",true);
@@ -527,7 +758,7 @@ async function drainSaves(){
 async function manualSave(){try{await drainSaves();if(!hasUnsavedWork()&&!state.saveBlocked)toast("Draft saved")}catch(_){}}
 function selectedReasons(){return Array.from(document.querySelectorAll(".reason[aria-pressed='true']"),b=>b.dataset.reason)}
 async function submitTask(status){
-  if(state.submitting||state.review||!state.assignment)return;
+  if(state.submitting||state.review||!state.assignment||(window.AnnotatorSession&&AnnotatorSession.writesFrozen()))return;
   const reasons=status==="skipped"?selectedReasons():[];
   if(status==="skipped"&&!reasons.length){toast("Select at least one skip reason.","error");return}
   if(status==="annotated"){const empty=state.segments.filter(s=>!(s.text||"").trim()&&!s.exclude_from_training).map(s=>s.id);if(empty.length){toast("Add text or mark Bad quality for segments: "+empty.join(", "),"error",true);return}}
@@ -541,14 +772,32 @@ async function submitTask(status){
       state.pendingComplete=freezeJson(body);
     }
     const body=cloneJson(state.pendingComplete);
+    if(window.AnnotationOffline){
+      await persistWorkspaceDraft();
+      await AnnotationOffline.putOutbox({
+        operation_id:body.operation_id, username:state.user,
+        task_id:state.assignment.task_id, route:"/api/assignment/current/complete",
+        method:"POST", body:body
+      });
+    }
     let result;
     try{result=await api("/api/assignment/current/complete",{method:"POST",body})}
     catch(firstError){if(firstError.status!==0)throw firstError;await new Promise(resolve=>setTimeout(resolve,1000));result=await api("/api/assignment/current/complete",{method:"POST",body})}
+    if(window.AnnotationOffline){
+      await AnnotationOffline.confirmOutbox(body.operation_id,{delete_draft:true,clear_dirty:true});
+    }
     state.pendingComplete=null;state.dirty.clear();state.reviewDirty=false;state.assignment=null;state.task=null;await refreshDashboard();const current=await api("/api/assignment");showIdle(current.pool,status==="annotated"?"Task completed":"Task skipped");toast(status==="annotated"?"Task completed":"Task skipped")
-  }catch(error){toast(error.message,"error",true);if(error.status===409&&error.body?.conflict==="revision"){state.saveBlocked=true;setSaveState("Conflict","error")}}
+  }catch(error){
+    toast(error.message,"error",true);
+    if(error.status===409&&error.body?.conflict==="revision"){
+      state.saveBlocked=true;setSaveState("Conflict","error");await persistWorkspaceDraft().catch(()=>{});
+      const draft=window.AnnotationOffline?await AnnotationOffline.getWorkingDraft(state.user,state.assignment.task_id):null;
+      if(draft)showLocalConflict(draft,{revision:error.body.current_revision});
+    }else if(error.status===0){state.saveBlocked=true;setSaveState("Waiting for connection","error")}
+  }
   finally{setBusy(false)}
 }
-async function abandonTask(){if(!state.assignment||state.review||state.submitting)return;if(!confirm("Release this task? Your saved draft will remain, but another annotator may claim it."))return;setBusy(true);try{await drainSaves();if(!state.pendingAbandon)state.pendingAbandon={lease_token:state.assignment.lease_token,operation_id:uuid(),confirm:true};const result=await api("/api/assignment/current/abandon",{method:"POST",body:state.pendingAbandon});state.pendingAbandon=null;state.assignment=null;state.task=null;await refreshDashboard();showIdle(result.pool||{reason:"available"});toast("Task released") }catch(error){toast(error.message,"error",true)}finally{setBusy(false)}}
+async function abandonTask(){if(!state.assignment||state.review||state.submitting||(window.AnnotatorSession&&AnnotatorSession.writesFrozen()))return;if(!confirm("Release this task? Your saved draft will remain, but another annotator may claim it."))return;setBusy(true);try{await drainSaves();if(!state.pendingAbandon)state.pendingAbandon=freezeJson({lease_token:state.assignment.lease_token,operation_id:uuid(),confirm:true});if(window.AnnotationOffline){await persistWorkspaceDraft();await AnnotationOffline.putOutbox({operation_id:state.pendingAbandon.operation_id,username:state.user,task_id:state.assignment.task_id,route:"/api/assignment/current/abandon",method:"POST",body:state.pendingAbandon});}const result=await api("/api/assignment/current/abandon",{method:"POST",body:cloneJson(state.pendingAbandon)});if(window.AnnotationOffline){await AnnotationOffline.confirmOutbox(state.pendingAbandon.operation_id,{delete_draft:true,clear_dirty:true});}state.pendingAbandon=null;state.assignment=null;state.task=null;await refreshDashboard();showIdle(result.pool||{reason:"available"});toast("Task released") }catch(error){toast(error.message,"error",true);if(error.status===0){state.saveBlocked=true;setSaveState("Waiting for connection","error")}}finally{setBusy(false)}}
 async function loadHistory(){try{await drainSaves();const data=await api("/api/history/recent?limit=50");state.history=data.items||[];if(!state.history.length){toast("No completed tasks in your history.","error");return}state.historyIndex=0;await showHistoryItem()}catch(error){toast(error.message,"error",true)}}
 async function showHistoryItem(){const item=state.history[state.historyIndex];if(!item)return;try{const detail=await api("/api/completed/"+encodeURIComponent(item.task_id));loadTask(detail,true);$("reviewText").textContent="Viewing "+detail.filename+" ("+(state.historyIndex+1)+" of "+state.history.length+"). Your unfinished task remains reserved.";$("newerHistoryButton").disabled=state.historyIndex===0;$("olderHistoryButton").disabled=state.historyIndex>=state.history.length-1}catch(error){toast(error.message,"error",true)}}
 async function moveHistory(delta){const next=state.historyIndex+delta;if(next<0||next>=state.history.length)return;state.historyIndex=next;await showHistoryItem()}
@@ -594,12 +843,14 @@ for(const button of document.querySelectorAll(".reason"))button.addEventListener
 $("fontDown").addEventListener("click",()=>applyTranscriptFont(state.transcriptSize-FONT_STEP));
 $("fontUp").addEventListener("click",()=>applyTranscriptFont(state.transcriptSize+FONT_STEP));
 $("saveButton").addEventListener("click",manualSave);$("completeButton").addEventListener("click",()=>submitTask("annotated"));$("skipButton").addEventListener("click",()=>submitTask("skipped"));$("abandonButton").addEventListener("click",abandonTask);$("historyButton").addEventListener("click",loadHistory);$("newerHistoryButton").addEventListener("click",()=>moveHistory(-1));$("olderHistoryButton").addEventListener("click",()=>moveHistory(1));$("returnButton").addEventListener("click",returnToTask);
-$("logoutButton").addEventListener("click",async()=>{try{if(hasUnsavedWork()&&!state.saveBlocked)await drainSaves();await api("/api/logout",{method:"POST",body:{}})}catch(_){}location.href="/login.html"});
+$("localConflictCopy").addEventListener("click",()=>exportLocalDraft(state.localConflictDraft));
+$("localConflictDiscard").addEventListener("click",discardLocalConflict);
+$("logoutButton").addEventListener("click",async()=>{try{if(hasUnsavedWork()){await persistWorkspaceDraft();if(!confirm("You still have unsaved local text on this device. Log out anyway? It will not be sent to another device."))return}if(hasUnsavedWork()&&!state.saveBlocked)await drainSaves();await api("/api/logout",{method:"POST",body:{}})}catch(_){}location.href="/login.html"});
 document.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();manualSave()}if((event.ctrlKey||event.metaKey)&&event.key==="Enter"&&!state.review){event.preventDefault();submitTask("annotated")}});
 document.addEventListener("visibilitychange",()=>{if(document.hidden&&hasUnsavedWork()&&!state.saveBlocked)flushDirty().catch(()=>{})});
 window.addEventListener("beforeunload",event=>{if(hasUnsavedWork()){event.preventDefault();event.returnValue=""}});
 window.addEventListener("resize",()=>{if(state.waveform.length)drawWave()});
-setInterval(()=>{fetch("/api/heartbeat").catch(()=>{})},120000);setInterval(()=>{if(!document.hidden)refreshDashboard()},30000);
+setInterval(()=>{if(!document.hidden)refreshDashboard()},30000);
 window.onerror=(message,source,line,column)=>{reportError("js_error",message+" @ "+source+":"+line+":"+column);return false};
 initialize();
 </script>

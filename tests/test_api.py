@@ -188,9 +188,17 @@ def test_completed_privacy_and_reopen_conflict(client, seed_tasks):
 
 def test_same_name_login_conflict(client, database):
     other = server.app.test_client()
-    login(client, "alice")
+    first = login(client, "alice")
+    assert first["session"]["mode"] in {"login", "resume"}
     conflict = other.post("/api/login", json={"username": "alice"})
     assert conflict.status_code == 409
+    body = conflict.json
+    assert body["code"] == "session_active"
+    assert body["takeover_token"]
+    assert body["takeover_token_expires_in"] == 60
+    assert "sid" not in body
+    assert "session_id" not in str(body)
+    assert set(body["active_session"]) == {"last_seen_at", "login_time"}
     client.post("/api/logout", json={})
     assert other.post("/api/login", json={"username": "alice"}).status_code == 200
 
@@ -253,6 +261,160 @@ def test_pages_require_login_and_completed_route(client, database):
     login(client)
     assert client.get("/").status_code == 200
     assert client.get("/completed.html").status_code == 200
+    assert client.get("/login.html").status_code == 302
+
+
+def test_login_resume_and_stale_takeover_contract(client, database):
+    first = login(client, "alice")
+    assert first["success"] is True
+    assert first["session"]["mode"] == "login"
+    assert first["session"]["idle_expires_at"]
+    assert first["session"]["absolute_expires_at"]
+    resumed = login(client, "alice")
+    assert resumed["session"]["mode"] == "resume"
+
+    other = server.app.test_client()
+    import db
+    with db.db_conn() as conn:
+        conn.execute(
+            "UPDATE active_sessions SET last_seen_at = now() - interval '200 seconds'"
+        )
+        conn.commit()
+    stale = other.post("/api/login", json={"username": "alice"})
+    assert stale.status_code == 200
+    assert stale.json["session"]["mode"] == "stale_takeover"
+    rejected = client.get("/api/current-user")
+    assert rejected.status_code == 401
+    assert rejected.json["code"] == "session_replaced"
+    assert "reason=session_replaced" in rejected.json["redirect"]
+
+
+def test_forced_takeover_api_and_old_client_replaced(client, seed_tasks):
+    seed_tasks(1)
+    login(client, "alice")
+    claimed = client.post("/api/assignment/claim", json={})
+    assert claimed.status_code == 200
+    task_id = claimed.json["task_id"]
+    token = claimed.json["lease_token"]
+    other = server.app.test_client()
+    conflict = other.post("/api/login", json={"username": "alice"})
+    assert conflict.status_code == 409
+    taken = other.post("/api/login/takeover", json={
+        "username": "alice",
+        "takeover_token": conflict.json["takeover_token"],
+    })
+    assert taken.status_code == 200
+    assert taken.json["session"]["mode"] == "forced_takeover"
+    replaced = client.get("/api/assignment")
+    assert replaced.status_code == 401
+    assert replaced.json["code"] == "session_replaced"
+    resumed = other.get("/api/assignment")
+    assert resumed.status_code == 200
+    assert resumed.json["task_id"] == task_id
+    assert resumed.json["lease_token"] == token
+    replay = other.post("/api/login/takeover", json={
+        "username": "alice",
+        "takeover_token": conflict.json["takeover_token"],
+    })
+    assert replay.status_code == 409
+    assert replay.json["code"] == "session_changed"
+
+
+def test_takeover_token_tamper_user_mismatch_and_expiry(client, database, monkeypatch):
+    login(client, "alice")
+    other = server.app.test_client()
+    conflict = other.post("/api/login", json={"username": "alice"})
+    token = conflict.json["takeover_token"]
+    tampered = other.post("/api/login/takeover", json={
+        "username": "alice",
+        "takeover_token": token + "ab",
+    })
+    assert tampered.status_code == 400
+    mismatch = other.post("/api/login/takeover", json={
+        "username": "bob",
+        "takeover_token": token,
+    })
+    assert mismatch.status_code == 400
+    import time
+    monkeypatch.setitem(server.app.config, "SESSION_TAKEOVER_TOKEN_SECONDS", 1)
+    time.sleep(2.2)
+    response = other.post("/api/login/takeover", json={
+        "username": "alice",
+        "takeover_token": token,
+    })
+    assert response.status_code == 400
+    assert response.json["code"] == "takeover_token_expired"
+
+
+def test_idle_and_absolute_api_codes(client, database):
+    login(client, "alice")
+    import db
+    with db.db_conn() as conn:
+        conn.execute(
+            """UPDATE active_sessions
+                  SET expires_at = now() - interval '1 second',
+                      absolute_expires_at = now() + interval '20 hours'"""
+        )
+        conn.commit()
+    idle = client.get("/api/current-user")
+    assert idle.status_code == 401
+    assert idle.json["code"] == "idle_timeout"
+    login(client, "alice")
+    with db.db_conn() as conn:
+        conn.execute(
+            """UPDATE active_sessions
+                  SET absolute_expires_at = now() - interval '1 second',
+                      expires_at = now() - interval '1 second'"""
+        )
+        conn.commit()
+    absolute = client.get("/api/current-user")
+    assert absolute.status_code == 401
+    assert absolute.json["code"] == "absolute_timeout"
+    page = client.get("/")
+    assert page.status_code == 302
+    assert "reason=absolute_timeout" in page.headers["Location"]
+
+
+def test_get_heartbeat_is_presence_only_and_post_can_extend_idle(client, database):
+    login(client, "alice")
+    import db
+    with db.db_conn() as conn:
+        conn.execute(
+            """UPDATE active_sessions
+                  SET last_seen_at = now() - interval '20 seconds',
+                      last_activity_at = now() - interval '45 seconds',
+                      expires_at = now() + interval '5 minutes'"""
+        )
+        before = conn.execute(
+            "SELECT expires_at FROM active_sessions"
+        ).fetchone()[0]
+        conn.commit()
+    legacy = client.get("/api/heartbeat")
+    assert legacy.status_code == 200
+    assert legacy.headers.get("Deprecation") == "true"
+    with db.db_conn() as conn:
+        after_get = conn.execute("SELECT expires_at FROM active_sessions").fetchone()[0]
+    assert after_get == before
+    posted = client.post("/api/session/heartbeat", json={"activity": True})
+    assert posted.status_code == 200
+    assert posted.json["idle_expires_at"]
+    assert posted.json["absolute_expires_at"]
+    with db.db_conn() as conn:
+        after_post = conn.execute("SELECT expires_at FROM active_sessions").fetchone()[0]
+    assert after_post > before
+
+
+def test_current_user_is_client_config_source(client, database):
+    login(client, "alice")
+    me = client.get("/api/current-user")
+    assert me.status_code == 200
+    session = me.json["session"]
+    assert session["heartbeat_seconds"] == 30
+    assert session["idle_warning_seconds"] == 120
+    assert session["offline_draft_retention_days"] == 7
+    assert "sid" not in session
+    assert "generation" not in session
+    assert "takeover" not in str(session).lower()
 
 
 def test_query_validation_and_abandon_returns_pool(client, seed_tasks):

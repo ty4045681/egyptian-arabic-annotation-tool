@@ -9,13 +9,15 @@
 | VAD + ASR 预处理 | Silero VAD 自动断句，DashScope Qwen3.5-Omni 阿拉伯语预转写 |
 | PostgreSQL 状态 | 任务、segments、波形、assignment、session、历史和修订统一事务管理 |
 | 原子领取 | `FOR UPDATE SKIP LOCKED` + 唯一约束；同一任务最多一人、同一用户最多一条 |
-| 强制续领 | 刷新、Logout、会话超时、重新登录和服务重启后仍恢复同一未完成任务 |
+| 强制续领 | 刷新、Logout、会话超时、重新登录、会话接管和服务重启后仍恢复同一未完成任务 |
+| 会话接管 | 失联设备可被自动替换；仍在线设备需确认后立即接管。旧会话不能再写入 |
 | 串行自动保存 | 当前任务只允许一个在途保存；revision 防陈旧覆盖；operation ID 支持安全重试 |
 | 原子完成/跳过 | 最后修改、状态、历史和 assignment 释放在一个数据库事务中提交 |
 | 历史浏览 | Previous completed / Newer / Older 只读浏览，不释放当前任务 |
 | 本人完成页 | 搜索、筛选、分页、只读详情；无未完成任务时可创建纠正草稿 |
 | 版本化纠正 | 新草稿不影响当前 published 版本；提交后原子发布，放弃不改变原版本 |
 | 直观时长 | 排行榜累计时长统一为 `xx h xx min` |
+| 登录页速度图 | 最近 28 个自然日的新增有效标注音频时长（小时），外加四段七日平均虚线 |
 | 音频代理 | Flask 鉴权，Nginx `X-Accel-Redirect`/sendfile 处理 Range |
 | Admin 控制台 | 独立密钥/Session/CSRF、全局 Dashboard、质量信号、审计与任务管理 |
 | 安全撤销/停用 | 不删除历史；原子撤销当前版本、重建 baseline draft、回收任务并阻止原提交者重领 |
@@ -51,7 +53,9 @@ classify.py                 从 PostgreSQL 分类并更新 category
 export.py                   从 PostgreSQL 导出 Excel
 index.html                  标注操作台
 completed.html              本人完成/跳过页面
-login.html                  登录页和排行榜
+login.html                  登录页、28 日速度图和排行榜
+static/login-dashboard.js    登录页图表与排行榜（Chart.js）
+static/vendor/               固定版本 Chart.js / annotation 插件（无 CDN）
 admin.html/css/js           独立 Admin Dashboard 与管理交互
 deploy/                     Nginx、备份、systemd、PostgreSQL 配置模板
 tests/                      PostgreSQL/API/迁移/并发自动化测试
@@ -97,6 +101,13 @@ uv run gunicorn -c gunicorn_config.py server:app
   "audio_accel_prefix": "/_protected_audio",
   "secret_key": "随机 64 位十六进制字符串",
   "session_timeout_minutes": 30,
+  "session_absolute_timeout_hours": 20,
+  "session_presence_heartbeat_seconds": 30,
+  "session_presence_lease_seconds": 150,
+  "session_takeover_token_seconds": 60,
+  "session_activity_throttle_seconds": 30,
+  "offline_draft_retention_days": 7,
+  "public_dashboard_timezone": "Asia/Shanghai",
   "vad": {},
   "asr": {}
 }
@@ -234,11 +245,27 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python \
 
 产物：`results.json`、`samples.jsonl`、`dataset.json`、`explain-*.json`。
 
-测试通过范围包括：并发领取、同名登录竞态、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、管理员来源筛选/统计、场景范围锁顺序、baseline 回填、JSON round-trip、Excel 和音频 Range、元数据导出/导入、dump/restore、Playwright 场景流程。
+测试通过范围包括：并发领取、同名登录竞态、会话接管与写入栅栏、revision/operation ID、Logout 后续领、完成/跳过、本人完成页权限、纠正草稿、Admin 鉴权/CSRF、批量撤销原子性、停用回收、并发管理操作、管理员来源筛选/统计、场景范围锁顺序、baseline 回填、JSON round-trip、Excel 和音频 Range、元数据导出/导入、dump/restore、Playwright 场景流程与会话接管。
+
+## 登录页统计口径
+
+公开 `GET /api/leaderboard` 仍返回原有 `leaderboard`，并增加 `annotation_speed`。该接口无需登录，只返回聚合结果，不含任务、事件或内部用户 ID。浏览器使用 `Cache-Control: no-cache, must-revalidate` 且登录页 `fetch(..., { cache: "no-store" })`，每 60 秒强制重新验证；源站用 60 秒进程内 TTL 合并查询，不依赖 Nginx `proxy_cache`。
+
+速度图统计的是**当前仍然有效**的 `annotated` 任务音频时长（`annotation_tasks.duration`），按当前 published 版本的 `submitted_at` 在 `public_dashboard_timezone`（IANA 名称，默认 `Asia/Shanghai`）下的日历日分桶。`skipped`、已撤销、以及已被新版本取代的记录不计入；重新标注只计入新的当前版本及其提交日期。后端完成分桶，浏览器不得再用本地时区换算。没有标注的日期补零；今天标记为 `is_partial`。28 天按数组顺序分成四组，每组七日平均值是七天时长之和除以 7（零值日也参与分母）。非法时区会在进程启动时失败，不会静默回退。
+
+图表由仓库内固定版本的 Chart.js 4.5.1 与 chartjs-plugin-annotation 3.1.0 绘制（见 `static/vendor/README.md` 的来源、MIT License 和 SHA-256）。运行时不访问 CDN。选择性窗口上的 `EXPLAIN` 必须使用 `007_annotation_speed_indexes.sql` 的两个部分索引；健康检查 schema 版本为 `[1, 2, 3, 4, 5, 6, 7]`。
+
+## 标注员会话
+
+同一用户名同一时间只有一个可写入的网页会话。浏览器每 30 秒报告在线状态；150 秒没有心跳即可在新设备自动接管。仍在线的会话需要明确确认后才能立即接管，不必等待 30 分钟。30 分钟无真实操作会空闲退出；从登录或接管起最多 20 小时，不因心跳或操作延长。被动心跳、排行榜轮询不能续期空闲期限。
+
+接管、退出或会话过期都不释放未完成任务。新设备恢复原 assignment、草稿、revision 和 lease token。原设备未得到服务器确认的编辑只保存在该浏览器的 IndexedDB 中，默认保留 7 天；新设备只能看到服务器已经确认的内容。
+
+用户名登录不是身份认证。任何知道该用户名的人都可以尝试强制接管并查看该用户可见的数据。接管确认令牌只防止盲目重放和并发误踢，不能证明现实身份。
 
 ## 标注工作流
 
-1. 输入固定用户名登录。
+1. 输入固定用户名登录。若该名字仍在另一设备在线，需要确认后才能继续。
 2. 有未完成任务时自动恢复；没有任务时点击 **Claim next task**。
 3. 编辑文本、时间和 Bad quality。修改停止 3 秒后合并自动保存。
 4. 点击 **Mark done**，或选择一个/多个 skip reason 后点击 **Skip task**。

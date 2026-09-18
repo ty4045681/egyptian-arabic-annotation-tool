@@ -18,7 +18,7 @@ def test_nonmatching_reserved_task_does_not_block_matching_unreserved_task(seed_
             conn.execute("UPDATE annotator_scene_scopes SET mode='restricted',allow_unknown=false WHERE user_id=%s", (uid,))
             conn.execute("INSERT INTO annotator_scene_access(user_id,scene_code) VALUES(%s,'airport')", (uid,))
     filters = {'source_scene': 'airport'} if restriction == 'scene' else {'source_confidence': 'high'} if restriction == 'confidence' else {}
-    assignment = repo.claim(uid, **filters)
+    assignment = repo.claim(repo.load_session_fence(uid), **filters)
     assert assignment['task_id'] == matching
     with db.db_conn() as conn:
         assert str(conn.execute('SELECT reserved_for_user_id FROM annotation_tasks WHERE id=%s', (reserved,)).fetchone()[0]) == str(uid)

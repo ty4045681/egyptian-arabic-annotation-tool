@@ -49,10 +49,10 @@ def test_excel_includes_source_and_human_columns(database, seed_tasks, tmp_path)
 def test_training_exporter_cli_writes_audio_level_sidecar(database, seed_tasks, tmp_path):
     task_id = seed_tasks(1, duration=12.0)[0]
     user, _ = make_user("trainer")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     assert assignment["task_id"] == task_id
     repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         full_segments(assignment, "train"), str(__import__("uuid").uuid4()), "train-complete",
         scene_review={"status": "confirmed", "scene_codes": ["restaurant"]},
     )

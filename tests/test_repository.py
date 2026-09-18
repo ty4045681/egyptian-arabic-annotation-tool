@@ -24,13 +24,14 @@ def full_segments(assignment, prefix="text"):
 
 def make_user(name):
     sid = str(uuid.uuid4())
-    return repo.login(name, sid, 1800), sid
+    user = repo.login(name, sid, 1800)
+    return user, sid
 
 
 def test_claim_save_complete_and_resume(database, seed_tasks):
     seed_tasks(2)
     user, sid = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     resumed = repo.get_assignment(user["id"])
     assert resumed["task_id"] == assignment["task_id"]
     assert resumed["lease_token"] == assignment["lease_token"]
@@ -39,68 +40,70 @@ def test_claim_save_complete_and_resume(database, seed_tasks):
     segments = full_segments(assignment)
     body = {"segments": segments, "expected_revision": 0}
     req_hash = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
-    saved = repo.save_draft(user["id"], assignment["lease_token"], 0,
+    saved = repo.save_draft(user["fence"], assignment["lease_token"], 0,
                             segments, op, req_hash)
     assert saved["revision"] == 1
-    replay = repo.save_draft(user["id"], assignment["lease_token"], 0,
+    replay = repo.save_draft(user["fence"], assignment["lease_token"], 0,
                              segments, op, req_hash)
     assert replay == saved
     with pytest.raises(repo.ConflictError):
-        repo.save_draft(user["id"], assignment["lease_token"], 0,
+        repo.save_draft(user["fence"], assignment["lease_token"], 0,
                         segments, op, "different")
 
     repo.logout("alice", sid)
     assert repo.get_assignment(user["id"])["task_id"] == assignment["task_id"]
+    user = repo.login("alice", str(uuid.uuid4()), 1800)
 
     complete_op = str(uuid.uuid4())
-    result = repo.complete(user["id"], assignment["lease_token"], 1,
+    result = repo.complete(user["fence"], assignment["lease_token"], 1,
                            "annotated", [], segments, complete_op, "complete-hash")
     assert result["status"] == "annotated"
     assert repo.get_assignment(user["id"]) is None
-    replay = repo.complete(user["id"], assignment["lease_token"], 1,
+    replay = repo.complete(user["fence"], assignment["lease_token"], 1,
                            "annotated", [], segments, complete_op, "complete-hash")
     assert replay["idempotent_replay"]
     assert repo.dashboard()["stats"] == {
         "total": 2, "annotated": 1, "skipped": 0,
         "pending": 1, "percent_complete": 50.0,
+        "annotated_duration_seconds": 10.0,
     }
 
 
 def test_revision_conflict_and_segment_validation(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     segments = full_segments(assignment)
-    saved = repo.save_draft(user["id"], assignment["lease_token"], 0,
+    saved = repo.save_draft(user["fence"], assignment["lease_token"], 0,
                             segments, str(uuid.uuid4()), "h1")
     assert saved["revision"] == 1
     with pytest.raises(repo.RevisionConflict) as conflict:
-        repo.save_draft(user["id"], assignment["lease_token"], 0,
+        repo.save_draft(user["fence"], assignment["lease_token"], 0,
                         segments, str(uuid.uuid4()), "h2")
     assert conflict.value.current_revision == 1
 
     invented = [dict(segments[0], id=999)]
     with pytest.raises(repo.ValidationError, match="does not exist"):
-        repo.save_draft(user["id"], assignment["lease_token"], 1,
+        repo.save_draft(user["fence"], assignment["lease_token"], 1,
                         invented, str(uuid.uuid4()), "h3")
 
     overlap = [dict(segments[1], start=4.0)]
     with pytest.raises(repo.ValidationError, match="overlaps"):
-        repo.complete(user["id"], assignment["lease_token"], 1,
+        repo.complete(user["fence"], assignment["lease_token"], 1,
                       "annotated", [], overlap, str(uuid.uuid4()), "h4")
 
 
 def test_complete_requires_text_or_bad_quality(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     segments = full_segments(assignment)
     segments[0]["text"] = ""
     with pytest.raises(repo.ValidationError, match="without text"):
-        repo.complete(user["id"], assignment["lease_token"], 0,
+        repo.complete(user["fence"], assignment["lease_token"], 0,
                       "annotated", [], segments, str(uuid.uuid4()), "h")
     segments[0]["exclude_from_training"] = True
-    result = repo.complete(user["id"], assignment["lease_token"], 0,
+    result = repo.complete(user["fence"], assignment["lease_token"], 0,
                            "annotated", [], segments, str(uuid.uuid4()), "h2")
     assert result["success"]
 
@@ -108,14 +111,14 @@ def test_complete_requires_text_or_bad_quality(database, seed_tasks):
 def test_skip_requires_valid_reason(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     with pytest.raises(repo.ValidationError):
-        repo.complete(user["id"], assignment["lease_token"], 0,
+        repo.complete(user["fence"], assignment["lease_token"], 0,
                       "skipped", [], [], str(uuid.uuid4()), "h")
     with pytest.raises(repo.ValidationError):
-        repo.complete(user["id"], assignment["lease_token"], 0,
+        repo.complete(user["fence"], assignment["lease_token"], 0,
                       "skipped", ["other"], [], str(uuid.uuid4()), "h2")
-    result = repo.complete(user["id"], assignment["lease_token"], 0,
+    result = repo.complete(user["fence"], assignment["lease_token"], 0,
                            "skipped", ["noisy"], [], str(uuid.uuid4()), "h3")
     assert result["status"] == "skipped"
 
@@ -123,9 +126,9 @@ def test_skip_requires_valid_reason(database, seed_tasks):
 def test_completed_privacy_and_revision_draft(database, seed_tasks):
     seed_tasks(2)
     alice, _ = make_user("alice")
-    assignment = repo.claim(alice["id"])
+    assignment = repo.claim(alice["fence"])
     segments = full_segments(assignment, "alice")
-    repo.complete(alice["id"], assignment["lease_token"], 0,
+    repo.complete(alice["fence"], assignment["lease_token"], 0,
                   "annotated", [], segments, str(uuid.uuid4()), "h")
 
     bob, _ = make_user("bob")
@@ -133,19 +136,19 @@ def test_completed_privacy_and_revision_draft(database, seed_tasks):
     with pytest.raises(repo.ForbiddenError):
         repo.completed_detail(bob["id"], assignment["task_id"])
     with pytest.raises(repo.ForbiddenError):
-        repo.reopen_completed(bob["id"], assignment["task_id"], str(uuid.uuid4()))
+        repo.reopen_completed(bob["fence"], assignment["task_id"], str(uuid.uuid4()))
 
-    reopened = repo.reopen_completed(alice["id"], assignment["task_id"], str(uuid.uuid4()))
+    reopened = repo.reopen_completed(alice["fence"], assignment["task_id"], str(uuid.uuid4()))
     assert reopened["mode"] == "revision"
     with pytest.raises(repo.ConflictError):
-        repo.reopen_completed(alice["id"], assignment["task_id"], str(uuid.uuid4()))
+        repo.reopen_completed(alice["fence"], assignment["task_id"], str(uuid.uuid4()))
     draft = repo.get_assignment(alice["id"])
     changed = full_segments(draft, "corrected")
-    repo.save_draft(alice["id"], draft["lease_token"], 0, changed,
+    repo.save_draft(alice["fence"], draft["lease_token"], 0, changed,
                     str(uuid.uuid4()), "save")
     published = repo.completed_detail(alice["id"], assignment["task_id"])
     assert published["segments"][0]["text"] == "alice 1"
-    repo.abandon(alice["id"], draft["lease_token"], str(uuid.uuid4()), True)
+    repo.abandon(alice["fence"], draft["lease_token"], str(uuid.uuid4()), True)
     published = repo.completed_detail(alice["id"], assignment["task_id"])
     assert published["segments"][0]["text"] == "alice 1"
 
@@ -158,7 +161,7 @@ def test_concurrent_claims_are_unique(database, seed_tasks):
 
     def claim_one(user):
         barrier.wait(timeout=10)
-        return repo.claim(user["id"])["task_id"]
+        return repo.claim(user["fence"])["task_id"]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
         task_ids = list(executor.map(claim_one, users))
@@ -174,7 +177,7 @@ def test_same_user_concurrent_claim_is_idempotent(database, seed_tasks):
 
     def claim():
         barrier.wait(timeout=10)
-        return repo.claim(user["id"])["task_id"]
+        return repo.claim(user["fence"])["task_id"]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         ids = list(executor.map(lambda _: claim(), range(2)))
@@ -217,16 +220,16 @@ def test_pool_state_respects_user_reservations(database, seed_tasks):
     assert bob_state["available"] == 0
     assert bob_state["reason"] == "temporarily_all_assigned"
     with pytest.raises(repo.NoTaskAvailable):
-        repo.claim(bob["id"])
+        repo.claim(bob["fence"])
 
-    assert repo.claim(alice["id"])["task_id"] == task_id
+    assert repo.claim(alice["fence"])["task_id"] == task_id
 
 
 def test_pool_state_reports_all_tasks_assigned_for_another_user(database, seed_tasks):
     seed_tasks(1)
     alice, _ = make_user("alice")
     bob, _ = make_user("bob")
-    repo.claim(alice["id"])
+    repo.claim(alice["fence"])
 
     state = repo.pool_state(bob["id"])
     assert state["pending"] == 1
@@ -234,7 +237,7 @@ def test_pool_state_reports_all_tasks_assigned_for_another_user(database, seed_t
     assert state["available"] == 0
     assert state["reason"] == "temporarily_all_assigned"
     with pytest.raises(repo.NoTaskAvailable):
-        repo.claim(bob["id"])
+        repo.claim(bob["fence"])
 
 
 def test_pool_state_excludes_pending_task_without_draft(database, seed_tasks):
@@ -254,7 +257,7 @@ def test_pool_state_excludes_pending_task_without_draft(database, seed_tasks):
     assert state["pending"] == 1
     assert state["available"] == 0
     with pytest.raises(repo.NoTaskAvailable):
-        repo.claim(user["id"])
+        repo.claim(user["fence"])
 
 
 def test_claim_distinguishes_temporarily_locked_pool(database, seed_tasks):
@@ -268,25 +271,25 @@ def test_claim_distinguishes_temporarily_locked_pool(database, seed_tasks):
             (task_id,),
         )
         with pytest.raises(repo.TaskPoolBusy):
-            repo.claim(user["id"])
+            repo.claim(user["fence"])
 
 
 def test_abandon_and_reopen_are_idempotent(database, seed_tasks):
     seed_tasks(2)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     op = str(uuid.uuid4())
-    first = repo.abandon(user["id"], assignment["lease_token"], op, True)
-    replay = repo.abandon(user["id"], assignment["lease_token"], op, True)
+    first = repo.abandon(user["fence"], assignment["lease_token"], op, True)
+    replay = repo.abandon(user["fence"], assignment["lease_token"], op, True)
     assert first["success"] and replay["idempotent_replay"]
 
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     segments = full_segments(assignment)
-    repo.complete(user["id"], assignment["lease_token"], 0,
+    repo.complete(user["fence"], assignment["lease_token"], 0,
                   "annotated", [], segments, str(uuid.uuid4()), "complete")
     reopen_op = str(uuid.uuid4())
-    opened = repo.reopen_completed(user["id"], assignment["task_id"], reopen_op)
-    reopened = repo.reopen_completed(user["id"], assignment["task_id"], reopen_op)
+    opened = repo.reopen_completed(user["fence"], assignment["task_id"], reopen_op)
+    reopened = repo.reopen_completed(user["fence"], assignment["task_id"], reopen_op)
     assert opened["lease_token"] == reopened["lease_token"]
     assert reopened["idempotent_replay"]
 
@@ -294,8 +297,8 @@ def test_abandon_and_reopen_are_idempotent(database, seed_tasks):
 def test_concurrent_reopen_same_operation_is_idempotent(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
-    repo.complete(user["id"], assignment["lease_token"], 0,
+    assignment = repo.claim(user["fence"])
+    repo.complete(user["fence"], assignment["lease_token"], 0,
                   "annotated", [], full_segments(assignment),
                   str(uuid.uuid4()), "complete")
     operation = str(uuid.uuid4())
@@ -303,7 +306,7 @@ def test_concurrent_reopen_same_operation_is_idempotent(database, seed_tasks):
 
     def reopen():
         barrier.wait(timeout=10)
-        return repo.reopen_completed(user["id"], assignment["task_id"], operation)
+        return repo.reopen_completed(user["fence"], assignment["task_id"], operation)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(lambda _: reopen(), range(2)))
@@ -314,10 +317,10 @@ def test_concurrent_reopen_same_operation_is_idempotent(database, seed_tasks):
 def test_nan_time_is_rejected(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     bad = [dict(full_segments(assignment)[0], start=float("nan"))]
     with pytest.raises(repo.ValidationError):
-        repo.save_draft(user["id"], assignment["lease_token"], 0, bad,
+        repo.save_draft(user["fence"], assignment["lease_token"], 0, bad,
                         str(uuid.uuid4()), "nan")
 
 
@@ -328,13 +331,13 @@ def test_admin_release_abandons_revision_draft(database, seed_tasks):
 
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     repo.complete(
-        user["id"], assignment["lease_token"], 0,
+        user["fence"], assignment["lease_token"], 0,
         "annotated", [], full_segments(assignment),
         str(uuid.uuid4()), "complete",
     )
-    repo.reopen_completed(user["id"], assignment["task_id"], str(uuid.uuid4()))
+    repo.reopen_completed(user["fence"], assignment["task_id"], str(uuid.uuid4()))
     draft = repo.get_assignment(user["id"])
     command_release(argparse.Namespace(username="alice", reason="stuck browser"))
     assert repo.get_assignment(user["id"]) is None
@@ -361,7 +364,7 @@ def test_login_same_name_is_atomic(database):
         try:
             repo.login("same-name", str(uuid.uuid4()), 1800)
             return "ok"
-        except repo.ConflictError:
+        except repo.ActiveSessionConflict:
             return "conflict"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:

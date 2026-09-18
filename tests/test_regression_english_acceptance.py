@@ -60,7 +60,7 @@ def test_source_fallback_uses_same_evidence_and_unique_groups(seed_tasks, source
     assert repo.admin_tasks(cross_evidence)['matched_count'] == 0
     assert repo.admin_overview(cross_evidence)['totals']['total_audio_count'] == 0
     assert repo.pool_state(user('cross-evidence'), **cross_evidence)['available'] == 0
-    claimed = repo.claim(user('priority-' + source_filter), source_scene=source_filter)
+    claimed = repo.claim(repo.load_session_fence(user('priority-' + source_filter)), source_scene=source_filter)
     assert claimed['task_id'] == tasks[2]
     metadata = claimed['metadata']
     assert metadata['claim_context']['scene_code'] == 'spoken_languages'
@@ -97,7 +97,7 @@ def test_spoken_scope_includes_fallback_and_can_be_revoked(seed_tasks, legacy_pe
     assert {r['scene_code'] for r in pool['by_scene']} == {'airport'}
     with pytest.raises(repo.ForbiddenError):
         repo.pool_state(annotator['id'], source_scene='spoken_languages')
-    claimed = repo.claim(annotator['id'])
+    claimed = repo.claim(annotator['fence'])
     assert claimed['metadata']['claim_context']['scene_code'] == 'airport'
 
 
@@ -119,7 +119,7 @@ def test_existing_explicit_spoken_prediction_is_filterable_without_rewriting_his
             "VALUES(%s,'english-legacy-model','fixture-model','Spoken languages',NULL)", (task,))
     assert repo.admin_tasks({'prediction_scene': 'spoken_languages'})['matched_count'] == 1
     assert repo.admin_tasks({'prediction_scene': 'unknown'})['matched_count'] == 0
-    metadata = repo.claim(user('legacy-spoken-model'))['metadata']
+    metadata = repo.claim(repo.load_session_fence(user('legacy-spoken-model')))['metadata']
     assert metadata['prediction']['predicted_label'] == 'Spoken languages'
     assert metadata['scene_review']['scene_codes'] == []
     with db.db_conn() as conn:

@@ -27,11 +27,11 @@ def test_feature_flags_keep_scope_when_fifo(database, seed_tasks, monkeypatch):
     monkeypatch.setenv("ANNOTATION_METADATA_UI", "0")
     seed_tasks(1)
     user = repo.login("flag-user", str(uuid.uuid4()), 1800)
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     assert assignment["assigned"] is True
     with pytest.raises(repo.ForbiddenError):
         repo.save_draft(
-            user["id"], assignment["lease_token"], 0, [],
+            user["fence"], assignment["lease_token"], 0, [],
             str(uuid.uuid4()), "h",
             scene_review={"status": "confirmed", "scene_codes": ["airport"]},
         )
@@ -42,9 +42,9 @@ def test_metadata_export_round_trip(database, seed_tasks, tmp_path):
     import annotation_repository as repo
     seed_tasks(1)
     user = repo.login("exp", str(uuid.uuid4()), 1800)
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         [{"id": seg["id"], "start": seg["start"], "end": seg["end"],
           "duration": seg["duration"], "text": "t", "exclude_from_training": False}
          for seg in assignment["segments"]],
@@ -78,7 +78,8 @@ def test_003_file_does_not_include_spoken_languages():
     assert third.count("INSERT INTO scenes") == 1
     assert "spoken_languages" in fifth
     for name in ("001_initial.sql", "002_admin.sql", "003_scene_provenance.sql",
-                 "004_claim_capacity.sql"):
+                 "004_claim_capacity.sql", "006_session_takeover.sql",
+                 "007_annotation_speed_indexes.sql"):
         assert (root / name).is_file()
 
 
@@ -136,7 +137,7 @@ def test_005_is_idempotent_and_preserves_null_source_rows(database, seed_tasks):
         assert after[1] == {"keep": "raw"}
         assert after[2] == "d" * 64
         assert pred_after == pred_before == (None, "Spoken languages")
-        assert db.applied_versions(conn) == db.expected_versions() == [1, 2, 3, 4, 5]
+        assert db.applied_versions(conn) == db.expected_versions() == [1, 2, 3, 4, 5, 6, 7]
 
 
 def test_005_applies_after_004_without_rewriting_prior_migrations(
@@ -175,7 +176,7 @@ def test_005_applies_after_004_without_rewriting_prior_migrations(
                 row[0] for row in conn.execute("SELECT code FROM scenes").fetchall()
             }
             newly = db.apply_migrations(conn)
-            assert newly == [5]
+            assert newly == [5, 6, 7]
             rows = conn.execute(
                 "SELECT code, label_en FROM scenes ORDER BY sort_order, code"
             ).fetchall()
@@ -191,3 +192,74 @@ def test_005_applies_after_004_without_rewriting_prior_migrations(
                 (name,),
             )
             conn.execute(f'DROP DATABASE "{name}"')
+
+
+def test_006_adds_session_columns_and_old_insert_shape_still_works(database):
+    import annotation_repository as repo
+
+    with db.db_conn() as conn:
+        assert db.applied_versions(conn) == [1, 2, 3, 4, 5, 6, 7]
+        columns = {
+            row[0]
+            for row in conn.execute(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_name = 'active_sessions'"""
+            ).fetchall()
+        }
+        assert {
+            "generation", "last_activity_at", "absolute_expires_at", "expires_at",
+        }.issubset(columns)
+        checks = {
+            row[0]
+            for row in conn.execute(
+                """SELECT conname FROM pg_constraint
+                   WHERE conrelid = 'active_sessions'::regclass"""
+            ).fetchall()
+        }
+        assert "active_sessions_generation_positive" in checks
+        # Same-schema rollback: old code inserts without the new columns.
+        with conn.cursor() as cur:
+            user = repo.ensure_user(cur, "legacy-insert")
+        conn.execute("DELETE FROM active_sessions WHERE user_id = %s", (user["id"],))
+        conn.execute(
+            """INSERT INTO active_sessions
+                   (user_id, session_id, login_time, last_seen_at, expires_at)
+               VALUES (%s, %s, now(), now(), now() + interval '30 minutes')""",
+            (user["id"], uuid.uuid4()),
+        )
+        row = conn.execute(
+            """SELECT generation, last_activity_at, absolute_expires_at
+               FROM active_sessions WHERE user_id = %s""",
+            (user["id"],),
+        ).fetchone()
+        assert int(row[0]) == 1
+        assert row[1] is not None
+        assert row[2] is not None
+        conn.commit()
+
+
+def test_007_adds_annotation_speed_indexes(database):
+    with db.db_conn() as conn:
+        assert db.applied_versions(conn) == db.expected_versions() == [
+            1, 2, 3, 4, 5, 6, 7,
+        ]
+        names = {
+            row[0]
+            for row in conn.execute(
+                """SELECT indexname FROM pg_indexes
+                   WHERE indexname IN (
+                     'idx_versions_published_annotated_submitted',
+                     'idx_tasks_current_published_annotated'
+                   )"""
+            ).fetchall()
+        }
+        assert names == {
+            "idx_versions_published_annotated_submitted",
+            "idx_tasks_current_published_annotated",
+        }
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "migrations" / "007_annotation_speed_indexes.sql"
+        ).read_text(encoding="utf-8")
+        conn.execute(sql)
+        conn.commit()

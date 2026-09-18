@@ -19,22 +19,33 @@ body{
   font-family:var(--font);background:var(--bg);color:var(--text);
   font-size:14px;line-height:1.55;
   display:flex;align-items:center;justify-content:center;
-  min-height:100vh;padding:20px;
+  min-height:100vh;padding:20px;overflow-x:hidden;
+}
+.page{width:100%;max-width:980px;min-width:0}
+.layout{
+  display:grid;
+  grid-template-columns:340px minmax(0,1fr);
+  gap:20px;
+  align-items:start;
+  width:100%;
+  min-width:0;
 }
 .card{
   background:var(--card);border:1px solid var(--bdr);
   border-radius:var(--rad);box-shadow:var(--sh-md);
-  padding:48px 48px 36px;width:100%;max-width:520px;
+  width:100%;min-width:0;
 }
+.login-pane{padding:36px 28px 28px}
+.dashboard-pane{padding:24px 24px 20px}
 .logo{
-  font-weight:900;font-size:28px;line-height:1.35;
+  font-weight:900;font-size:26px;line-height:1.35;
   background:linear-gradient(135deg,#d4a853,#f5d78a,#d4a853);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
   text-shadow:0 0 30px rgba(212,168,83,.4),0 0 60px rgba(212,168,83,.2);
   letter-spacing:2px;text-align:center;
 }
 .sep{height:1px;background:var(--bdr);margin:24px 0}
-.sub{color:var(--t2);font-size:14px;margin-bottom:20px;text-align:center}
+.sub{color:var(--t2);font-size:14px;margin:16px 0 20px;text-align:center}
 .label{display:block;text-align:left;font-size:12px;font-weight:600;color:var(--t2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
 .inp{
   width:100%;padding:12px 14px;border:1px solid var(--bdr2);border-radius:var(--rad-btn);
@@ -50,6 +61,11 @@ body{
 }
 .btn-p{background:var(--pri);color:#fff}.btn-p:hover{opacity:.9}
 .btn-p:disabled{opacity:.5;cursor:not-allowed}
+.btn-secondary{background:transparent;color:var(--text);border:1px solid var(--bdr2)}
+.conflict{display:none;margin-top:14px;padding:12px 14px;border:1px solid rgba(251,191,36,.35);border-radius:8px;background:rgba(251,191,36,.08);color:#fde68a;font-size:13px;text-align:left}
+.conflict.show{display:block}
+.conflict p{margin:0 0 10px}
+.warn{color:var(--warn);font-size:12px;margin-top:8px}
 .err{
   margin-top:10px;padding:8px 14px;border-radius:6px;
   background:rgba(248,113,113,.12);color:var(--err);
@@ -57,8 +73,56 @@ body{
 }
 .err.show{display:block}
 .hint{font-size:13px;color:var(--t3);margin-top:20px;line-height:1.6;text-align:left}
-.lb-card{margin-top:24px;padding:14px 16px;border-radius:var(--rad-sm);background:var(--card2);border:1px solid var(--bdr)}
-.lb-card b{color:var(--text);display:block;margin-bottom:10px;font-size:14px}
+.dash-head{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:18px;
+  margin:0 0 10px;
+}
+.dash-title{font-size:16px;font-weight:700;color:var(--text);margin:0}
+.dash-sub{color:var(--t2);font-size:13px;margin:4px 0 0}
+.scene-filter{width:190px;flex:0 0 auto;min-width:0}
+.scene-filter .label{margin-bottom:6px}
+.scene-filter select{
+  width:100%;appearance:auto;min-height:38px;padding:8px 10px;
+  border:1px solid var(--bdr2);border-radius:var(--rad-btn);
+  background:var(--card2);color:var(--text);font:inherit;cursor:pointer;
+}
+.scene-filter select:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
+.speed-status{font-size:13px;color:var(--t2);min-height:1.4em;margin:0 0 8px}
+.chart-legend{
+  display:none;flex-wrap:wrap;gap:10px 18px;
+  font-size:12px;color:var(--t2);margin:0 0 10px;
+}
+.chart-legend.show{display:flex}
+.legend-bar,.legend-dash{display:inline-flex;align-items:center;gap:8px}
+.legend-swatch{
+  width:12px;height:10px;border-radius:2px;background:var(--pri);flex:0 0 auto;
+}
+.legend-line{
+  width:18px;height:0;border-top:2px dashed var(--warn);flex:0 0 auto;
+}
+.chart-frame{
+  position:relative;
+  width:100%;
+  height:280px;
+  margin:0 0 16px;
+}
+.chart-frame[hidden]{display:none}
+.lb-card{margin-top:8px;padding:14px 16px;border-radius:var(--rad-sm);background:var(--card2);border:1px solid var(--bdr)}
+.lb-head{
+  display:flex;align-items:baseline;justify-content:space-between;
+  gap:12px;margin:0 0 10px;flex-wrap:nowrap;
+}
+.lb-title{color:var(--text);font-size:14px;font-weight:700;margin:0;flex:0 1 auto}
+.lb-total{
+  display:inline-flex;align-items:center;justify-content:flex-end;
+  gap:5px;min-width:0;color:var(--t2);font-size:11px;line-height:1.2;
+  text-align:right;white-space:nowrap;
+}
+.lb-info{flex:0 0 auto;font-style:normal;font-size:12px;line-height:1;color:var(--t3)}
+.lb-total strong{
+  color:var(--text);font-size:13px;font-weight:600;
+  font-variant-numeric:tabular-nums;
+}
 .lb-scroll{max-height:300px;overflow-y:auto}
 .lb-scroll::-webkit-scrollbar{width:4px}
 .lb-scroll::-webkit-scrollbar-track{background:transparent}
@@ -73,46 +137,136 @@ body{
 .lb-table .lb-hr{text-align:right;font-family:var(--mono,monospace);width:28%}
 .lb-table .lb-me td{background:rgba(129,140,248,.08)}
 .lb-empty{padding:10px 0;text-align:center;color:var(--t3);font-size:12px}
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+@media (max-width:760px){
+  body{align-items:flex-start}
+  .layout{grid-template-columns:1fr}
+  .login-pane{padding:28px 22px 22px}
+  .dashboard-pane{padding:20px 18px 16px}
+  .chart-frame{height:280px}
+  .dash-head{align-items:stretch;flex-direction:column;gap:14px}
+  .scene-filter{width:100%}
+  .scene-filter select{min-height:44px;font-size:16px}
+}
+@media (max-width:420px){
+  .lb-total-long{display:none}
+  .lb-head{gap:8px}
+}
 </style>
 </head>
 <body>
 
-<div class="card">
-  <div class="logo">◈ Egyptian Arabic<br>Annotation Tool</div>
-  <div class="sub">Enter your name to start annotating</div>
+<div class="page">
+  <div class="layout">
+    <section class="card login-pane" aria-label="Sign in">
+      <div class="logo">◈ Egyptian Arabic<br>Annotation Tool</div>
+      <div class="sub">Enter your name to start annotating</div>
 
-  <label class="label" for="username">Your Name</label>
-  <input class="inp" type="text" id="username" placeholder="e.g. Ahmed Ali" autocomplete="off" autofocus maxlength="50">
-  <button class="btn btn-p" id="joinBtn" onclick="doLogin()">Join</button>
+      <label class="label" for="username">Your Name</label>
+      <input class="inp" type="text" id="username" placeholder="e.g. Ahmed Ali" autocomplete="off" autofocus maxlength="50">
+      <button class="btn btn-p" id="joinBtn" onclick="doLogin()">Join</button>
 
-  <div class="err" id="errMsg"></div>
+      <div class="err" id="errMsg"></div>
+      <div class="conflict" id="conflictBox">
+        <p id="conflictText">This name was just used on another device.</p>
+        <p class="warn">Continuing will sign out the other page. It will not be able to save afterwards. Username login does not prove identity — anyone who knows this name can try to take over.</p>
+        <button class="btn btn-p" id="takeoverBtn" type="button">Continue and sign out the other device</button>
+        <button class="btn btn-secondary" id="cancelTakeoverBtn" type="button">Change the name</button>
+      </div>
 
-  <div class="hint">
-    Please keep your account name consistent throughout your participation. The name you provide will be associated with the annotations you create to help identify your contributions.
-  </div>
+      <div class="hint">
+        Enter a name to start annotating. Keep the same name throughout your participation so your work stays associated with you. This is not a verified account: anyone who knows the name can sign in as that annotator.
+      </div>
+    </section>
 
-  <div class="lb-card" id="lbCard">
-    <b>📊 Annotation Dashboard</b>
-    <div class="lb-scroll">
-      <div class="lb-empty" id="lbEmpty">Loading...</div>
-      <table class="lb-table" id="lbTable" style="display:none">
-        <thead><tr><th class="lb-rank">#</th><th>User</th><th class="lb-num">Annotated</th><th class="lb-hr">Time</th></tr></thead>
-        <tbody id="lbBody"></tbody>
-      </table>
-    </div>
+    <section class="card dashboard-pane" aria-labelledby="dashTitle">
+      <div class="dash-head">
+        <div>
+          <h1 class="dash-title" id="dashTitle">Annotation Dashboard</h1>
+          <p class="dash-sub" id="dashSub">All scenes · Last 28 days</p>
+        </div>
+        <div class="scene-filter">
+          <label class="label" for="sceneSelect">Scene</label>
+          <select id="sceneSelect">
+            <option value="">All scenes</option>
+          </select>
+        </div>
+      </div>
+      <div class="speed-status" id="speedStatus" role="status">Loading annotation speed…</div>
+      <div class="chart-legend" id="chartLegend">
+        <span class="legend-bar"><span class="legend-swatch" aria-hidden="true"></span>Daily added hours (bars)</span>
+        <span class="legend-dash"><span class="legend-line" aria-hidden="true"></span>7-day average (dashed line)</span>
+      </div>
+      <div class="chart-frame" id="chartFrame" hidden>
+        <canvas id="speedChart" role="img" aria-label="Annotation speed for the last 28 days"></canvas>
+      </div>
+      <div class="sr-only" id="speedTable"></div>
+      <div class="lb-card" id="lbCard">
+        <div class="lb-head">
+          <h2 class="lb-title">Leaderboard</h2>
+          <div class="lb-total" id="lbTotal"
+               title="Excludes audio marked abnormal"
+               aria-label="Total annotated time, excluding audio marked abnormal">
+            <span>Total annotated<span class="lb-total-long"> time</span></span>
+            <span class="lb-info" aria-hidden="true">ⓘ</span>
+            <strong id="lbTotalValue">—</strong>
+          </div>
+        </div>
+        <div class="lb-scroll">
+          <div class="lb-empty" id="lbEmpty">Loading...</div>
+          <table class="lb-table" id="lbTable" style="display:none">
+            <thead><tr><th class="lb-rank">#</th><th>User</th><th class="lb-num">Annotated</th><th class="lb-hr">Time</th></tr></thead>
+            <tbody id="lbBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 
 <script>
-var _busy = false;
-async function doLogin(){
-  if(_busy)return;
-  var name = document.getElementById('username').value.trim();
+var loginState = 'idle';
+var takeoverToken = '';
+var takeoverUsername = '';
+function $(id){return document.getElementById(id)}
+function setBusy(busy, label){
+  loginState = busy ? (loginState === 'taking_over' ? 'taking_over' : 'submitting') : 'idle';
+  var btn = $('joinBtn');
+  btn.disabled = busy;
+  btn.textContent = label || (busy ? 'Joining…' : 'Join');
+  $('takeoverBtn').disabled = busy;
+  $('username').disabled = busy && loginState !== 'active_conflict';
+}
+function showErr(m){var e=$('errMsg');e.textContent=m;e.classList.add('show')}
+function hideErr(){$('errMsg').classList.remove('show')}
+function hideConflict(){$('conflictBox').classList.remove('show');takeoverToken='';}
+function showConflict(payload){
+  loginState = 'active_conflict';
+  takeoverToken = payload.takeover_token || '';
+  takeoverUsername = $('username').value.trim();
+  var seen = payload.active_session && payload.active_session.last_seen_at
+    ? new Date(payload.active_session.last_seen_at).toLocaleString()
+    : 'just now';
+  $('conflictText').textContent = 'This name was just used on another device. Last seen: ' + seen + '.';
+  $('conflictBox').classList.add('show');
+  $('joinBtn').disabled = true;
+}
+function reasonMessage(reason){
+  if(reason==='session_replaced') return 'This name signed in on another device. Sign in again if that was you.';
+  if(reason==='idle_timeout') return 'Your previous session ended after a period without activity.';
+  if(reason==='absolute_timeout') return 'Your previous session reached its 20-hour limit.';
+  if(reason==='account_deactivated') return 'This account has been deactivated.';
+  return '';
+}
+async function postLogin(){
+  if(loginState==='submitting'||loginState==='taking_over')return;
+  var name = $('username').value.trim();
   if(!name){showErr('Please enter a name.');return}
-  _busy = true;
-  var btn = document.getElementById('joinBtn');
-  btn.disabled = true; btn.textContent = 'Joining…';
-  hideErr();
+  hideErr(); hideConflict();
+  setBusy(true, 'Joining…');
   try{
     var r = await fetch('/api/login',{
       method:'POST',
@@ -120,34 +274,65 @@ async function doLogin(){
       body:JSON.stringify({username:name})
     });
     var j = await r.json();
-    if(!r.ok){showErr(j.error||'Login failed');_busy=false;btn.disabled=false;btn.textContent='Join';return}
-    window.location.href = '/';
-  }catch(e){showErr('Network error. Please try again.');_busy=false;btn.disabled=false;btn.textContent='Join'}
+    if(r.status===409 && j.code==='session_active'){
+      setBusy(false);
+      showConflict(j);
+      return;
+    }
+    if(!r.ok){showErr(j.error||'Login failed');setBusy(false);return}
+    loginState='success';
+    location.replace('/');
+  }catch(e){showErr('Network error. Please try again.');setBusy(false)}
 }
-function showErr(m){var e=document.getElementById('errMsg');e.textContent=m;e.classList.add('show')}
-function hideErr(){var e=document.getElementById('errMsg');e.classList.remove('show')}
-
-function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML.replaceAll('"','&quot;').replaceAll("'",'&#39;')}
-function formatHoursMinutes(seconds){
-  var total=Math.max(0,Math.round(Number(seconds||0)/60));
-  return Math.floor(total/60)+' h '+String(total%60).padStart(2,'0')+' min';
-}
-
-async function loadLeaderboard(){
-  var tbody=document.getElementById('lbBody'),empty=document.getElementById('lbEmpty'),tbl=document.getElementById('lbTable');
+async function submitTakeover(){
+  if(!takeoverToken){showErr('Sign-in confirmation expired. Try again.');hideConflict();return}
+  loginState='taking_over';
+  setBusy(true, 'Continuing…');
+  hideErr();
   try{
-    var r=await fetch('/api/leaderboard');var j=await r.json();
-    if(!j.leaderboard||!j.leaderboard.length){empty.textContent='No data yet';return}
-    empty.style.display='none';tbl.style.display='';
-    var me=document.getElementById('username').value.trim();
-    tbody.innerHTML=j.leaderboard.map(function(row,i){
-      var cls=row.user===me?' lb-me':'';
-      return '<tr class="'+cls+'"><td class="lb-rank">'+(i+1)+'</td><td class="lb-user" title="'+esc(row.user)+'">'+esc(row.user)+'</td><td class="lb-num">'+row.annotated+'</td><td class="lb-hr">'+formatHoursMinutes(row.duration_seconds)+'</td></tr>';
-    }).join('');
-  }catch(e){empty.textContent='Failed to load'}
+    var r = await fetch('/api/login/takeover',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:takeoverUsername, takeover_token:takeoverToken})
+    });
+    var j = await r.json();
+    if(r.status===409 && j.code==='session_changed'){
+      loginState='session_changed';
+      setBusy(false);
+      hideConflict();
+      showErr('The other session changed. Checking again…');
+      await postLogin();
+      return;
+    }
+    if(!r.ok){
+      setBusy(false);
+      hideConflict();
+      showErr(j.error||'Could not continue on this device.');
+      return;
+    }
+    loginState='success';
+    location.replace('/');
+  }catch(e){showErr('Network error. Please try again.');setBusy(false)}
 }
+function cancelTakeover(){
+  hideConflict();
+  setBusy(false);
+  loginState='idle';
+  $('joinBtn').disabled=false;
+  $('username').focus();
+}
+async function doLogin(){await postLogin()}
 document.getElementById('username').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
-loadLeaderboard();
+$('takeoverBtn').addEventListener('click', submitTakeover);
+$('cancelTakeoverBtn').addEventListener('click', cancelTakeover);
+(function showReason(){
+  var reason = new URLSearchParams(location.search).get('reason');
+  var message = reasonMessage(reason);
+  if(message) showErr(message);
+})();
 </script>
+<script src="/static/vendor/chart.umd-4.5.1.min.js" defer></script>
+<script src="/static/vendor/chartjs-plugin-annotation-3.1.0.min.js" defer></script>
+<script src="/static/login-dashboard.js" defer></script>
 </body>
 </html>

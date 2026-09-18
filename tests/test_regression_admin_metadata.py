@@ -82,7 +82,7 @@ def test_claim_headline_uses_selected_evidence_not_first_same_scene(seed_tasks):
         conn.execute("UPDATE task_sources SET id='00000000-0000-4000-8000-000000000001' WHERE task_id=%s AND confidence='low'", (task,))
         conn.execute("UPDATE task_sources SET id='00000000-0000-4000-8000-000000000002' WHERE task_id=%s AND confidence='high'", (task,))
     user = repo.login("acceptance-headline-evidence", str(uuid.uuid4()), 1800)
-    claimed = repo.claim(user["id"], source_scene="airport", batch_code="acceptance-airport-high")
+    claimed = repo.claim(user["fence"], source_scene="airport", batch_code="acceptance-airport-high")
     metadata = claimed["metadata"]
     assert metadata["claim_context"]["confidence"] == "high"
     assert "Source confidence High" in metadata["headline"], metadata["headline"]
@@ -140,9 +140,9 @@ def test_overview_batch_groups_overlap_and_definitions_are_explicit(seed_tasks):
 def test_draft_review_is_not_published_verification(seed_tasks):
     seed_tasks(1)
     user, _ = make_user("draft-review-stats")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     repo.save_draft(
-        user["id"], assignment["lease_token"], 0, full_segments(assignment),
+        user["fence"], assignment["lease_token"], 0, full_segments(assignment),
         str(uuid.uuid4()), "draft-review",
         scene_review={"status": "mixed", "scene_codes": ["airport", "shopping"]},
     )
@@ -156,9 +156,9 @@ def test_draft_review_is_not_published_verification(seed_tasks):
 def test_published_review_groups_include_duration(seed_tasks):
     seed_tasks(1)
     user, _ = make_user("published-review-stats")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         full_segments(assignment), str(uuid.uuid4()), "complete-review",
         scene_review={"status": "confirmed", "scene_codes": ["airport"]},
     )
@@ -215,7 +215,7 @@ def test_claim_headline_keeps_historical_evidence_after_revision(seed_tasks):
     task = seed_tasks(1)[0]
     source(task, "airport", "high", "headline-historical-high")
     user = repo.login("headline-historical", str(uuid.uuid4()), 1800)
-    claimed = repo.claim(user["id"], source_scene="airport")
+    claimed = repo.claim(user["fence"], source_scene="airport")
     source_id = claimed["metadata"]["claim_context"]["source_id"]
     with db.db_conn() as conn:
         conn.execute(
@@ -223,7 +223,7 @@ def test_claim_headline_keeps_historical_evidence_after_revision(seed_tasks):
             (source_id,),
         )
     source(task, "airport", "low", "headline-historical-low")
-    resumed = repo.claim(user["id"])
+    resumed = repo.claim(user["fence"])
     metadata = resumed["metadata"]
     assert metadata["claim_context"]["confidence"] == "high"
     assert metadata["claim_context"]["source_is_current"] is False

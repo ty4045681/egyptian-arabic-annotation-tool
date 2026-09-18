@@ -24,11 +24,12 @@ def test_reopened_known_source_keeps_english_source_banner(live_site):
             with db.db_conn() as conn:
                 uid = conn.execute('SELECT id FROM annotators WHERE username=%s', ('english-reopen-source',)).fetchone()[0]
             assignment = repo.get_assignment(uid)
-            repo.complete(uid, assignment['lease_token'], assignment['revision'],
+            fence = repo.load_session_fence(uid)
+            repo.complete(fence, assignment['lease_token'], assignment['revision'],
                           'annotated', [], full_segments(assignment), str(uuid.uuid4()),
                           'english-reopen-source',
                           scene_review={'status': 'confirmed', 'scene_codes': ['hotel']})
-            repo.reopen_completed(uid, task, str(uuid.uuid4()))
+            repo.reopen_completed(fence, task, str(uuid.uuid4()))
             page.reload()
             banner = page.locator('#metadataBanner [data-metadata-headline]')
             expect(banner).to_contain_text(re.compile(r'^Airport'), timeout=10000)

@@ -57,9 +57,9 @@ def _make_user(username: str) -> dict:
 
 def _complete_next(user: dict, *, prefix: str = "human",
                    status: str = "annotated") -> dict:
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     result = repo.complete(
-        user["id"], assignment["lease_token"], assignment["revision"],
+        user["fence"], assignment["lease_token"], assignment["revision"],
         status, ["noisy"] if status == "skipped" else [],
         _segments(assignment, prefix) if status == "annotated" else [],
         str(uuid.uuid4()), f"api-complete-{uuid.uuid4()}",
@@ -252,7 +252,7 @@ def test_admin_quality_api_combines_queue_filters(
     alice = _make_user("alice")
     bob = _make_user("bob")
     _complete_next(alice, prefix="alice")
-    stale_assignment = repo.claim(bob["id"])
+    stale_assignment = repo.claim(bob["fence"])
     with db.db_conn() as conn:
         conn.execute(
             "UPDATE assignments SET last_activity_at = now() - interval '5 hours' "
@@ -551,7 +551,7 @@ def test_admin_deactivate_requires_key_reauthentication_and_recycles_work(
     seed_tasks(2)
     alice = _make_user("alice")
     completed = _complete_next(alice, prefix="published")
-    claimed = repo.claim(alice["id"])
+    claimed = repo.claim(alice["fence"])
     _, headers = _admin_login(admin_client)
 
     preview = admin_client.post(

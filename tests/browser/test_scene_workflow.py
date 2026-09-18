@@ -109,6 +109,7 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
                 page.locator("#saveButton").click()
             assert saved.value.status == 200, saved.value.text()
             assert saved.value.request.post_data_json["scene_review"]["status"] == "confirmed"
+            expect(page.locator("#saveState")).to_have_text("Saved", timeout=10000)
             page.reload()
             expect(page.locator('#sceneReviewPanel input[value="airport"]')).to_be_checked(timeout=10000)
             expect(page.locator("#metadataBanner")).to_contain_text("not submitted")
@@ -122,6 +123,7 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
                 page.locator("#saveButton").click()
             assert text_saved.value.status == 200, text_saved.value.text()
             assert "scene_review" not in text_saved.value.request.post_data_json
+            expect(page.locator("#saveState")).to_have_text("Saved", timeout=10000)
 
             with page.expect_response(
                 lambda response: response.url.endswith("/api/assignment/current/complete") and response.request.method == "POST",
@@ -130,6 +132,10 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
                 page.locator("#completeButton").click()
             assert completed.value.status == 200, completed.value.text()
             expect(page.locator("#claimButton")).to_be_visible(timeout=10000)
+            page.evaluate(
+                "([username, taskId]) => AnnotationOffline.deleteTaskData(username, taskId)",
+                ["browser-workflow", tasks[0]],
+            )
             _screenshot(page, artifacts, "desktop-idle-after-complete.png")
 
             page.goto(url + "/completed.html")
@@ -149,7 +155,9 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             page.set_viewport_size({"width": 390, "height": 844})
             _screenshot(page, artifacts, "mobile-reopen-reference.png")
             page.set_viewport_size({"width": 1366, "height": 1000})
-            page.locator("#abandonButton").click()
+            abandon = page.locator("#abandonButton")
+            expect(abandon).to_be_enabled(timeout=10000)
+            abandon.click()
             expect(page.locator("#claimButton")).to_be_visible(timeout=10000)
 
             page.goto(url + "/admin")

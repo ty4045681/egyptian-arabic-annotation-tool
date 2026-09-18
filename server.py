@@ -24,7 +24,10 @@ from functools import wraps
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import (Flask, jsonify, redirect, request, send_file, session)
+from flask import (Flask, jsonify, make_response, redirect, request, send_file,
+                   session)
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import annotation_repository as repo
 from db import assert_schema_current, db_conn
@@ -38,7 +41,26 @@ ADMIN_PATH = SCRIPT_DIR / "admin.html"
 ADMIN_CSS_PATH = SCRIPT_DIR / "admin.css"
 ADMIN_JS_PATH = SCRIPT_DIR / "admin.js"
 
-SESSION_TIMEOUT_MINUTES = 30  # web-session lifetime; assignments never expire
+SESSION_TIMEOUT_MINUTES = 30  # idle lifetime; assignments never expire
+SESSION_ABSOLUTE_TIMEOUT_HOURS = 20
+SESSION_PRESENCE_HEARTBEAT_SECONDS = 30
+SESSION_PRESENCE_LEASE_SECONDS = 150
+SESSION_TAKEOVER_TOKEN_SECONDS = 60
+SESSION_ACTIVITY_THROTTLE_SECONDS = 30
+OFFLINE_DRAFT_RETENTION_DAYS = 7
+SESSION_IDLE_WARNING_SECONDS = 120
+TAKEOVER_SALT = "annotator-session-takeover"
+TAKEOVER_PURPOSE = "annotator-session-takeover"
+DEFAULT_PUBLIC_DASHBOARD_TIMEZONE = "Asia/Shanghai"
+
+SESSION_STATUS_MESSAGES = {
+    "not_authenticated": "Not authenticated",
+    "logged_out": "Not authenticated",
+    "session_replaced": "Session was replaced by another login.",
+    "idle_timeout": "Session expired after a period of inactivity.",
+    "absolute_timeout": "Session reached its absolute time limit.",
+    "account_deactivated": "This account has been deactivated.",
+}
 
 MIME_TYPES = {
     ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac",
@@ -54,6 +76,12 @@ app = Flask(__name__, static_folder=None)
 
 _admin_login_lock = threading.Lock()
 _admin_login_attempts: dict[str, list[float]] = {}
+LEADERBOARD_CACHE_SECONDS = 60
+_leaderboard_cache_lock = threading.Lock()
+_leaderboard_cache: dict = {
+    "expires_monotonic": 0.0,
+    "payload": None,
+}
 
 
 def load_config() -> dict:
@@ -64,27 +92,173 @@ def load_config() -> dict:
     return c
 
 
+def resolve_public_dashboard_timezone(config: dict | None = None) -> str:
+    """Return a validated IANA timezone name. Invalid values fail closed."""
+    raw = (config or {}).get(
+        "public_dashboard_timezone", DEFAULT_PUBLIC_DASHBOARD_TIMEZONE,
+    )
+    if raw is None or str(raw).strip() == "":
+        name = DEFAULT_PUBLIC_DASHBOARD_TIMEZONE
+    else:
+        name = str(raw).strip()
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise RuntimeError(
+            f"Invalid public_dashboard_timezone {name!r}; "
+            "use a valid IANA timezone name such as Asia/Shanghai"
+        ) from exc
+    return name
+
+
 # ============================================================
 # Auth decorator
 # ============================================================
-def current_user() -> dict | None:
+def _session_reason_redirect(code: str) -> str:
+    if code in ("not_authenticated", "logged_out"):
+        return "/login.html"
+    return f"/login.html?reason={code}"
+
+
+def _cookie_generation():
+    value = session.get("generation")
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def inspect_request_session() -> repo.SessionState:
     username = session.get("user", "")
     sid = session.get("sid", "")
-    if not username or not sid:
+    generation = _cookie_generation()
+    state = repo.inspect_session(username, sid, generation)
+    if (
+        state.status == "valid"
+        and state.fence is not None
+        and generation is None
+    ):
+        session["generation"] = state.fence.generation
+    return state
+
+
+def current_user() -> dict | None:
+    state = inspect_request_session()
+    if state.status != "valid" or state.fence is None:
         return None
-    return repo.validate_session(username, sid)
+    fence = state.fence
+    return {
+        "id": fence.user_id,
+        "username": fence.username,
+        "session_id": fence.session_id,
+        "generation": fence.generation,
+        "fence": fence,
+        "idle_expires_at": state.idle_expires_at,
+        "absolute_expires_at": state.absolute_expires_at,
+        "last_seen_at": state.last_seen_at,
+    }
 
 
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        user = current_user()
-        if not user:
-            return jsonify({"error": "Not authenticated",
-                            "redirect": "/login.html"}), 401
-        request.annotator = user
+        state = inspect_request_session()
+        if state.status == "account_deactivated":
+            return jsonify({
+                "error": SESSION_STATUS_MESSAGES["account_deactivated"],
+                "code": "account_deactivated",
+                "redirect": _session_reason_redirect("account_deactivated"),
+            }), 403
+        if state.status != "valid" or state.fence is None:
+            code = (
+                "not_authenticated"
+                if state.status in ("logged_out", "not_authenticated")
+                else state.status
+            )
+            return jsonify({
+                "error": SESSION_STATUS_MESSAGES.get(code, "Not authenticated"),
+                "code": code,
+                "redirect": _session_reason_redirect(code),
+            }), 401
+        fence = state.fence
+        request.annotator = {
+            "id": fence.user_id,
+            "username": fence.username,
+            "session_id": fence.session_id,
+            "generation": fence.generation,
+            "fence": fence,
+            "idle_expires_at": state.idle_expires_at,
+            "absolute_expires_at": state.absolute_expires_at,
+            "last_seen_at": state.last_seen_at,
+        }
         return f(*args, **kwargs)
     return decorated
+
+
+def annotator_session_policy() -> repo.SessionPolicy:
+    idle = int(app.config.get("SESSION_TTL_SECONDS", SESSION_TIMEOUT_MINUTES * 60))
+    absolute = int(app.config.get(
+        "SESSION_ABSOLUTE_SECONDS", SESSION_ABSOLUTE_TIMEOUT_HOURS * 3600,
+    ))
+    return repo.SessionPolicy(
+        idle_seconds=idle,
+        absolute_seconds=max(idle, absolute),
+        presence_lease_seconds=int(app.config.get(
+            "SESSION_PRESENCE_LEASE_SECONDS", SESSION_PRESENCE_LEASE_SECONDS,
+        )),
+        heartbeat_seconds=int(app.config.get(
+            "SESSION_PRESENCE_HEARTBEAT_SECONDS", SESSION_PRESENCE_HEARTBEAT_SECONDS,
+        )),
+        takeover_token_seconds=int(app.config.get(
+            "SESSION_TAKEOVER_TOKEN_SECONDS", SESSION_TAKEOVER_TOKEN_SECONDS,
+        )),
+        activity_throttle_seconds=int(app.config.get(
+            "SESSION_ACTIVITY_THROTTLE_SECONDS", SESSION_ACTIVITY_THROTTLE_SECONDS,
+        )),
+        offline_draft_retention_days=int(app.config.get(
+            "OFFLINE_DRAFT_RETENTION_DAYS", OFFLINE_DRAFT_RETENTION_DAYS,
+        )),
+        idle_warning_seconds=int(app.config.get(
+            "SESSION_IDLE_WARNING_SECONDS", SESSION_IDLE_WARNING_SECONDS,
+        )),
+    )
+
+
+def _takeover_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt=TAKEOVER_SALT)
+
+
+def _issue_takeover_token(conflict: repo.ActiveSessionConflict) -> str:
+    return _takeover_serializer().dumps({
+        "username": conflict.username,
+        "observed_generation": conflict.observed_generation,
+        "observed_session_fingerprint": conflict.session_fingerprint,
+        "purpose": TAKEOVER_PURPOSE,
+    })
+
+
+def _bind_annotator_cookie(result: dict) -> None:
+    session.clear()
+    session["user"] = result["username"]
+    session["sid"] = str(result["session_id"])
+    session["generation"] = int(result["generation"])
+    session.permanent = True
+
+
+def _public_session_payload(result: dict) -> dict:
+    return {
+        "mode": result["mode"],
+        "idle_expires_at": repo._iso(result.get("idle_expires_at")),
+        "absolute_expires_at": repo._iso(result.get("absolute_expires_at")),
+    }
+
+
+def _no_store(response):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 def _admin_cookie_name() -> str:
@@ -341,6 +515,10 @@ def handle_repo_error(err: repo.RepositoryError):
         body["code"] = err.code
     if getattr(err, "field", None):
         body["field"] = err.field
+    if isinstance(err, repo.SessionFenceError):
+        body["redirect"] = _session_reason_redirect(err.code)
+    if isinstance(err, repo.ForbiddenError) and err.code == "account_deactivated":
+        body["redirect"] = _session_reason_redirect("account_deactivated")
     return jsonify(body), err.status
 
 
@@ -402,21 +580,35 @@ def query_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
 @app.route("/")
 @app.route("/index.html")
 def serve_index():
-    if not current_user():
-        return redirect("/login.html")
-    return send_file(str(INDEX_PATH), mimetype="text/html")
+    state = inspect_request_session()
+    if state.status != "valid":
+        code = (
+            "not_authenticated"
+            if state.status in ("logged_out", "not_authenticated")
+            else state.status
+        )
+        return redirect(_session_reason_redirect(code))
+    return _no_store(send_file(str(INDEX_PATH), mimetype="text/html"))
 
 
 @app.route("/login.html")
 def serve_login():
-    return send_file(str(LOGIN_PATH), mimetype="text/html")
+    if inspect_request_session().status == "valid":
+        return redirect("/")
+    return _no_store(send_file(str(LOGIN_PATH), mimetype="text/html"))
 
 
 @app.route("/completed.html")
 def serve_completed():
-    if not current_user():
-        return redirect("/login.html")
-    return send_file(str(COMPLETED_PATH), mimetype="text/html")
+    state = inspect_request_session()
+    if state.status != "valid":
+        code = (
+            "not_authenticated"
+            if state.status in ("logged_out", "not_authenticated")
+            else state.status
+        )
+        return redirect(_session_reason_redirect(code))
+    return _no_store(send_file(str(COMPLETED_PATH), mimetype="text/html"))
 
 
 @app.route("/admin")
@@ -452,6 +644,14 @@ def secure_admin_responses(response):
             "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
             "form-action 'self'"
         )
+    session_paths = {
+        "/", "/index.html", "/login.html", "/completed.html",
+        "/api/login", "/api/login/takeover", "/api/logout",
+        "/api/current-user", "/api/heartbeat", "/api/session/heartbeat",
+    }
+    if request.path in session_paths or request.path.startswith("/api/login"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 
@@ -469,14 +669,98 @@ def api_login():
         return jsonify({"success": False,
                         "error": "Username contains invalid characters"}), 400
 
-    ttl = int(app.config["SESSION_TTL_SECONDS"])
-    session_id = str(uuid.uuid4())
-    repo.login(username, session_id, ttl)
-    session.clear()
-    session["user"] = username
-    session["sid"] = session_id
-    session.permanent = True
-    return jsonify({"success": True, "username": username})
+    policy = annotator_session_policy()
+    cookie_user = session.get("user", "")
+    cookie_sid = session.get("sid", "") if cookie_user == username else None
+    cookie_generation = _cookie_generation() if cookie_user == username else None
+    try:
+        result = repo.login_or_resume(
+            username,
+            requested_session_id=str(uuid.uuid4()),
+            cookie_session_id=cookie_sid,
+            cookie_generation=cookie_generation,
+            policy=policy,
+        )
+    except repo.ActiveSessionConflict as conflict:
+        logger.info("annotator_login rejected reason=session_active")
+        token = _issue_takeover_token(conflict)
+        body = {
+            "success": False,
+            "code": "session_active",
+            "error": str(conflict),
+            "active_session": {
+                "last_seen_at": repo._iso(conflict.last_seen_at),
+                "login_time": repo._iso(conflict.login_time),
+            },
+            "takeover_token": token,
+            "takeover_token_expires_in": policy.takeover_token_seconds,
+        }
+        return _no_store(jsonify(body)), 409
+    except repo.ForbiddenError as error:
+        if error.code == "account_deactivated":
+            logger.info("annotator_login rejected reason=account_deactivated")
+        raise
+    logger.info("annotator_login mode=%s", result["mode"])
+    _bind_annotator_cookie(result)
+    return _no_store(jsonify({
+        "success": True,
+        "username": result["username"],
+        "session": _public_session_payload(result),
+    }))
+
+
+@app.route("/api/login/takeover", methods=["POST"])
+def api_login_takeover():
+    data = json_object()
+    username = required_string(data, "username")
+    token = required_string(data, "takeover_token")
+    policy = annotator_session_policy()
+    try:
+        payload = _takeover_serializer().loads(
+            token, max_age=policy.takeover_token_seconds,
+        )
+    except SignatureExpired as exc:
+        raise repo.ValidationError(
+            "Takeover confirmation expired. Sign in again.",
+            code="takeover_token_expired",
+        ) from exc
+    except BadSignature as exc:
+        raise repo.ValidationError(
+            "Takeover confirmation is invalid.",
+            code="takeover_token_invalid",
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("purpose") != TAKEOVER_PURPOSE:
+        raise repo.ValidationError(
+            "Takeover confirmation is invalid.",
+            code="takeover_token_invalid",
+        )
+    if payload.get("username") != username:
+        raise repo.ValidationError(
+            "Takeover confirmation does not match this username.",
+            code="takeover_token_invalid",
+        )
+    try:
+        observed_generation = int(payload["observed_generation"])
+        fingerprint = str(payload["observed_session_fingerprint"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise repo.ValidationError(
+            "Takeover confirmation is invalid.",
+            code="takeover_token_invalid",
+        ) from exc
+    result = repo.force_takeover(
+        username,
+        requested_session_id=str(uuid.uuid4()),
+        observed_generation=observed_generation,
+        observed_session_fingerprint=fingerprint,
+        policy=policy,
+    )
+    logger.info("annotator_login mode=forced_takeover")
+    _bind_annotator_cookie(result)
+    return _no_store(jsonify({
+        "success": True,
+        "username": result["username"],
+        "session": _public_session_payload(result),
+    }))
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -484,18 +768,51 @@ def api_logout():
     """Ends the web session only — the user's unfinished assignment is kept."""
     username = session.get("user", "")
     sid = session.get("sid", "")
+    generation = _cookie_generation()
     if username and sid:
-        repo.logout(username, sid)
+        repo.logout(username, sid, generation)
     session.clear()
-    return jsonify({"success": True})
+    return _no_store(jsonify({"success": True}))
 
 
 @app.route("/api/current-user")
 def api_current_user():
     user = current_user()
     if not user:
-        return jsonify({"user": None}), 401
-    return jsonify({"user": user["username"]})
+        state = inspect_request_session()
+        if state.status == "account_deactivated":
+            return jsonify({
+                "user": None,
+                "error": SESSION_STATUS_MESSAGES["account_deactivated"],
+                "code": "account_deactivated",
+                "redirect": _session_reason_redirect("account_deactivated"),
+            }), 403
+        code = (
+            "not_authenticated"
+            if state.status in ("logged_out", "not_authenticated", "")
+            else state.status
+        )
+        if not session.get("user"):
+            code = "not_authenticated"
+        return jsonify({
+            "user": None,
+            "error": SESSION_STATUS_MESSAGES.get(code, "Not authenticated"),
+            "code": code,
+            "redirect": _session_reason_redirect(code),
+        }), 401
+    policy = annotator_session_policy()
+    state = inspect_request_session()
+    return _no_store(jsonify({
+        "user": user["username"],
+        "session": {
+            "server_time": repo._iso(state.server_time),
+            "idle_expires_at": repo._iso(user.get("idle_expires_at")),
+            "absolute_expires_at": repo._iso(user.get("absolute_expires_at")),
+            "heartbeat_seconds": policy.heartbeat_seconds,
+            "idle_warning_seconds": policy.idle_warning_seconds,
+            "offline_draft_retention_days": policy.offline_draft_retention_days,
+        },
+    }))
 
 
 # ============================================================
@@ -651,12 +968,51 @@ def api_admin_logout():
     return response
 
 
+def _heartbeat_payload(result: dict) -> dict:
+    return {
+        "ok": True,
+        "server_time": repo._iso(result["server_time"]),
+        "idle_expires_at": repo._iso(result["idle_expires_at"]),
+        "absolute_expires_at": repo._iso(result["absolute_expires_at"]),
+    }
+
+
 @app.route("/api/heartbeat")
 @login_required
 def api_heartbeat():
-    repo.heartbeat(request.annotator["username"], session.get("sid", ""),
-                   int(app.config["SESSION_TTL_SECONDS"]))
-    return jsonify({"ok": True})
+    """Deprecated presence-only heartbeat. Does not extend idle expiry."""
+    logger.info("deprecated GET /api/heartbeat used")
+    result = repo.session_heartbeat(
+        request.annotator["username"],
+        str(request.annotator["session_id"]),
+        request.annotator["generation"],
+        activity=False,
+        policy=annotator_session_policy(),
+    )
+    response = jsonify(_heartbeat_payload(result))
+    response.headers["Deprecation"] = "true"
+    return _no_store(response)
+
+
+@app.route("/api/session/heartbeat", methods=["POST"])
+@login_required
+def api_session_heartbeat():
+    data = request.get_json(silent=True)
+    if data is None:
+        data = {}
+    if data != {} and not isinstance(data, dict):
+        raise repo.ValidationError("Request body must be a JSON object")
+    activity = False
+    if isinstance(data, dict) and "activity" in data:
+        activity = boolean_field(data, "activity")
+    result = repo.session_heartbeat(
+        request.annotator["username"],
+        str(request.annotator["session_id"]),
+        request.annotator["generation"],
+        activity=activity,
+        policy=annotator_session_policy(),
+    )
+    return _no_store(jsonify(_heartbeat_payload(result)))
 
 
 @app.route("/api/health")
@@ -734,7 +1090,9 @@ def api_claim():
         raise repo.ValidationError("Request body must be a JSON object")
     filters = _claim_filters_from_request(data if isinstance(data, dict) else {})
     try:
-        asg = repo.claim(user["id"], **filters)
+        asg = repo.claim(
+            user["fence"], **filters, policy=annotator_session_policy(),
+        )
         return jsonify(asg)
     except repo.TaskPoolBusy as error:
         pool = repo.pool_state(user["id"], **filters)
@@ -755,10 +1113,11 @@ def api_abandon():
     if not isinstance(confirm, bool):
         raise repo.ValidationError("confirm must be a boolean")
     result = repo.abandon(
-        user_id=request.annotator["id"],
+        request.annotator["fence"],
         lease_token=required_string(data, "lease_token"),
         operation_id=required_string(data, "operation_id"),
         confirm=confirm,
+        policy=annotator_session_policy(),
     )
     result["pool"] = repo.pool_state(request.annotator["id"])
     return jsonify(result)
@@ -774,13 +1133,14 @@ def api_save_draft():
         json.dumps(data, sort_keys=True, default=str).encode()
     ).hexdigest()
     result = repo.save_draft(
-        user_id=request.annotator["id"],
+        request.annotator["fence"],
         lease_token=required_string(data, "lease_token"),
         expected_revision=integer_field(data, "expected_revision"),
         dirty_segments=data.get("segments", []),
         operation_id=required_string(data, "operation_id"),
         request_hash=request_hash,
         scene_review=data.get("scene_review"),
+        policy=annotator_session_policy(),
     )
     return jsonify(result)
 
@@ -795,7 +1155,7 @@ def api_complete():
         json.dumps(data, sort_keys=True, default=str).encode()
     ).hexdigest()
     result = repo.complete(
-        user_id=request.annotator["id"],
+        request.annotator["fence"],
         lease_token=required_string(data, "lease_token"),
         expected_revision=integer_field(data, "expected_revision"),
         target_status=required_string(data, "target_status"),
@@ -804,6 +1164,7 @@ def api_complete():
         operation_id=required_string(data, "operation_id"),
         request_hash=request_hash,
         scene_review=data.get("scene_review"),
+        policy=annotator_session_policy(),
     )
     if result.get("idempotent_replay"):
         return jsonify(result["response"])
@@ -853,9 +1214,10 @@ def api_completed_detail(task_id: str):
 def api_completed_reopen(task_id: str):
     data = json_object()
     return jsonify(repo.reopen_completed(
-        user_id=request.annotator["id"],
+        request.annotator["fence"],
         task_id=task_id,
         operation_id=required_string(data, "operation_id"),
+        policy=annotator_session_policy(),
     ))
 
 
@@ -868,10 +1230,55 @@ def api_dashboard():
     return jsonify(dash)
 
 
+def _leaderboard_payload_fresh() -> dict:
+    dash = repo.dashboard()
+    return {
+        "leaderboard": dash["leaderboard"],
+        "total_annotated_duration_seconds": float(
+            (dash.get("stats") or {}).get("annotated_duration_seconds") or 0.0
+        ),
+        "scene_options": repo.public_scene_options(),
+        "annotation_speed": repo.public_annotation_speed(
+            app.config["PUBLIC_DASHBOARD_TIMEZONE"],
+        ),
+    }
+
+
+def clear_leaderboard_cache() -> None:
+    with _leaderboard_cache_lock:
+        _leaderboard_cache["payload"] = None
+        _leaderboard_cache["expires_monotonic"] = 0.0
+
+
+def public_leaderboard_payload() -> dict:
+    """Serve a 60s in-process snapshot. Tests always recompute."""
+    if app.config.get("TESTING"):
+        return _leaderboard_payload_fresh()
+    now = time.monotonic()
+    with _leaderboard_cache_lock:
+        cached = _leaderboard_cache["payload"]
+        if cached is not None and _leaderboard_cache["expires_monotonic"] > now:
+            return cached
+    payload = _leaderboard_payload_fresh()
+    with _leaderboard_cache_lock:
+        _leaderboard_cache["payload"] = payload
+        _leaderboard_cache["expires_monotonic"] = (
+            time.monotonic() + LEADERBOARD_CACHE_SECONDS
+        )
+    return payload
+
+
 @app.route("/api/leaderboard")
 def api_leaderboard():
-    """Lightweight public leaderboard for the login page."""
-    return jsonify({"leaderboard": repo.dashboard()["leaderboard"]})
+    """Lightweight public leaderboard and 28-day speed chart for the login page.
+
+    Browsers must revalidate (no max-age). Origin load is bounded by the
+    in-process TTL cache rather than HTTP cache, because this path has no
+    Nginx proxy_cache.
+    """
+    response = jsonify(public_leaderboard_payload())
+    response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 
 # ============================================================
@@ -896,6 +1303,9 @@ def api_admin_annotators():
         admin_query_filters(),
         limit=query_int("limit", 50, minimum=1, maximum=100),
         cursor=request.args.get("cursor"),
+        presence_lease_seconds=int(app.config.get(
+            "SESSION_PRESENCE_LEASE_SECONDS", SESSION_PRESENCE_LEASE_SECONDS,
+        )),
     ))
 
 
@@ -905,6 +1315,9 @@ def api_admin_annotator_detail(annotator_id: str):
     return jsonify(repo.admin_annotator_detail(
         annotator_id,
         admin_query_filters(),
+        presence_lease_seconds=int(app.config.get(
+            "SESSION_PRESENCE_LEASE_SECONDS", SESSION_PRESENCE_LEASE_SECONDS,
+        )),
     ))
 
 
@@ -1150,19 +1563,77 @@ def _init_app_config() -> dict:
     app.secret_key = secret
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_REFRESH_EACH_REQUEST"] = False
     try:
         timeout_minutes = int(config.get("session_timeout_minutes", SESSION_TIMEOUT_MINUTES))
     except (TypeError, ValueError):
         timeout_minutes = SESSION_TIMEOUT_MINUTES
     timeout_minutes = max(5, min(timeout_minutes, 24 * 60))
-    app.config["PERMANENT_SESSION_LIFETIME"] = timeout_minutes * 60
-    app.config["SESSION_TTL_SECONDS"] = timeout_minutes * 60
+    try:
+        absolute_hours = int(config.get(
+            "session_absolute_timeout_hours", SESSION_ABSOLUTE_TIMEOUT_HOURS,
+        ))
+    except (TypeError, ValueError):
+        absolute_hours = SESSION_ABSOLUTE_TIMEOUT_HOURS
+    absolute_hours = max(1, min(absolute_hours, 24))
+    idle_seconds = timeout_minutes * 60
+    absolute_seconds = max(idle_seconds, min(absolute_hours * 3600, 24 * 3600))
+    try:
+        heartbeat_seconds = int(config.get(
+            "session_presence_heartbeat_seconds", SESSION_PRESENCE_HEARTBEAT_SECONDS,
+        ))
+    except (TypeError, ValueError):
+        heartbeat_seconds = SESSION_PRESENCE_HEARTBEAT_SECONDS
+    heartbeat_seconds = max(15, min(heartbeat_seconds, 120))
+    try:
+        presence_lease = int(config.get(
+            "session_presence_lease_seconds", SESSION_PRESENCE_LEASE_SECONDS,
+        ))
+    except (TypeError, ValueError):
+        presence_lease = SESSION_PRESENCE_LEASE_SECONDS
+    presence_lease = max(heartbeat_seconds * 3, presence_lease)
+    try:
+        takeover_seconds = int(config.get(
+            "session_takeover_token_seconds", SESSION_TAKEOVER_TOKEN_SECONDS,
+        ))
+    except (TypeError, ValueError):
+        takeover_seconds = SESSION_TAKEOVER_TOKEN_SECONDS
+    takeover_seconds = max(30, min(takeover_seconds, 300))
+    try:
+        activity_throttle = int(config.get(
+            "session_activity_throttle_seconds", SESSION_ACTIVITY_THROTTLE_SECONDS,
+        ))
+    except (TypeError, ValueError):
+        activity_throttle = SESSION_ACTIVITY_THROTTLE_SECONDS
+    try:
+        offline_days = int(config.get(
+            "offline_draft_retention_days", OFFLINE_DRAFT_RETENTION_DAYS,
+        ))
+    except (TypeError, ValueError):
+        offline_days = OFFLINE_DRAFT_RETENTION_DAYS
+    session_secure_raw = os.environ.get(
+        "ANNOTATION_SESSION_COOKIE_SECURE",
+        str(config.get("session_cookie_secure", False)),
+    ).strip().lower()
+    app.config["SESSION_COOKIE_SECURE"] = session_secure_raw in {
+        "1", "true", "yes", "on",
+    }
+    app.config["PERMANENT_SESSION_LIFETIME"] = absolute_seconds
+    app.config["SESSION_TTL_SECONDS"] = idle_seconds
+    app.config["SESSION_ABSOLUTE_SECONDS"] = absolute_seconds
+    app.config["SESSION_PRESENCE_HEARTBEAT_SECONDS"] = heartbeat_seconds
+    app.config["SESSION_PRESENCE_LEASE_SECONDS"] = presence_lease
+    app.config["SESSION_TAKEOVER_TOKEN_SECONDS"] = takeover_seconds
+    app.config["SESSION_ACTIVITY_THROTTLE_SECONDS"] = max(1, activity_throttle)
+    app.config["OFFLINE_DRAFT_RETENTION_DAYS"] = max(1, offline_days)
+    app.config["SESSION_IDLE_WARNING_SECONDS"] = SESSION_IDLE_WARNING_SECONDS
     app.config["AUDIO_DIR"] = str(
         (SCRIPT_DIR / config.get("audio_dir", "./audio")).resolve()
         if not Path(config.get("audio_dir", "./audio")).is_absolute()
         else Path(config["audio_dir"])
     )
     app.config["AUDIO_ACCEL_PREFIX"] = config.get("audio_accel_prefix", "")
+    app.config["PUBLIC_DASHBOARD_TIMEZONE"] = resolve_public_dashboard_timezone(config)
 
     app.config["ADMIN_KEY_SHA256"] = os.environ.get(
         "ANNOTATION_ADMIN_KEY_SHA256",

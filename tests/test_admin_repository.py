@@ -31,9 +31,9 @@ def _make_user(username: str) -> tuple[dict, str]:
 
 def _complete_next(user: dict, *, prefix: str = "human",
                    status: str = "annotated") -> dict:
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     result = repo.complete(
-        user["id"],
+        user["fence"],
         assignment["lease_token"],
         assignment["revision"],
         status,
@@ -166,7 +166,7 @@ def test_admin_quality_filters_search_annotator_and_signal(database, seed_tasks)
     alice, _ = _make_user("alice")
     bob, _ = _make_user("bob")
     completed = _complete_next(alice, prefix="alice")
-    stale_assignment = repo.claim(bob["id"])
+    stale_assignment = repo.claim(bob["fence"])
     with db.db_conn() as conn:
         conn.execute(
             "UPDATE assignments SET last_activity_at = now() - interval '5 hours' "
@@ -415,10 +415,10 @@ def test_revoked_task_blocks_submitter_but_is_claimable_by_another_user(
     _revoke(_admin_session(), alice, _revoke_items(completed))
 
     with pytest.raises(repo.NoTaskAvailable):
-        repo.claim(alice["id"])
+        repo.claim(alice["fence"])
 
     bob, _ = _make_user("bob")
-    claimed = repo.claim(bob["id"])
+    claimed = repo.claim(bob["fence"])
     assert claimed["task_id"] == completed["task_id"]
     assert [segment["text"] for segment in claimed["segments"]] == ["", ""]
     assert all(not segment["exclude_from_training"] for segment in claimed["segments"])
@@ -431,9 +431,9 @@ def test_deactivate_revokes_current_work_releases_session_and_is_audited(
     seed_tasks(2)
     alice, alice_sid = _make_user("alice")
     completed = _complete_next(alice, prefix="published-secret")
-    in_progress = repo.claim(alice["id"])
+    in_progress = repo.claim(alice["fence"])
     repo.save_draft(
-        alice["id"], in_progress["lease_token"], in_progress["revision"],
+        alice["fence"], in_progress["lease_token"], in_progress["revision"],
         _segments(in_progress, "draft-secret"), str(uuid.uuid4()), "save-draft",
     )
     admin = _admin_session()
@@ -490,10 +490,10 @@ def test_deactivate_revokes_current_work_releases_session_and_is_audited(
     with pytest.raises(repo.ForbiddenError):
         repo.login("alice", str(uuid.uuid4()), 1800)
     with pytest.raises(repo.ForbiddenError):
-        repo.claim(alice["id"])
+        repo.claim(alice["fence"])
 
     bob, _ = _make_user("bob")
-    assert repo.claim(bob["id"])["task_id"] == completed["task_id"]
+    assert repo.claim(bob["fence"])["task_id"] == completed["task_id"]
 
 
 def test_deactivate_does_not_revoke_a_later_submitters_current_version(
@@ -601,7 +601,7 @@ def test_complete_revision_racing_revoke_never_loses_the_new_submission(
     seed_tasks(1)
     alice, _ = _make_user("alice")
     original = _complete_next(alice, prefix="original")
-    repo.reopen_completed(alice["id"], original["task_id"], str(uuid.uuid4()))
+    repo.reopen_completed(alice["fence"], original["task_id"], str(uuid.uuid4()))
     revision = repo.get_assignment(alice["id"])
     admin = _admin_session()
     admin_operation = str(uuid.uuid4())
@@ -610,7 +610,7 @@ def test_complete_revision_racing_revoke_never_loses_the_new_submission(
     def complete_revision():
         barrier.wait(timeout=10)
         return repo.complete(
-            alice["id"], revision["lease_token"], revision["revision"],
+            alice["fence"], revision["lease_token"], revision["revision"],
             "annotated", [], _segments(revision, "newer"),
             str(uuid.uuid4()), "concurrent-complete",
         )
@@ -739,7 +739,7 @@ def test_release_assignment_racing_complete_has_one_consistent_winner(
 
     seed_tasks(1)
     alice, _ = _make_user("alice")
-    assignment = repo.claim(alice["id"])
+    assignment = repo.claim(alice["fence"])
     admin = _admin_session()
     complete_operation = str(uuid.uuid4())
     release_operation = str(uuid.uuid4())
@@ -749,7 +749,7 @@ def test_release_assignment_racing_complete_has_one_consistent_winner(
         barrier.wait(timeout=10)
         try:
             result = repo.complete(
-                alice["id"], assignment["lease_token"],
+                alice["fence"], assignment["lease_token"],
                 assignment["revision"], "annotated", [],
                 _segments(assignment, "completed"), complete_operation,
                 "release-complete-race",

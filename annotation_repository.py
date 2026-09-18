@@ -15,16 +15,34 @@ import math
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import psycopg
 from psycopg.types.json import Json
 
+from annotation_metadata.taxonomy import (
+    SCENE_DEFS,
+    SCENE_ORDER,
+    effective_source_scene,
+    effective_source_scene_sql,
+)
 from db import db_tx
 
 ALLOWED_SKIP_REASONS = {"noisy", "not_egyptian", "poor_quality"}
 HEARTBEAT_MIN_INTERVAL_SECONDS = 30
+DEFAULT_IDLE_SECONDS = 30 * 60
+DEFAULT_ABSOLUTE_SECONDS = 20 * 3600
+DEFAULT_PRESENCE_LEASE_SECONDS = 150
+DEFAULT_HEARTBEAT_SECONDS = 30
+DEFAULT_TAKEOVER_TOKEN_SECONDS = 60
+DEFAULT_ACTIVITY_THROTTLE_SECONDS = 30
+DEFAULT_OFFLINE_DRAFT_RETENTION_DAYS = 7
+DEFAULT_IDLE_WARNING_SECONDS = 120
+SESSION_EVENT_TYPES = frozenset({
+    "login", "resume", "stale_takeover", "forced_takeover", "logout",
+})
 
 
 def utcnow() -> datetime:
@@ -67,6 +85,10 @@ class ValidationError(RepositoryError):
 class ForbiddenError(RepositoryError):
     status = 403
 
+    def __init__(self, message, *, code=None):
+        super().__init__(message)
+        self.code = code
+
 
 class RateLimitError(RepositoryError):
     status = 429
@@ -78,6 +100,105 @@ class RevisionConflict(ConflictError):
     def __init__(self, current_revision: int):
         super().__init__(f"revision conflict, server revision is {current_revision}")
         self.current_revision = current_revision
+
+
+class ActiveSessionConflict(ConflictError):
+    """A live same-name session is still within the presence lease."""
+
+    def __init__(self, username: str, observed_generation: int,
+                 last_seen_at: datetime, login_time: datetime,
+                 session_fingerprint: str):
+        super().__init__(
+            "This name is currently active on another device."
+        )
+        self.code = "session_active"
+        self.username = username
+        self.observed_generation = observed_generation
+        self.last_seen_at = last_seen_at
+        self.login_time = login_time
+        self.session_fingerprint = session_fingerprint
+
+
+class SessionChangedConflict(ConflictError):
+    """The takeover token no longer matches the live session."""
+
+    def __init__(self, message="The other session changed. Sign in again to continue."):
+        super().__init__(message)
+        self.code = "session_changed"
+
+
+class SessionFenceError(RepositoryError):
+    """A write was attempted with a session that is no longer authoritative."""
+
+    status = 401
+    _messages = {
+        "not_authenticated": "Not authenticated",
+        "session_replaced": "Session was replaced by another login.",
+        "idle_timeout": "Session expired after a period of inactivity.",
+        "absolute_timeout": "Session reached its absolute time limit.",
+    }
+
+    def __init__(self, code: str, message: str | None = None):
+        self.code = code
+        super().__init__(message or self._messages.get(code, "Not authenticated"))
+
+
+@dataclass(frozen=True)
+class SessionFence:
+    user_id: uuid.UUID
+    username: str
+    session_id: uuid.UUID
+    generation: int
+
+
+@dataclass(frozen=True)
+class SessionState:
+    status: str
+    fence: SessionFence | None
+    idle_expires_at: datetime | None = None
+    absolute_expires_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    last_activity_at: datetime | None = None
+    login_time: datetime | None = None
+    server_time: datetime | None = None
+
+
+@dataclass(frozen=True)
+class SessionPolicy:
+    idle_seconds: int = DEFAULT_IDLE_SECONDS
+    absolute_seconds: int = DEFAULT_ABSOLUTE_SECONDS
+    presence_lease_seconds: int = DEFAULT_PRESENCE_LEASE_SECONDS
+    heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS
+    takeover_token_seconds: int = DEFAULT_TAKEOVER_TOKEN_SECONDS
+    activity_throttle_seconds: int = DEFAULT_ACTIVITY_THROTTLE_SECONDS
+    offline_draft_retention_days: int = DEFAULT_OFFLINE_DRAFT_RETENTION_DAYS
+    idle_warning_seconds: int = DEFAULT_IDLE_WARNING_SECONDS
+
+
+def default_session_policy() -> SessionPolicy:
+    return SessionPolicy()
+
+
+def session_fingerprint(session_id) -> str:
+    return hashlib.sha256(str(session_id).encode("utf-8")).hexdigest()
+
+
+def _iso(value) -> str | None:
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def _as_fence(fence: SessionFence) -> SessionFence:
+    if not isinstance(fence, SessionFence):
+        raise ValidationError("session fence is required")
+    return fence
+
+
+def _interval_seconds(seconds: int):
+    return timedelta(seconds=int(seconds))
 
 
 def _operation_replay(cur, operation_id, user_id, route: str,
@@ -130,104 +251,584 @@ def _lock_active_annotator(cur, user_id):
     if not row:
         raise NotFoundError("Annotator not found")
     if row[2] != "active":
-        raise ForbiddenError("Annotator account is deactivated")
+        raise ForbiddenError(
+            "Annotator account is deactivated",
+            code="account_deactivated",
+        )
     return row
 
 
-def active_session_exists(username: str) -> bool:
+def _policy(policy: SessionPolicy | None) -> SessionPolicy:
+    return policy if policy is not None else default_session_policy()
+
+
+def _record_session_event(cur, user_id, event_type: str, generation: int,
+                          previous_generation=None, details=None) -> None:
+    if event_type not in SESSION_EVENT_TYPES:
+        raise ValidationError(f"unsupported session event_type: {event_type}")
+    cur.execute(
+        """INSERT INTO annotator_session_events
+               (user_id, event_type, generation, previous_generation, details)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (user_id, event_type, generation, previous_generation, Json(details or {})),
+    )
+
+
+def _replace_active_session(cur, user_id, session_id, policy: SessionPolicy,
+                            previous_generation: int | None):
+    generation = int(previous_generation or 0) + 1
+    idle = _interval_seconds(policy.idle_seconds)
+    absolute = _interval_seconds(policy.absolute_seconds)
+    row = cur.execute(
+        """INSERT INTO active_sessions (
+               user_id, session_id, login_time, last_seen_at, last_activity_at,
+               expires_at, absolute_expires_at, generation)
+           VALUES (
+               %s, %s, now(), now(), now(),
+               LEAST(now() + %s, now() + %s),
+               now() + %s,
+               %s)
+           ON CONFLICT (user_id) DO UPDATE SET
+               session_id = EXCLUDED.session_id,
+               login_time = now(),
+               last_seen_at = now(),
+               last_activity_at = now(),
+               absolute_expires_at = EXCLUDED.absolute_expires_at,
+               expires_at = EXCLUDED.expires_at,
+               generation = EXCLUDED.generation
+           RETURNING session_id, generation, expires_at, absolute_expires_at,
+                     last_seen_at, login_time, last_activity_at""",
+        (user_id, session_id, idle, absolute, absolute, generation),
+    ).fetchone()
+    return {
+        "session_id": row[0],
+        "generation": int(row[1]),
+        "expires_at": row[2],
+        "absolute_expires_at": row[3],
+        "last_seen_at": row[4],
+        "login_time": row[5],
+        "last_activity_at": row[6],
+    }
+
+
+def _session_payload(user: dict, session_row: dict, mode: str, *,
+                     reason: str | None = None) -> dict:
+    fence = SessionFence(
+        user_id=user["id"],
+        username=user["username"],
+        session_id=session_row["session_id"],
+        generation=int(session_row["generation"]),
+    )
+    payload = {
+        "id": user["id"],
+        "username": user["username"],
+        "session_id": session_row["session_id"],
+        "generation": fence.generation,
+        "fence": fence,
+        "mode": mode,
+        "idle_expires_at": session_row["expires_at"],
+        "absolute_expires_at": session_row["absolute_expires_at"],
+        "last_seen_at": session_row["last_seen_at"],
+        "login_time": session_row.get("login_time"),
+        "last_activity_at": session_row.get("last_activity_at"),
+    }
+    if reason:
+        payload["reason"] = reason
+    return payload
+
+
+def _require_session_fence(cur, fence: SessionFence) -> None:
+    """Hold SHARE on the session row, then classify failure reasons."""
+    fence = _as_fence(fence)
+    row = cur.execute(
+        """SELECT session_id, generation,
+                  expires_at > now() AS idle_valid,
+                  absolute_expires_at > now() AS absolute_valid
+             FROM active_sessions
+            WHERE user_id = %s
+            FOR SHARE""",
+        (fence.user_id,),
+    ).fetchone()
+    if not row:
+        raise SessionFenceError(code="not_authenticated")
+    if str(row[0]) != str(fence.session_id) or int(row[1]) != int(fence.generation):
+        raise SessionFenceError(code="session_replaced")
+    if not row[3]:
+        raise SessionFenceError(code="absolute_timeout")
+    if not row[2]:
+        raise SessionFenceError(code="idle_timeout")
+
+
+def _touch_real_activity(cur, fence: SessionFence, *,
+                         policy: SessionPolicy | None = None,
+                         assignment: bool = True) -> None:
+    """Refresh idle deadline from a genuine user write. Never extends absolute."""
+    policy = _policy(policy)
+    idle = _interval_seconds(policy.idle_seconds)
+    cur.execute(
+        """UPDATE active_sessions
+              SET last_seen_at = now(),
+                  last_activity_at = now(),
+                  expires_at = LEAST(now() + %s, absolute_expires_at)
+            WHERE user_id = %s
+              AND session_id = %s
+              AND generation = %s""",
+        (idle, fence.user_id, fence.session_id, fence.generation),
+    )
+    if assignment:
+        cur.execute(
+            """UPDATE assignments
+                  SET last_activity_at = now()
+                WHERE user_id = %s""",
+            (fence.user_id,),
+        )
+
+
+def _online_sql(alias: str = "ses") -> str:
+    return (
+        f"{alias}.expires_at > now() "
+        f"AND {alias}.absolute_expires_at > now() "
+        f"AND {alias}.last_seen_at > now() - %s"
+    )
+
+
+def active_session_exists(username: str, *,
+                          presence_lease_seconds: int = DEFAULT_PRESENCE_LEASE_SECONDS
+                          ) -> bool:
+    lease = _interval_seconds(presence_lease_seconds)
     with db_tx() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT 1 FROM active_sessions s
+            f"""SELECT 1 FROM active_sessions s
                JOIN annotators u ON u.id = s.user_id
                WHERE u.username = %s AND u.status = 'active'
-                 AND s.expires_at > now()""",
-            (username,),
+                 AND {_online_sql("s")}""",
+            (username, lease),
         )
         return cur.fetchone() is not None
 
 
-def login(username: str, session_id: str, ttl_seconds: int) -> dict:
-    """Register a session atomically; reject an unexpired same-name login."""
+def inspect_session(username: str, session_id: str,
+                    generation: int | None = None) -> SessionState:
+    """Read-only classification. Does not refresh any timestamps."""
+    if not username or not session_id:
+        return SessionState(status="not_authenticated", fence=None)
     with db_tx() as conn, conn.cursor() as cur:
-        user = ensure_user(cur, username)
-        _lock_active_annotator(cur, user["id"])
-        current = cur.execute(
-            "SELECT expires_at FROM active_sessions WHERE user_id = %s FOR UPDATE",
-            (user["id"],),
+        now_row = cur.execute("SELECT now()").fetchone()[0]
+        user = cur.execute(
+            "SELECT id, username, status FROM annotators WHERE username = %s",
+            (username,),
         ).fetchone()
-        if current and current[0] > utcnow():
-            raise ConflictError(
-                f"'{username}' is already in use. Please choose a different name."
+        if not user:
+            return SessionState(
+                status="not_authenticated", fence=None, server_time=now_row,
             )
-        expires_at = utcnow() + timedelta(seconds=ttl_seconds)
-        cur.execute(
-            """INSERT INTO active_sessions (user_id, session_id, login_time,
-                                            last_seen_at, expires_at)
-               VALUES (%s, %s, now(), now(), %s)
-               ON CONFLICT (user_id) DO UPDATE SET
-                   session_id = EXCLUDED.session_id,
-                   login_time = now(),
-                   last_seen_at = now(),
-                   expires_at = EXCLUDED.expires_at""",
-            (user["id"], session_id, expires_at),
-        )
-        return {"id": user["id"], "username": user["username"]}
-
-
-def validate_session(username: str, session_id: str) -> dict | None:
-    """Return the annotator if the cookie session is currently valid."""
-    with db_tx() as conn, conn.cursor() as cur:
+        if user[2] != "active":
+            return SessionState(
+                status="account_deactivated", fence=None, server_time=now_row,
+            )
         row = cur.execute(
-            """SELECT u.id, u.username
-               FROM active_sessions s
-               JOIN annotators u ON u.id = s.user_id
-               WHERE u.username = %s AND s.session_id = %s
-                 AND u.status = 'active'
-                 AND s.expires_at > now()""",
-            (username, session_id),
+            """SELECT session_id, generation, expires_at, absolute_expires_at,
+                      last_seen_at, last_activity_at, login_time
+                 FROM active_sessions
+                WHERE user_id = %s""",
+            (user[0],),
         ).fetchone()
         if not row:
-            return None
-        return {"id": row[0], "username": row[1]}
-
-
-def logout(username: str, session_id: str) -> None:
-    """Drop the web session only. The user's assignment is intentionally kept."""
-    with db_tx() as conn, conn.cursor() as cur:
-        cur.execute(
-            """DELETE FROM active_sessions s
-               USING annotators u
-               WHERE s.user_id = u.id AND u.username = %s AND s.session_id = %s""",
-            (username, session_id),
+            return SessionState(
+                status="logged_out", fence=None, server_time=now_row,
+            )
+        sid_match = str(row[0]) == str(session_id)
+        if not sid_match:
+            return SessionState(
+                status="session_replaced",
+                fence=None,
+                idle_expires_at=row[2],
+                absolute_expires_at=row[3],
+                last_seen_at=row[4],
+                last_activity_at=row[5],
+                login_time=row[6],
+                server_time=now_row,
+            )
+        if generation is not None and int(row[1]) != int(generation):
+            return SessionState(
+                status="session_replaced",
+                fence=None,
+                idle_expires_at=row[2],
+                absolute_expires_at=row[3],
+                last_seen_at=row[4],
+                last_activity_at=row[5],
+                login_time=row[6],
+                server_time=now_row,
+            )
+        fence = SessionFence(
+            user_id=user[0], username=user[1],
+            session_id=row[0], generation=int(row[1]),
+        )
+        if row[3] <= now_row:
+            return SessionState(
+                status="absolute_timeout", fence=fence,
+                idle_expires_at=row[2], absolute_expires_at=row[3],
+                last_seen_at=row[4], last_activity_at=row[5],
+                login_time=row[6], server_time=now_row,
+            )
+        if row[2] <= now_row:
+            return SessionState(
+                status="idle_timeout", fence=fence,
+                idle_expires_at=row[2], absolute_expires_at=row[3],
+                last_seen_at=row[4], last_activity_at=row[5],
+                login_time=row[6], server_time=now_row,
+            )
+        return SessionState(
+            status="valid", fence=fence,
+            idle_expires_at=row[2], absolute_expires_at=row[3],
+            last_seen_at=row[4], last_activity_at=row[5],
+            login_time=row[6], server_time=now_row,
         )
 
 
-def heartbeat(username: str, session_id: str, ttl_seconds: int) -> None:
-    """Throttled activity refresh for session + assignment lease."""
+def load_session_fence(user_id) -> SessionFence:
+    """Current valid fence for a user id. Used by tests that only stored user_id."""
+    uid = _validate_uuid(user_id, "user_id")
     with db_tx() as conn, conn.cursor() as cur:
-        expires_at = utcnow() + timedelta(seconds=ttl_seconds)
-        min_interval = timedelta(seconds=HEARTBEAT_MIN_INTERVAL_SECONDS)
-        uid_row = cur.execute(
-            """UPDATE active_sessions s
-               SET last_seen_at = now(), expires_at = %s
-               FROM annotators u
-               WHERE s.user_id = u.id
-                 AND u.username = %s
-                 AND u.status = 'active'
-                 AND s.session_id = %s
-                 AND s.expires_at > now()
-               RETURNING s.user_id""",
-            (expires_at, username, session_id),
+        row = cur.execute(
+            """SELECT u.id, u.username, s.session_id, s.generation,
+                      u.status, s.expires_at > now(), s.absolute_expires_at > now()
+                 FROM annotators u
+                 JOIN active_sessions s ON s.user_id = u.id
+                WHERE u.id = %s""",
+            (uid,),
         ).fetchone()
-        if not uid_row:
-            return
-        cur.execute(
-            """UPDATE assignments
-               SET last_activity_at = now()
-               WHERE user_id = %s
-                 AND last_activity_at < now() - %s""",
-            (uid_row[0], min_interval),
+        if not row:
+            raise SessionFenceError(code="not_authenticated")
+        if row[4] != "active":
+            raise ForbiddenError(
+                "Annotator account is deactivated",
+                code="account_deactivated",
+            )
+        if not row[6]:
+            raise SessionFenceError(code="absolute_timeout")
+        if not row[5]:
+            raise SessionFenceError(code="idle_timeout")
+        return SessionFence(
+            user_id=row[0], username=row[1],
+            session_id=row[2], generation=int(row[3]),
         )
+
+
+def login_or_resume(username: str, requested_session_id: str, *,
+                    cookie_session_id: str | None = None,
+                    cookie_generation: int | None = None,
+                    policy: SessionPolicy | None = None) -> dict:
+    """Atomically resume, replace a stale/expired session, or reject a live one."""
+    policy = _policy(policy)
+    requested = _validate_uuid(requested_session_id, "session_id")
+    with db_tx() as conn, conn.cursor() as cur:
+        user = ensure_user(cur, username)
+        locked = _lock_active_annotator(cur, user["id"])
+        user = {"id": locked[0], "username": locked[1], "status": locked[2]}
+        current = cur.execute(
+            """SELECT session_id, generation, expires_at, absolute_expires_at,
+                      last_seen_at, last_activity_at, login_time
+                 FROM active_sessions
+                WHERE user_id = %s
+                FOR UPDATE""",
+            (user["id"],),
+        ).fetchone()
+        now_row = cur.execute("SELECT now()").fetchone()[0]
+        if current is not None:
+            cookie_sid = cookie_session_id
+            cookie_ok = (
+                cookie_sid
+                and str(current[0]) == str(cookie_sid)
+                and (
+                    cookie_generation is None
+                    or int(current[1]) == int(cookie_generation)
+                )
+                and current[2] > now_row
+                and current[3] > now_row
+            )
+            if cookie_ok:
+                cur.execute(
+                    """UPDATE active_sessions
+                          SET last_seen_at = now()
+                        WHERE user_id = %s
+                    RETURNING session_id, generation, expires_at, absolute_expires_at,
+                              last_seen_at, login_time, last_activity_at""",
+                    (user["id"],),
+                )
+                updated = cur.fetchone()
+                session_row = {
+                    "session_id": updated[0], "generation": int(updated[1]),
+                    "expires_at": updated[2], "absolute_expires_at": updated[3],
+                    "last_seen_at": updated[4], "login_time": updated[5],
+                    "last_activity_at": updated[6],
+                }
+                _record_session_event(
+                    cur, user["id"], "resume", session_row["generation"],
+                    previous_generation=session_row["generation"],
+                )
+                return _session_payload(user, session_row, "resume")
+
+            idle_expired = current[2] <= now_row
+            absolute_expired = current[3] <= now_row
+            if idle_expired or absolute_expired:
+                reason = (
+                    "absolute_timeout" if absolute_expired
+                    else "idle_timeout" if idle_expired
+                    else "missing"
+                )
+                previous = int(current[1])
+                replaced = _replace_active_session(
+                    cur, user["id"], requested, policy, previous,
+                )
+                _record_session_event(
+                    cur, user["id"], "login", replaced["generation"],
+                    previous_generation=previous,
+                    details={"reason": reason},
+                )
+                return _session_payload(user, replaced, "login", reason=reason)
+
+            stale_cutoff = now_row - _interval_seconds(policy.presence_lease_seconds)
+            if current[4] <= stale_cutoff:
+                previous = int(current[1])
+                replaced = _replace_active_session(
+                    cur, user["id"], requested, policy, previous,
+                )
+                _record_session_event(
+                    cur, user["id"], "stale_takeover", replaced["generation"],
+                    previous_generation=previous,
+                    details={"reason": "presence_lease_expired"},
+                )
+                return _session_payload(user, replaced, "stale_takeover")
+
+            raise ActiveSessionConflict(
+                username=user["username"],
+                observed_generation=int(current[1]),
+                last_seen_at=current[4],
+                login_time=current[6],
+                session_fingerprint=session_fingerprint(current[0]),
+            )
+
+        replaced = _replace_active_session(cur, user["id"], requested, policy, 0)
+        _record_session_event(
+            cur, user["id"], "login", replaced["generation"],
+            previous_generation=None,
+            details={"reason": "missing"},
+        )
+        return _session_payload(user, replaced, "login", reason="missing")
+
+
+def login(username: str, session_id: str, ttl_seconds: int, **kwargs) -> dict:
+    """Compatibility wrapper used by tests and smoke scripts."""
+    absolute = kwargs.pop("absolute_seconds", None)
+    if absolute is None:
+        absolute = max(int(ttl_seconds), DEFAULT_ABSOLUTE_SECONDS)
+    policy = SessionPolicy(
+        idle_seconds=int(ttl_seconds),
+        absolute_seconds=int(absolute),
+        presence_lease_seconds=int(kwargs.pop(
+            "presence_lease_seconds", DEFAULT_PRESENCE_LEASE_SECONDS,
+        )),
+        heartbeat_seconds=int(kwargs.pop(
+            "heartbeat_seconds", DEFAULT_HEARTBEAT_SECONDS,
+        )),
+        takeover_token_seconds=int(kwargs.pop(
+            "takeover_token_seconds", DEFAULT_TAKEOVER_TOKEN_SECONDS,
+        )),
+        activity_throttle_seconds=int(kwargs.pop(
+            "activity_throttle_seconds", DEFAULT_ACTIVITY_THROTTLE_SECONDS,
+        )),
+        offline_draft_retention_days=int(kwargs.pop(
+            "offline_draft_retention_days", DEFAULT_OFFLINE_DRAFT_RETENTION_DAYS,
+        )),
+    )
+    return login_or_resume(
+        username,
+        requested_session_id=session_id,
+        cookie_session_id=kwargs.pop("cookie_session_id", None),
+        cookie_generation=kwargs.pop("cookie_generation", None),
+        policy=policy,
+    )
+
+
+def login_actor(name: str, ttl_seconds: int = DEFAULT_IDLE_SECONDS, **kwargs) -> dict:
+    """Create a session and return user, SID, generation, and fence."""
+    return login(name, str(uuid.uuid4()), ttl_seconds, **kwargs)
+
+
+def force_takeover(username: str, requested_session_id: str, *,
+                   observed_generation: int,
+                   observed_session_fingerprint: str,
+                   policy: SessionPolicy | None = None) -> dict:
+    """Replace a live session only if generation and SID fingerprint still match."""
+    policy = _policy(policy)
+    requested = _validate_uuid(requested_session_id, "session_id")
+    with db_tx() as conn, conn.cursor() as cur:
+        user = ensure_user(cur, username)
+        locked = _lock_active_annotator(cur, user["id"])
+        user = {"id": locked[0], "username": locked[1], "status": locked[2]}
+        current = cur.execute(
+            """SELECT session_id, generation
+                 FROM active_sessions
+                WHERE user_id = %s
+                FOR UPDATE""",
+            (user["id"],),
+        ).fetchone()
+        if (
+            current is None
+            or int(current[1]) != int(observed_generation)
+            or session_fingerprint(current[0]) != observed_session_fingerprint
+        ):
+            raise SessionChangedConflict()
+        previous = int(current[1])
+        replaced = _replace_active_session(
+            cur, user["id"], requested, policy, previous,
+        )
+        _record_session_event(
+            cur, user["id"], "forced_takeover", replaced["generation"],
+            previous_generation=previous,
+        )
+        return _session_payload(user, replaced, "forced_takeover")
+
+
+def validate_session(username: str, session_id: str,
+                     generation: int | None = None) -> dict | None:
+    """Return the annotator if the cookie session is currently valid."""
+    state = inspect_session(username, session_id, generation)
+    if state.status != "valid" or state.fence is None:
+        return None
+    return {
+        "id": state.fence.user_id,
+        "username": state.fence.username,
+        "session_id": state.fence.session_id,
+        "generation": state.fence.generation,
+        "fence": state.fence,
+        "idle_expires_at": state.idle_expires_at,
+        "absolute_expires_at": state.absolute_expires_at,
+        "last_seen_at": state.last_seen_at,
+    }
+
+
+def logout(username: str, session_id: str, generation: int | None = None) -> None:
+    """Drop only the matching web session. Assignments are intentionally kept."""
+    with db_tx() as conn, conn.cursor() as cur:
+        if generation is None:
+            deleted = cur.execute(
+                """DELETE FROM active_sessions s
+                   USING annotators u
+                   WHERE s.user_id = u.id
+                     AND u.username = %s
+                     AND s.session_id = %s
+                   RETURNING s.user_id, s.generation""",
+                (username, session_id),
+            ).fetchone()
+        else:
+            deleted = cur.execute(
+                """DELETE FROM active_sessions s
+                   USING annotators u
+                   WHERE s.user_id = u.id
+                     AND u.username = %s
+                     AND s.session_id = %s
+                     AND s.generation = %s
+                   RETURNING s.user_id, s.generation""",
+                (username, session_id, int(generation)),
+            ).fetchone()
+        if deleted:
+            _record_session_event(
+                cur, deleted[0], "logout", int(deleted[1]),
+                previous_generation=int(deleted[1]),
+            )
+
+
+def session_heartbeat(username: str, session_id: str,
+                      generation: int | None = None, *,
+                      activity: bool = False,
+                      policy: SessionPolicy | None = None) -> dict:
+    """Update presence; extend idle only for throttled genuine activity."""
+    policy = _policy(policy)
+    state = inspect_session(username, session_id, generation)
+    if state.status != "valid" or state.fence is None:
+        if state.status == "account_deactivated":
+            raise ForbiddenError(
+                "Annotator account is deactivated",
+                code="account_deactivated",
+            )
+        code = state.status if state.status != "logged_out" else "not_authenticated"
+        raise SessionFenceError(code=code)
+    fence = state.fence
+    idle = _interval_seconds(policy.idle_seconds)
+    throttle = _interval_seconds(policy.activity_throttle_seconds)
+    with db_tx() as conn, conn.cursor() as cur:
+        if activity:
+            row = cur.execute(
+                """UPDATE active_sessions
+                      SET last_seen_at = now(),
+                          last_activity_at = CASE
+                              WHEN last_activity_at < now() - %s THEN now()
+                              ELSE last_activity_at END,
+                          expires_at = CASE
+                              WHEN last_activity_at < now() - %s
+                              THEN LEAST(now() + %s, absolute_expires_at)
+                              ELSE expires_at END
+                    WHERE user_id = %s
+                      AND session_id = %s
+                      AND generation = %s
+                      AND expires_at > now()
+                      AND absolute_expires_at > now()
+                    RETURNING now(), expires_at, absolute_expires_at, last_activity_at""",
+                (throttle, throttle, idle,
+                 fence.user_id, fence.session_id, fence.generation),
+            ).fetchone()
+            if row and row[3] is not None:
+                cur.execute(
+                    """UPDATE assignments
+                          SET last_activity_at = now()
+                        WHERE user_id = %s
+                          AND last_activity_at < now() - %s""",
+                    (fence.user_id, throttle),
+                )
+        else:
+            row = cur.execute(
+                """UPDATE active_sessions
+                      SET last_seen_at = now()
+                    WHERE user_id = %s
+                      AND session_id = %s
+                      AND generation = %s
+                      AND expires_at > now()
+                      AND absolute_expires_at > now()
+                    RETURNING now(), expires_at, absolute_expires_at, last_activity_at""",
+                (fence.user_id, fence.session_id, fence.generation),
+            ).fetchone()
+        if not row:
+            # Re-classify rather than resurrect.
+            again = inspect_session(username, session_id, generation)
+            code = again.status if again.status != "logged_out" else "not_authenticated"
+            if code == "valid":
+                code = "not_authenticated"
+            if code == "account_deactivated":
+                raise ForbiddenError(
+                    "Annotator account is deactivated",
+                    code="account_deactivated",
+                )
+            raise SessionFenceError(code=code)
+        return {
+            "ok": True,
+            "server_time": row[0],
+            "idle_expires_at": row[1],
+            "absolute_expires_at": row[2],
+        }
+
+
+def heartbeat(username: str, session_id: str, ttl_seconds: int,
+              generation: int | None = None) -> dict:
+    """Deprecated presence-only heartbeat. Does not extend idle expiry."""
+    policy = SessionPolicy(
+        idle_seconds=int(ttl_seconds),
+        absolute_seconds=max(int(ttl_seconds), DEFAULT_ABSOLUTE_SECONDS),
+    )
+    return session_heartbeat(
+        username, session_id, generation, activity=False, policy=policy,
+    )
 
 
 # ============================================================
@@ -381,9 +982,10 @@ def has_assignment(user_id: str) -> bool:
         ).fetchone()[0]
 
 
-def claim(user_id: str, *, source_scene: str | None = None,
+def claim(fence: SessionFence, *, source_scene: str | None = None,
           batch_code: str | None = None,
-          source_confidence: str | None = None) -> dict:
+          source_confidence: str | None = None,
+          policy: SessionPolicy | None = None) -> dict:
     """Claim one task for the user, preferring migration-reserved drafts.
 
     An existing assignment is always resumed, ignoring the new scene selector.
@@ -397,20 +999,24 @@ def claim(user_id: str, *, source_scene: str | None = None,
     )
     from annotation_metadata.queries import load_scope
 
-    uid = _validate_uuid(user_id, "user_id")
+    fence = _as_fence(fence)
+    uid = fence.user_id
+    session_policy = _policy(policy)
     filters = parse_claim_filters(
         source_scene=source_scene, batch_code=batch_code,
         source_confidence=source_confidence,
     )
-    policy = get_claim_policy()
+    claim_policy = get_claim_policy()
     with db_tx() as conn, conn.cursor() as cur:
         # Serialize claims for the same user. Different users still proceed
         # concurrently and SKIP LOCKED prevents task contention.
         _lock_active_annotator(cur, uid)
+        _require_session_fence(cur, fence)
         existing = cur.execute(
             _ASSIGNMENT_QUERY, (uid,)
         ).fetchone()
         if existing:
+            _touch_real_activity(cur, fence, policy=session_policy)
             segments = _load_segments(cur, existing[9])
             wf = _load_waveform(cur, existing[0])
             payload = _row_to_assignment(existing, segments, wf)
@@ -423,7 +1029,7 @@ def claim(user_id: str, *, source_scene: str | None = None,
         task_row = None
         lease_token = None
         for _attempt in range(64):
-            task_row = fetch_claim_candidate(cur, scope, filters, uid, policy.name)
+            task_row = fetch_claim_candidate(cur, scope, filters, uid, claim_policy.name)
             if not task_row:
                 candidate_exists = cur.execute(exists_sql, exists_params).fetchone()[0]
                 if candidate_exists:
@@ -448,7 +1054,7 @@ def claim(user_id: str, *, source_scene: str | None = None,
                    ON CONFLICT DO NOTHING
                    RETURNING lease_token""",
                 (uid, task_id, version_id, candidate_token, revision,
-                 best_scene, best_id, policy.name, best_confidence),
+                 best_scene, best_id, claim_policy.name, best_confidence),
             ).fetchone()
             if inserted:
                 lease_token = inserted[0]
@@ -467,7 +1073,7 @@ def claim(user_id: str, *, source_scene: str | None = None,
                 "mode": "annotation",
                 "claim_scene_code": best_scene,
                 "claim_confidence": best_confidence,
-                "claim_policy": policy.name,
+                "claim_policy": claim_policy.name,
                 "claim_source_id": str(best_id) if best_id else None,
             })),
         )
@@ -491,6 +1097,7 @@ def claim(user_id: str, *, source_scene: str | None = None,
             "waveform_b64": wf,
             "resumed": False,
         }
+        _touch_real_activity(cur, fence, policy=session_policy)
         return _attach_assignment_metadata(cur, payload, uid)
 
 
@@ -519,16 +1126,19 @@ def _lock_assignment(cur, user_id, lease_token: str | None):
     }
 
 
-def abandon(user_id: str, lease_token: str, operation_id: str, confirm: bool) -> dict:
+def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: bool,
+            policy: SessionPolicy | None = None) -> dict:
     if not confirm:
         raise ValidationError("Abandon requires explicit confirmation")
-    uid = _validate_uuid(user_id, "user_id")
+    fence = _as_fence(fence)
+    uid = fence.user_id
     op_uuid = _validate_uuid(operation_id, "operation_id")
     request_hash = hashlib.sha256(json.dumps(
         {"lease_token": lease_token, "confirm": confirm}, sort_keys=True
     ).encode()).hexdigest()
     with db_tx() as conn, conn.cursor() as cur:
         _lock_active_annotator(cur, uid)
+        _require_session_fence(cur, fence)
         prior = _operation_replay(cur, op_uuid, uid, "abandon", request_hash)
         if prior:
             return {**prior["response"], "idempotent_replay": True}
@@ -560,6 +1170,7 @@ def abandon(user_id: str, lease_token: str, operation_id: str, confirm: bool) ->
                 Json({"mode": asg["mode"]}),
             ),
         )
+        _touch_real_activity(cur, fence, policy=policy, assignment=False)
         return response
 
 
@@ -662,13 +1273,16 @@ def _validate_version_segments(cur, version_id, task_id) -> None:
 # ============================================================
 # Draft save (autosave) and complete
 # ============================================================
-def save_draft(user_id: str, lease_token: str, expected_revision: int,
+def save_draft(fence: SessionFence, lease_token: str, expected_revision: int,
                dirty_segments: list[dict], operation_id: str,
-               request_hash: str, scene_review=None) -> dict:
-    uid = _validate_uuid(user_id, "user_id")
+               request_hash: str, scene_review=None,
+               policy: SessionPolicy | None = None) -> dict:
+    fence = _as_fence(fence)
+    uid = fence.user_id
     op_uuid = _validate_uuid(operation_id, "operation_id")
     with db_tx() as conn, conn.cursor() as cur:
         _lock_active_annotator(cur, uid)
+        _require_session_fence(cur, fence)
         prior = _operation_replay(cur, op_uuid, uid, "save_draft", request_hash)
         if prior:
             return prior["response"]
@@ -702,13 +1316,15 @@ def save_draft(user_id: str, lease_token: str, expected_revision: int,
             "scene_review_changed": review_changed,
         }
         _store_operation(cur, op_uuid, uid, "save_draft", request_hash, response)
+        _touch_real_activity(cur, fence, policy=policy)
         return response
 
 
-def complete(user_id: str, lease_token: str, expected_revision: int,
+def complete(fence: SessionFence, lease_token: str, expected_revision: int,
              target_status: str, skip_reasons: list[str],
              dirty_segments: list[dict], operation_id: str,
-             request_hash: str, scene_review=None) -> dict:
+             request_hash: str, scene_review=None,
+             policy: SessionPolicy | None = None) -> dict:
     if target_status not in ("annotated", "skipped"):
         raise ValidationError("target_status must be 'annotated' or 'skipped'")
     if not isinstance(skip_reasons, list) or any(
@@ -727,11 +1343,13 @@ def complete(user_id: str, lease_token: str, expected_revision: int,
     else:
         reasons = []
 
-    uid = _validate_uuid(user_id, "user_id")
+    fence = _as_fence(fence)
+    uid = fence.user_id
     op_uuid = _validate_uuid(operation_id, "operation_id")
 
     with db_tx() as conn, conn.cursor() as cur:
         _lock_active_annotator(cur, uid)
+        _require_session_fence(cur, fence)
         prior = _operation_replay(cur, op_uuid, uid, "complete", request_hash)
         if prior:
             return {"idempotent_replay": True,
@@ -821,6 +1439,7 @@ def complete(user_id: str, lease_token: str, expected_revision: int,
              })),
         )
         cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
+        _touch_real_activity(cur, fence, policy=policy, assignment=False)
         return response
 
 
@@ -1013,13 +1632,16 @@ def completed_detail(user_id: str, task_id: str) -> dict:
         return payload
 
 
-def reopen_completed(user_id: str, task_id: str, operation_id: str) -> dict:
+def reopen_completed(fence: SessionFence, task_id: str, operation_id: str,
+                     policy: SessionPolicy | None = None) -> dict:
     """Create a revision draft + assignment from the user's own submission."""
-    uid = _validate_uuid(user_id, "user_id")
+    fence = _as_fence(fence)
+    uid = fence.user_id
     tid = _validate_uuid(task_id, "task_id")
     op_uuid = _validate_uuid(operation_id, "operation_id")
     with db_tx() as conn, conn.cursor() as cur:
         _lock_active_annotator(cur, uid)
+        _require_session_fence(cur, fence)
         request_hash = hashlib.sha256(str(tid).encode()).hexdigest()
         prior = _operation_replay(cur, op_uuid, uid, "reopen", request_hash)
         if prior:
@@ -1102,6 +1724,7 @@ def reopen_completed(user_id: str, task_id: str, operation_id: str) -> dict:
                VALUES (%s, %s, %s, %s, 'reopened', %s, %s)""",
             (op_uuid, uid, tid, draft_id, row[2], Json({})),
         )
+        _touch_real_activity(cur, fence, policy=policy)
         return response
 
 
@@ -1117,16 +1740,39 @@ def dashboard() -> dict:
         annotated = counts.get("annotated", 0)
         skipped = counts.get("skipped", 0)
         lb_rows = cur.execute(
-            """SELECT u.username,
-                      count(*) FILTER (WHERE v.target_status = 'annotated') AS annotated,
-                      count(*) FILTER (WHERE v.target_status = 'skipped') AS skipped,
-                      COALESCE(sum(t.duration) FILTER (WHERE v.target_status = 'annotated'), 0) AS dur
-               FROM annotation_tasks t
-               JOIN annotation_versions v ON v.id = t.current_published_version_id
-               JOIN annotators u ON u.id = v.submitted_by_user_id
-               GROUP BY u.username
-               ORDER BY dur DESC, u.username"""
+            """SELECT username, annotated, skipped, dur, total_annotated_duration
+               FROM (
+                   SELECT u.username,
+                          count(*) FILTER (WHERE v.target_status = 'annotated')
+                              AS annotated,
+                          count(*) FILTER (WHERE v.target_status = 'skipped')
+                              AS skipped,
+                          COALESCE(
+                              sum(t.duration) FILTER (
+                                  WHERE v.target_status = 'annotated'
+                              ),
+                              0
+                          ) AS dur,
+                          COALESCE(
+                              SUM(
+                                  COALESCE(
+                                      sum(t.duration) FILTER (
+                                          WHERE v.target_status = 'annotated'
+                                      ),
+                                      0
+                                  )
+                              ) OVER (),
+                              0
+                          ) AS total_annotated_duration
+                   FROM annotation_tasks t
+                   JOIN annotation_versions v
+                     ON v.id = t.current_published_version_id
+                   JOIN annotators u ON u.id = v.submitted_by_user_id
+                   GROUP BY u.username
+               ) ranked
+               ORDER BY dur DESC, username"""
         ).fetchall()
+    annotated_duration = float(lb_rows[0][4]) if lb_rows else 0.0
     return {
         "stats": {
             "total": total,
@@ -1136,6 +1782,7 @@ def dashboard() -> dict:
             "percent_complete": (
                 round((annotated + skipped) / total * 100, 1) if total else 0.0
             ),
+            "annotated_duration_seconds": annotated_duration,
         },
         "leaderboard": [
             {
@@ -1148,6 +1795,161 @@ def dashboard() -> dict:
             }
             for r in lb_rows
         ],
+    }
+
+
+PUBLIC_ANNOTATION_SPEED_WINDOW_DAYS = 28
+PUBLIC_ANNOTATION_SPEED_WEEK_DAYS = 7
+PUBLIC_ANNOTATION_SPEED_SQL = f"""
+WITH eligible AS (
+    SELECT t.id AS task_id,
+           timezone(%s, v.submitted_at)::date AS day,
+           t.duration
+    FROM annotation_versions v
+    JOIN annotation_tasks t
+      ON t.current_published_version_id = v.id
+     AND t.status = 'annotated'
+    WHERE v.lifecycle = 'published'
+      AND v.target_status = 'annotated'
+      AND v.submitted_at IS NOT NULL
+      AND v.submitted_at >= %s
+      AND v.submitted_at < %s
+),
+task_scenes AS (
+    SELECT DISTINCT
+           eligible.task_id,
+           eligible.day,
+           eligible.duration,
+           {effective_source_scene_sql("source.scene_code")} AS scene_code
+    FROM eligible
+    LEFT JOIN task_sources source
+      ON source.task_id = eligible.task_id
+     AND source.is_current
+)
+SELECT CAST(NULL AS text) AS scene_code,
+       day,
+       COALESCE(SUM(duration), 0) AS duration_seconds
+FROM eligible
+GROUP BY day
+UNION ALL
+SELECT scene_code,
+       day,
+       COALESCE(SUM(duration), 0) AS duration_seconds
+FROM task_scenes
+GROUP BY scene_code, day
+"""
+
+
+def public_scene_options() -> list[dict]:
+    """Public login-page scene catalog: stable codes and English labels."""
+    return [
+        {"code": str(item["code"]), "label": str(item["label_en"])}
+        for item in SCENE_DEFS
+    ]
+
+
+def _speed_days_from_map(by_day: dict, start_date, today, window_days: int) -> list[dict]:
+    days = []
+    for offset in range(window_days):
+        day = start_date + timedelta(days=offset)
+        days.append({
+            "date": day.isoformat(),
+            "duration_seconds": float(by_day.get(day, 0.0)),
+            "is_partial": day == today,
+        })
+    return days
+
+
+def _speed_weeks_from_days(days: list[dict]) -> list[dict]:
+    weeks = []
+    step = PUBLIC_ANNOTATION_SPEED_WEEK_DAYS
+    for index in range(0, len(days), step):
+        chunk = days[index:index + step]
+        total = sum(item["duration_seconds"] for item in chunk)
+        weeks.append({
+            "start_date": chunk[0]["date"],
+            "end_date": chunk[-1]["date"],
+            "average_daily_duration_seconds": total / float(step),
+        })
+    return weeks
+
+
+def public_annotation_speed(
+    timezone_name: str,
+    *,
+    window_days: int = PUBLIC_ANNOTATION_SPEED_WINDOW_DAYS,
+) -> dict:
+    """Project-level daily added annotated audio for the public login chart.
+
+    Counts currently effective published/annotated versions, bucketed by the
+    version's ``submitted_at`` calendar date in ``timezone_name``. Duration
+    comes from ``annotation_tasks.duration`` (the same "currently valid
+    annotated audio" definition as the leaderboard). Root ``days``/``weeks``
+    are the All-scenes series; ``by_scene`` repeats the window for each
+    source scene. A task with several current source scenes appears in each
+    of those filters, but only once in All scenes.
+    """
+    if window_days <= 0 or window_days % PUBLIC_ANNOTATION_SPEED_WEEK_DAYS != 0:
+        raise ValidationError(
+            "window_days must be a positive multiple of "
+            f"{PUBLIC_ANNOTATION_SPEED_WEEK_DAYS}"
+        )
+    try:
+        tz = ZoneInfo(str(timezone_name))
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise ValidationError("Invalid timezone") from exc
+
+    now_utc = utcnow()
+    now_local = now_utc.astimezone(tz)
+    today = now_local.date()
+    start_date = today - timedelta(days=window_days - 1)
+    start_utc = datetime.combine(start_date, datetime.min.time(), tzinfo=tz).astimezone(
+        timezone.utc
+    )
+    end_utc = datetime.combine(
+        today + timedelta(days=1), datetime.min.time(), tzinfo=tz
+    ).astimezone(timezone.utc)
+
+    with db_tx() as conn, conn.cursor() as cur:
+        rows = cur.execute(
+            PUBLIC_ANNOTATION_SPEED_SQL,
+            (str(timezone_name), start_utc, end_utc),
+        ).fetchall()
+
+    all_by_day = {}
+    scene_by_day = {code: {} for code in SCENE_ORDER}
+    for scene_code, day, duration in rows:
+        if day is None or day < start_date or day > today:
+            continue
+        amount = float(duration or 0.0)
+        if scene_code is None:
+            all_by_day[day] = amount
+            continue
+        code = effective_source_scene(scene_code)
+        if code not in scene_by_day:
+            continue
+        scene_by_day[code][day] = scene_by_day[code].get(day, 0.0) + amount
+
+    days = _speed_days_from_map(all_by_day, start_date, today, window_days)
+    by_scene = {}
+    for code in SCENE_ORDER:
+        scene_days = _speed_days_from_map(
+            scene_by_day[code], start_date, today, window_days,
+        )
+        by_scene[code] = {
+            "days": scene_days,
+            "weeks": _speed_weeks_from_days(scene_days),
+        }
+
+    return {
+        "timezone": str(timezone_name),
+        "window_days": window_days,
+        "from": start_date.isoformat(),
+        "through": today.isoformat(),
+        "generated_at": now_local.isoformat(timespec="seconds"),
+        "days": days,
+        "weeks": _speed_weeks_from_days(days),
+        "by_scene": by_scene,
     }
 
 
@@ -2196,7 +2998,9 @@ def _decode_admin_cursor(cursor: str, count: int) -> list[str]:
 
 
 def admin_annotators(filters: dict | None = None, limit: int = 50,
-                     cursor: str | None = None) -> dict:
+                     cursor: str | None = None,
+                     presence_lease_seconds: int = DEFAULT_PRESENCE_LEASE_SECONDS
+                     ) -> dict:
     normalized = _normalize_admin_filters(filters)
     limit = max(1, min(int(limit), 100))
     user_where: list[str] = ["true"]
@@ -2264,7 +3068,10 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
                        COALESCE(cs.duration, 0), COALESCE(hs.completed, 0),
                        COALESCE(rs.revoked, 0), hs.last_completed_at,
                        EXISTS (SELECT 1 FROM active_sessions ses
-                               WHERE ses.user_id = u.id AND ses.expires_at > now()),
+                               WHERE ses.user_id = u.id
+                                 AND ses.expires_at > now()
+                                 AND ses.absolute_expires_at > now()
+                                 AND ses.last_seen_at > now() - %s),
                        a.task_id, a.mode, a.assigned_at, a.last_activity_at
                 FROM annotators u
                 LEFT JOIN current_stats cs ON cs.user_id = u.id
@@ -2275,6 +3082,7 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
                 ORDER BY lower(u.username), u.id
                 LIMIT %s""",
             (*current_params, *event_params, *revoked_params,
+             _interval_seconds(presence_lease_seconds),
              *user_params, limit + 1),
         ).fetchall()
     has_more = len(rows) > limit
@@ -2337,7 +3145,9 @@ def _annotator_current_where(filters: dict) -> tuple[str, list]:
 
 
 def admin_annotator_detail(annotator_id: str,
-                           filters: dict | None = None) -> dict:
+                           filters: dict | None = None,
+                           presence_lease_seconds: int = DEFAULT_PRESENCE_LEASE_SECONDS
+                           ) -> dict:
     uid = _validate_uuid(annotator_id, "annotator_id")
     normalized = _normalize_admin_filters(filters)
     current_where, current_params = _annotator_current_where(normalized)
@@ -2473,9 +3283,12 @@ def admin_annotator_detail(annotator_id: str,
             (uid,),
         ).fetchone()
         session = cur.execute(
-            """SELECT max(last_seen_at), bool_or(expires_at > now())
+            """SELECT last_seen_at, last_activity_at,
+                      expires_at > now()
+                      AND absolute_expires_at > now()
+                      AND last_seen_at > now() - %s AS online
                FROM active_sessions WHERE user_id = %s""",
-            (uid,),
+            (_interval_seconds(presence_lease_seconds), uid),
         ).fetchone()
         from annotation_metadata.queries import load_scope
         from annotation_metadata.repository import scope_payload
@@ -2533,8 +3346,11 @@ def admin_annotator_detail(annotator_id: str,
             "measurement": "wall_clock",
         },
         "activity": {
-            "last_seen_at": session[0].isoformat() if session[0] else None,
-            "online": bool(session[1]),
+            "last_seen_at": session[0].isoformat() if session and session[0] else None,
+            "last_activity_at": (
+                session[1].isoformat() if session and session[1] else None
+            ),
+            "online": bool(session[2]) if session else False,
         },
         "assignment": ({
             "task_id": str(assignment[0]), "mode": assignment[1],

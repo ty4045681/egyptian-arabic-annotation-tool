@@ -14,9 +14,9 @@ from tests.test_repository import full_segments, make_user
 def test_legacy_complete_does_not_clear_review(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     result = repo.complete(
-        user["id"], assignment["lease_token"], assignment["revision"],
+        user["fence"], assignment["lease_token"], assignment["revision"],
         "annotated", [], full_segments(assignment), str(uuid.uuid4()), "h",
     )
     assert result["success"]
@@ -27,25 +27,25 @@ def test_legacy_complete_does_not_clear_review(database, seed_tasks):
 def test_review_saves_with_complete_and_ignores_label_order(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     review = {
         "status": "mixed",
         "scene_codes": ["shopping", "airport"],
         "note": "both",
     }
     saved = repo.save_draft(
-        user["id"], assignment["lease_token"], 0, full_segments(assignment),
+        user["fence"], assignment["lease_token"], 0, full_segments(assignment),
         str(uuid.uuid4()), "h1", scene_review=review,
     )
     assert saved["scene_review"]["scene_codes"] == ["airport", "shopping"]
     again = repo.save_draft(
-        user["id"], assignment["lease_token"], saved["revision"],
+        user["fence"], assignment["lease_token"], saved["revision"],
         full_segments(assignment), str(uuid.uuid4()), "h2",
         scene_review={"status": "mixed", "scene_codes": ["airport", "shopping"], "note": "both"},
     )
     assert again["scene_review_changed"] is False
     completed = repo.complete(
-        user["id"], assignment["lease_token"], again["revision"],
+        user["fence"], assignment["lease_token"], again["revision"],
         "annotated", [], full_segments(assignment), str(uuid.uuid4()), "h3",
         scene_review=review,
     )
@@ -58,9 +58,9 @@ def test_unpublished_confirmed_headline_uses_human_labels_not_published_wording(
         database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("headline-unpublished")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     saved = repo.save_draft(
-        user["id"], assignment["lease_token"], 0, full_segments(assignment),
+        user["fence"], assignment["lease_token"], 0, full_segments(assignment),
         str(uuid.uuid4()), "headline-save",
         scene_review={"status": "confirmed", "scene_codes": ["shopping"]},
     )
@@ -75,13 +75,13 @@ def test_unpublished_confirmed_headline_uses_human_labels_not_published_wording(
 def test_correction_draft_review_is_pending_not_published(database, seed_tasks):
     seed_tasks(1)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         full_segments(assignment), str(uuid.uuid4()), "complete",
         scene_review={"status": "confirmed", "scene_codes": ["airport"]},
     )
-    repo.reopen_completed(user["id"], assignment["task_id"], str(uuid.uuid4()))
+    repo.reopen_completed(user["fence"], assignment["task_id"], str(uuid.uuid4()))
     draft = repo.get_assignment(user["id"])
     assert draft["metadata"]["draft_review"]["status"] == "pending"
     assert draft["metadata"]["reference_review"]["status"] == "confirmed"
@@ -91,10 +91,10 @@ def test_correction_draft_review_is_pending_not_published(database, seed_tasks):
 def test_admin_review_correction_and_replay(database, seed_tasks):
     first_id, other = seed_tasks(2)
     user, _ = make_user("alice")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     assert assignment["task_id"] == first_id
     repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         full_segments(assignment), str(uuid.uuid4()), "complete",
         scene_review={"status": "confirmed", "scene_codes": ["airport"]},
     )
@@ -118,9 +118,9 @@ def test_admin_review_correction_and_replay(database, seed_tasks):
     replay = repo.admin_correct_scene_review(session["id"], assignment["task_id"], payload)
     assert replay.get("idempotent_replay") is True
     other_user, _ = make_user("bob")
-    other_asg = repo.claim(other_user["id"])
+    other_asg = repo.claim(other_user["fence"])
     repo.complete(
-        other_user["id"], other_asg["lease_token"], 0, "annotated", [],
+        other_user["fence"], other_asg["lease_token"], 0, "annotated", [],
         full_segments(other_asg), str(uuid.uuid4()), "complete2",
     )
     with pytest.raises(repo.ConflictError):

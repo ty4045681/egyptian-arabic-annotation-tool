@@ -98,8 +98,23 @@ def client(database, tmp_path, monkeypatch):
 
     audio = tmp_path / "audio"
     audio.mkdir()
-    server.app.config.update(TESTING=True, AUDIO_DIR=str(audio),
-                             SESSION_TTL_SECONDS=1800,
-                             PERMANENT_SESSION_LIFETIME=1800,
-                             SECRET_KEY="test-secret")
+    server.app.config.update(
+        TESTING=True,
+        AUDIO_DIR=str(audio),
+        SESSION_TTL_SECONDS=1800,
+        SESSION_ABSOLUTE_SECONDS=20 * 3600,
+        SESSION_PRESENCE_HEARTBEAT_SECONDS=30,
+        SESSION_PRESENCE_LEASE_SECONDS=150,
+        SESSION_TAKEOVER_TOKEN_SECONDS=60,
+        SESSION_ACTIVITY_THROTTLE_SECONDS=30,
+        OFFLINE_DRAFT_RETENTION_DAYS=7,
+        SESSION_IDLE_WARNING_SECONDS=120,
+        PUBLIC_DASHBOARD_TIMEZONE="Asia/Shanghai",
+        PERMANENT_SESSION_LIFETIME=20 * 3600,
+        SESSION_REFRESH_EACH_REQUEST=False,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=False,
+        SECRET_KEY="test-secret",
+    )
     return server.app.test_client()

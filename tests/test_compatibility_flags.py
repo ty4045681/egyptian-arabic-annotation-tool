@@ -54,7 +54,7 @@ def test_flags_off_fifo_reads_old_and_new_and_refuses_writes(
         assert conn.execute("SELECT count(*) FROM scene_reviews").fetchone()[0] == before_reviews
         assert conn.execute("SELECT count(*) FROM task_sources").fetchone()[0] == before_sources
 
-    resumed = repo.claim(extra_user_id)
+    resumed = repo.claim(repo.load_session_fence(extra_user_id))
     assert resumed["resumed"] is True
     assert resumed["task_id"] == extra_assignment["task_id"]
     assert resumed["lease_token"] == extra_assignment["lease_token"]
@@ -79,16 +79,16 @@ def test_flags_off_fifo_reads_old_and_new_and_refuses_writes(
         )
         conn.commit()
     with pytest.raises(ForbiddenError):
-        repo.claim(shopping_user["id"], source_scene="airport")
+        repo.claim(shopping_user["fence"], source_scene="airport")
 
     with pytest.raises(ForbiddenError, match="Scene review editing is disabled"):
         repo.save_draft(
-            extra_user_id, extra_assignment["lease_token"],
+            repo.load_session_fence(extra_user_id), extra_assignment["lease_token"],
             extra_assignment["revision"], [], str(uuid.uuid4()), "flag-review",
             scene_review={"status": "confirmed", "scene_codes": ["airport"]},
         )
     saved = repo.save_draft(
-        extra_user_id, extra_assignment["lease_token"],
+        repo.load_session_fence(extra_user_id), extra_assignment["lease_token"],
         extra_assignment["revision"],
         full_segments(extra_assignment, "flag-text"),
         str(uuid.uuid4()), "flag-text",
@@ -111,23 +111,23 @@ def test_flags_off_fifo_reads_old_and_new_and_refuses_writes(
 def test_old_client_omitting_review_preserves_history(database, seed_tasks, monkeypatch):
     seed_tasks(1)
     user, _ = make_user("omit-review")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     completed = repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         full_segments(assignment), str(uuid.uuid4()), "with-review",
         scene_review={"status": "confirmed", "scene_codes": ["hotel"]},
     )
     review_id = completed["scene_review"]["id"]
-    repo.reopen_completed(user["id"], assignment["task_id"], str(uuid.uuid4()))
+    repo.reopen_completed(user["fence"], assignment["task_id"], str(uuid.uuid4()))
     draft = repo.get_assignment(user["id"])
     _disable_new_writes(monkeypatch)
     saved = repo.save_draft(
-        user["id"], draft["lease_token"], 0, full_segments(draft, "omit"),
+        user["fence"], draft["lease_token"], 0, full_segments(draft, "omit"),
         str(uuid.uuid4()), "omit-save",
     )
     assert "scene_review" in saved
     repo.complete(
-        user["id"], draft["lease_token"], saved["revision"], "annotated", [],
+        user["fence"], draft["lease_token"], saved["revision"], "annotated", [],
         full_segments(draft, "omit"), str(uuid.uuid4()), "omit-complete",
     )
     with db.db_conn() as conn:

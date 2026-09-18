@@ -402,9 +402,9 @@ def test_legacy_export_json_still_round_trips(database, seed_tasks, tmp_path):
     from manage_state import export_json
     seed_tasks(1)
     user, _ = make_user("json-compat")
-    assignment = repo.claim(user["id"])
+    assignment = repo.claim(user["fence"])
     repo.complete(
-        user["id"], assignment["lease_token"], 0, "annotated", [],
+        user["fence"], assignment["lease_token"], 0, "annotated", [],
         full_segments(assignment), str(uuid.uuid4()), "json-complete",
         scene_review={"status": "confirmed", "scene_codes": ["hotel"]},
     )
