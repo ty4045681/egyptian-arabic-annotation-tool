@@ -1,4 +1,4 @@
-"""Shared cross-check list filters and quality-summary counts."""
+"""Shared cross-check list filters, corpus stats, and training-export predicates."""
 
 from __future__ import annotations
 
@@ -9,6 +9,29 @@ import uuid
 from annotation_metadata.contracts import TaskFilter, parse_strict
 from annotation_metadata.queries import metadata_filter_sql
 from annotation_quality.contracts import OPEN_ROUND_STATES, CrossCheckListQuery
+
+# Current-result attribution. Admin-edited versions have NULL submitter.
+CREDITED_ANNOTATOR_SQL = (
+    "COALESCE({version}.credited_annotator_id, {version}.submitted_by_user_id)"
+)
+TRAINING_COMPLETION_EVENT_TYPES = ("completed", "cross_check_submitted")
+TRAINING_BEGIN_EVENT_TYPES = ("claimed", "reopened", "cross_check_claimed")
+UNIQUE_ANNOTATED_CORPUS_SQL = """
+SELECT count(*) AS annotated_count,
+       COALESCE(sum(t.duration), 0) AS annotated_duration_seconds
+FROM annotation_tasks t
+JOIN annotation_versions v ON v.id = t.current_published_version_id
+WHERE t.status = 'annotated'
+  AND v.lifecycle = 'published'
+  AND v.target_status = 'annotated'
+"""
+CROSS_CHECK_SUBMITTED_WORKLOAD_SQL = """
+SELECT count(*) AS cross_check_submitted_count,
+       COALESCE(sum(t.duration), 0) AS cross_check_submitted_audio_seconds
+FROM annotation_events e
+JOIN annotation_tasks t ON t.id = e.task_id
+WHERE e.event_type = 'cross_check_submitted'
+"""
 
 
 def applied_list_filters(query: CrossCheckListQuery, *, timezone_name: str) -> dict:
@@ -112,3 +135,170 @@ def cross_check_quality_summary(cur) -> dict:
         "default_state": "awaiting_review",
         "oldest_pending_created_at": oldest.isoformat() if oldest else None,
     }
+
+
+def credited_annotator_sql(version_alias: str = "v") -> str:
+    return CREDITED_ANNOTATOR_SQL.format(version=version_alias)
+
+
+def unique_annotated_corpus(cur) -> tuple[int, float]:
+    """Unique current published/annotated tasks. Never SUM(DISTINCT duration)."""
+    row = cur.execute(UNIQUE_ANNOTATED_CORPUS_SQL).fetchone()
+    return int(row[0] or 0), float(row[1] or 0)
+
+
+def cross_check_submitted_workload(cur) -> tuple[int, float]:
+    """Independent secondary-submit workload; not added into corpus duration."""
+    row = cur.execute(CROSS_CHECK_SUBMITTED_WORKLOAD_SQL).fetchone()
+    return int(row[0] or 0), float(row[1] or 0)
+
+
+def assignment_queue_counts(cur) -> tuple[int, int]:
+    """Pending-task assignments, then in-progress cross-check rounds."""
+    assigned = cur.execute(
+        """SELECT count(*)
+           FROM assignments a
+           JOIN annotation_tasks t ON t.id = a.task_id
+           WHERE t.status = 'pending'""",
+    ).fetchone()[0]
+    in_progress = cur.execute(
+        """SELECT count(*) FROM cross_check_rounds
+           WHERE state = 'in_progress'""",
+    ).fetchone()[0]
+    return int(assigned or 0), int(in_progress or 0)
+
+
+def training_export_eligible_sql(
+    *, task_alias: str = "t", version_alias: str = "v",
+) -> tuple[str, list]:
+    """Current annotated published version with no open quality round."""
+    sql = (
+        f"{task_alias}.status = 'annotated'"
+        f" AND {version_alias}.lifecycle = 'published'"
+        f" AND {version_alias}.target_status = 'annotated'"
+        f" AND NOT EXISTS ("
+        f" SELECT 1 FROM cross_check_rounds open_round"
+        f" WHERE open_round.task_id = {task_alias}.id"
+        f" AND open_round.state = ANY(%s))"
+    )
+    return sql, [list(OPEN_ROUND_STATES)]
+
+
+def training_export_where_sql(
+    filters: TaskFilter | None = None,
+    *,
+    task_alias: str = "t",
+    version_alias: str = "v",
+) -> tuple[str, list]:
+    sql, params = training_export_eligible_sql(
+        task_alias=task_alias, version_alias=version_alias,
+    )
+    if filters is not None and not filters.is_empty():
+        meta_sql, meta_params = metadata_filter_sql(filters, task_alias=task_alias)
+        if meta_sql != "true":
+            sql = f"{sql} AND ({meta_sql})"
+            params.extend(meta_params)
+    return sql, params
+
+
+def unique_open_quality_blocked_sql(
+    filters: TaskFilter | None = None,
+    *,
+    task_alias: str = "t",
+    version_alias: str = "v",
+) -> tuple[str, list]:
+    """Annotated published tasks excluded only because a quality round is open."""
+    sql = (
+        f"{task_alias}.status = 'annotated'"
+        f" AND {version_alias}.lifecycle = 'published'"
+        f" AND {version_alias}.target_status = 'annotated'"
+        f" AND EXISTS ("
+        f" SELECT 1 FROM cross_check_rounds open_round"
+        f" WHERE open_round.task_id = {task_alias}.id"
+        f" AND open_round.state = ANY(%s))"
+    )
+    params: list = [list(OPEN_ROUND_STATES)]
+    if filters is not None and not filters.is_empty():
+        meta_sql, meta_params = metadata_filter_sql(filters, task_alias=task_alias)
+        if meta_sql != "true":
+            sql = f"{sql} AND ({meta_sql})"
+            params.extend(meta_params)
+    return sql, params
+
+
+def training_timing_joins_sql(
+    *, task_alias: str = "t", version_alias: str = "v",
+) -> str:
+    """Bind wall-clock timing to the content draft, not admin wait time."""
+    completion = ", ".join(f"'{item}'" for item in TRAINING_COMPLETION_EVENT_TYPES)
+    begin = ", ".join(f"'{item}'" for item in TRAINING_BEGIN_EVENT_TYPES)
+    return f"""
+        LEFT JOIN annotation_versions timing_content
+          ON timing_content.id = CASE
+              WHEN {version_alias}.purpose = 'adjudication'
+              THEN {version_alias}.base_version_id
+              ELSE {version_alias}.id
+          END
+        LEFT JOIN LATERAL (
+            SELECT e.id, e.created_at, e.user_id
+            FROM annotation_events e
+            WHERE e.task_id = {task_alias}.id
+              AND e.version_id = timing_content.id
+              AND e.event_type IN ({completion})
+              AND e.to_status = 'annotated'
+            ORDER BY e.created_at DESC, e.id DESC
+            LIMIT 1
+        ) completed ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT max(begin_event.created_at) AS at
+            FROM annotation_events begin_event
+            WHERE begin_event.task_id = {task_alias}.id
+              AND begin_event.user_id = COALESCE(
+                  completed.user_id,
+                  timing_content.submitted_by_user_id,
+                  timing_content.credited_annotator_id
+              )
+              AND begin_event.event_type IN ({begin})
+              AND begin_event.created_at <= COALESCE(
+                  completed.created_at, timing_content.submitted_at
+              )
+        ) started ON TRUE
+    """
+
+
+def latest_quality_round_lateral_sql(
+    *, task_alias: str = "t", alias: str = "q",
+) -> str:
+    open_states = ", ".join(f"'{item}'" for item in sorted(OPEN_ROUND_STATES))
+    return f"""
+        LEFT JOIN LATERAL (
+            SELECT r.id, r.state, r.decision, r.final_version_id
+            FROM cross_check_rounds r
+            WHERE r.task_id = {task_alias}.id
+              AND r.state NOT IN ('cancelled', 'invalidated')
+            ORDER BY CASE WHEN r.state IN ({open_states}) THEN 0 ELSE 1 END,
+                     r.created_at DESC, r.id DESC
+            LIMIT 1
+        ) {alias} ON TRUE
+    """
+
+
+def exported_task_quality_sql() -> str:
+    return """
+        SELECT t.id::text,
+               t.current_published_version_id::text,
+               q.id::text,
+               q.state,
+               q.decision
+        FROM annotation_tasks t
+        LEFT JOIN LATERAL (
+            SELECT r.id, r.state, r.decision
+            FROM cross_check_rounds r
+            WHERE r.task_id = t.id
+              AND r.state IN ('passed', 'adjudicated')
+            ORDER BY r.resolved_at DESC NULLS LAST, r.id DESC
+            LIMIT 1
+        ) q ON TRUE
+        WHERE t.id = ANY(%s::uuid[])
+    """
+

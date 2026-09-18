@@ -21,6 +21,10 @@ from annotation_metadata.export_metadata import (
     EXCEL_HEADERS, applied_filter_context, excel_column_values, parse_task_filter,
 )
 from annotation_metadata.queries import metadata_filter_sql
+from annotation_quality.queries import (
+    credited_annotator_sql, latest_quality_round_lateral_sql,
+    training_export_eligible_sql,
+)
 from db import db_conn
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -51,19 +55,24 @@ def export_xlsx(output: Path, *, filters=None) -> int:
     ws.append(headers)
 
     count = 0
+    credited = credited_annotator_sql()
+    quality_join = latest_quality_round_lateral_sql()
+    eligible_sql, eligible_params = training_export_eligible_sql()
     with db_conn() as conn:
         # Named server-side cursor keeps memory stable for 100k+ rows.
         with conn.cursor(name="annotation_export", row_factory=None) as cur:
             cur.itersize = 2000
             cur.execute(
-                f"""SELECT u.username, t.folder, t.filename, t.duration, t.status, t.id
+                f"""SELECT u.username, t.folder, t.filename, t.duration, t.status, t.id,
+                           q.state, ({eligible_sql}) AS training_eligible
                    FROM annotation_tasks t
                    JOIN annotation_versions v ON v.id = t.current_published_version_id
-                   JOIN annotators u ON u.id = v.submitted_by_user_id
+                   LEFT JOIN annotators u ON u.id = {credited}
+                   {quality_join}
                    WHERE t.status IN ('annotated', 'skipped')
                      AND ({meta_sql})
                    ORDER BY t.folder, t.filename""",
-                meta_params,
+                (*eligible_params, *meta_params),
             )
             rows = list(cur)
         from annotation_metadata.repository import metadata_summaries
@@ -71,11 +80,14 @@ def export_xlsx(output: Path, *, filters=None) -> int:
             summaries = metadata_summaries(
                 summary_cur, [row[5] for row in rows], filters=task_filter,
             )
-        for username, folder, filename, duration, status, task_id in rows:
+        for (username, folder, filename, duration, status, task_id,
+             quality_state, training_eligible) in rows:
             summary = summaries.get(str(task_id), {})
             ws.append([
                 username, folder, filename, round(float(duration or 0), 1), status,
                 *excel_column_values(summary),
+                quality_state or "none",
+                "yes" if training_eligible else "no",
             ])
             count += 1
 

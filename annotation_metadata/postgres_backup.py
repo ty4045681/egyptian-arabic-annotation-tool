@@ -81,6 +81,7 @@ def _client_command(bindir: Path, tool: str, dsn: str, extra: list[str]) -> tupl
 
 
 def dump_database(dsn: str, output: Path, *, bindir: Path | None = None) -> dict:
+    """Custom dump of the full database. Does not apply the training-export filter."""
     bindir = running_postgres_bindir(bindir)
     assert_client_matches_server(dsn, bindir)
     output = Path(output).expanduser().resolve()
@@ -169,6 +170,12 @@ def provenance_counts(conn) -> dict:
         "scopes": count("SELECT count(*) FROM annotator_scene_scopes"),
         "events": count("SELECT count(*) FROM annotation_events"),
         "admin_actions": count("SELECT count(*) FROM admin_actions"),
+        # Full dump/restore keeps quality tables; never apply the training filter.
+        "cross_check_settings": count("SELECT count(*) FROM cross_check_settings"),
+        "cross_check_rounds": count("SELECT count(*) FROM cross_check_rounds"),
+        "task_annotation_participants": count(
+            "SELECT count(*) FROM task_annotation_participants"
+        ),
     }
 
 
@@ -198,6 +205,32 @@ def provenance_relationships(conn) -> dict:
             """SELECT count(*) FROM task_media_identities i
                LEFT JOIN annotation_tasks t ON t.id = i.task_id
                WHERE t.id IS NULL"""
+        ).fetchone()[0]),
+        "rounds_without_task": int(conn.execute(
+            """SELECT count(*) FROM cross_check_rounds r
+               LEFT JOIN annotation_tasks t ON t.id = r.task_id
+               WHERE t.id IS NULL"""
+        ).fetchone()[0]),
+        "participants_without_task": int(conn.execute(
+            """SELECT count(*) FROM task_annotation_participants p
+               LEFT JOIN annotation_tasks t ON t.id = p.task_id
+               WHERE t.id IS NULL"""
+        ).fetchone()[0]),
+        "in_progress_rounds_without_assignment": int(conn.execute(
+            """SELECT count(*) FROM cross_check_rounds r
+               WHERE r.state = 'in_progress'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM assignments a
+                     WHERE a.cross_check_round_id = r.id
+                 )"""
+        ).fetchone()[0]),
+        "awaiting_review_rounds_with_assignment": int(conn.execute(
+            """SELECT count(*) FROM cross_check_rounds r
+               WHERE r.state = 'awaiting_review'
+                 AND EXISTS (
+                     SELECT 1 FROM assignments a
+                     WHERE a.cross_check_round_id = r.id
+                 )"""
         ).fetchone()[0]),
     }
     return {"ok": all(value == 0 for value in dangling.values()), "dangling": dangling}

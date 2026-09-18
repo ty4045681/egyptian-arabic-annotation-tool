@@ -34,7 +34,9 @@ KNOWN_TOP = {
     "audio", "folder", "duration", "status", "skip_reasons", "category",
     "annotated_by", "skipped_by", "last_modified", "last_modified_by",
     "preprocessed_at", "waveform_b64", "waveform", "segments",
+    "quality_state", "training_eligible", "quality_round_id",
 }
+QUALITY_JSON_KEYS = ("quality_state", "training_eligible", "quality_round_id")
 KNOWN_SEG = {"id", "start", "end", "duration", "asr_text", "text", "exclude_from_training"}
 TASK_NAMESPACE = uuid.UUID("b2234ce1-fc42-41df-af48-11710143274b")
 
@@ -812,17 +814,39 @@ def db_export_rows(conn) -> Iterable[dict]:
                      'extra', s.extra
                    ) ORDER BY s.segment_id
                  ) FILTER (WHERE s.segment_id IS NOT NULL), '[]'::jsonb
-               ) AS segments
+               ) AS segments,
+               q.id AS quality_round_id, q.state AS quality_state,
+               (t.status = 'annotated'
+                AND v.lifecycle = 'published'
+                AND v.target_status = 'annotated'
+                AND NOT EXISTS (
+                    SELECT 1 FROM cross_check_rounds open_round
+                    WHERE open_round.task_id = t.id
+                      AND open_round.state IN ('in_progress', 'awaiting_review')
+                )) AS training_eligible
         FROM annotation_tasks t
         JOIN annotation_versions v ON v.task_id = t.id AND (
              v.id = t.current_published_version_id OR
              (t.current_published_version_id IS NULL AND v.lifecycle = 'draft')
         )
-        LEFT JOIN annotators u ON u.id = v.submitted_by_user_id
+        LEFT JOIN annotators u ON u.id = COALESCE(
+            v.credited_annotator_id, v.submitted_by_user_id
+        )
         LEFT JOIN annotators editor ON editor.id = v.modified_by_user_id
         LEFT JOIN waveforms w ON w.task_id = t.id
         LEFT JOIN segments s ON s.version_id = v.id
-        GROUP BY t.id, v.id, u.username, editor.username, w.payload
+        LEFT JOIN LATERAL (
+            SELECT r.id, r.state
+            FROM cross_check_rounds r
+            WHERE r.task_id = t.id
+              AND r.state NOT IN ('cancelled', 'invalidated')
+            ORDER BY CASE WHEN r.state IN ('in_progress', 'awaiting_review')
+                          THEN 0 ELSE 1 END,
+                     r.created_at DESC, r.id DESC
+            LIMIT 1
+        ) q ON TRUE
+        GROUP BY t.id, v.id, u.username, editor.username, w.payload,
+                 q.id, q.state
         ORDER BY t.allocation_order
     """
     with conn.cursor(name="state_export", row_factory=dict_row) as cur:
@@ -887,6 +911,10 @@ def row_to_legacy(row: dict) -> dict:
         })
         segments.append(seg)
     result["segments"] = segments
+    result["quality_state"] = row.get("quality_state") or "none"
+    result["training_eligible"] = bool(row.get("training_eligible"))
+    round_id = row.get("quality_round_id")
+    result["quality_round_id"] = str(round_id) if round_id else None
     return normalize_legacy(result, row["rel_path"])
 
 
@@ -904,6 +932,8 @@ def verify_manifest(manifest: dict) -> dict:
                 mismatches.append({"type": "unexpected_database_task", "rel_path": rel_path})
                 continue
             exported = row_to_legacy(row)
+            for key in QUALITY_JSON_KEYS:
+                exported.pop(key, None)
             actual_hash = canonical_hash(exported)
             if actual_hash != item["semantic_sha256"]:
                 mismatches.append({"type": "semantic_mismatch", "rel_path": rel_path, "source_path": item["source_path"], "expected": item["semantic_sha256"], "actual": actual_hash})

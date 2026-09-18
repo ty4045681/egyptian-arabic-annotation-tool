@@ -11,6 +11,7 @@ from annotation_metadata.queries import (
     claim_match_predicate,
     claim_source_exists_sql,
 )
+from annotation_metadata.taxonomy import FALLBACK_SOURCE_SCENE
 from annotation_quality.repository import (
     create_cross_check_claim,
     cross_check_allowed,
@@ -87,6 +88,40 @@ def count_cross_check_candidates(cur, scope: SceneScope, filters: TaskFilter,
         params,
     ).fetchone()
     return int(row[0] if row else 0)
+
+
+def cross_check_scene_counts(
+    cur, scope: SceneScope, filters: TaskFilter, user_id,
+) -> dict[str | None, int]:
+    """Per-scene candidate counts using the same eligibility as claim."""
+    if not scope.can_claim:
+        return {}
+    scene_filters = TaskFilter(
+        source_confidence=filters.source_confidence,
+        batch_code=filters.batch_code,
+    )
+    from_sql, where_sql, params = _candidate_sql(scope, scene_filters, user_id)
+    effective = f"COALESCE(src.scene_code, '{FALLBACK_SOURCE_SCENE}')"
+    rows = cur.execute(
+        f"""SELECT {effective}, count(DISTINCT t.id)
+            {from_sql}
+            JOIN task_sources src ON src.task_id = t.id AND src.is_current
+            WHERE {where_sql}
+            GROUP BY 1""",
+        params,
+    ).fetchall()
+    by_code = {row[0]: int(row[1]) for row in rows}
+    if scope.allows_fallback_source():
+        fallback_filters = TaskFilter(
+            selected_scene=FALLBACK_SOURCE_SCENE,
+            source_scene=FALLBACK_SOURCE_SCENE,
+            batch_code=filters.batch_code,
+            source_confidence=filters.source_confidence,
+        )
+        by_code[FALLBACK_SOURCE_SCENE] = count_cross_check_candidates(
+            cur, scope, fallback_filters, user_id,
+        )
+    return by_code
 
 
 def fetch_cross_check_task_id(cur, scope: SceneScope, filters: TaskFilter,

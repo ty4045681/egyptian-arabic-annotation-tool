@@ -887,7 +887,8 @@ def pool_state(user_id: str | None = None, *, source_scene: str | None = None,
         annotated = counts.get("annotated", 0)
         skipped = counts.get("skipped", 0)
         pending = counts.get("pending", 0)
-        assigned = cur.execute("SELECT count(*) FROM assignments").fetchone()[0]
+        from annotation_quality.queries import assignment_queue_counts
+        assigned, cross_check_in_progress = assignment_queue_counts(cur)
         eligible_pending = cur.execute(
             "SELECT count(*) FROM annotation_tasks WHERE status = 'pending' AND eligible"
         ).fetchone()[0]
@@ -911,6 +912,7 @@ def pool_state(user_id: str | None = None, *, source_scene: str | None = None,
         "pending": pending,
         "assigned": assigned,
         "available": available,
+        "cross_check_in_progress": cross_check_in_progress,
         "reason": reason,
     }
 
@@ -2034,6 +2036,13 @@ def reopen_completed(fence: SessionFence, task_id: str, operation_id: str,
 # Dashboard / leaderboard
 # ============================================================
 def dashboard() -> dict:
+    from annotation_quality.queries import (
+        credited_annotator_sql,
+        cross_check_submitted_workload,
+        unique_annotated_corpus,
+    )
+
+    credited = credited_annotator_sql()
     with db_tx() as conn, conn.cursor() as cur:
         counts = dict(
             cur.execute("SELECT status, count(*) FROM annotation_tasks GROUP BY status").fetchall()
@@ -2041,40 +2050,29 @@ def dashboard() -> dict:
         total = sum(counts.values())
         annotated = counts.get("annotated", 0)
         skipped = counts.get("skipped", 0)
+        _, annotated_duration = unique_annotated_corpus(cur)
+        workload_count, workload_seconds = cross_check_submitted_workload(cur)
         lb_rows = cur.execute(
-            """SELECT username, annotated, skipped, dur, total_annotated_duration
-               FROM (
-                   SELECT u.username,
-                          count(*) FILTER (WHERE v.target_status = 'annotated')
-                              AS annotated,
-                          count(*) FILTER (WHERE v.target_status = 'skipped')
-                              AS skipped,
-                          COALESCE(
-                              sum(t.duration) FILTER (
-                                  WHERE v.target_status = 'annotated'
-                              ),
-                              0
-                          ) AS dur,
-                          COALESCE(
-                              SUM(
-                                  COALESCE(
-                                      sum(t.duration) FILTER (
-                                          WHERE v.target_status = 'annotated'
-                                      ),
-                                      0
-                                  )
-                              ) OVER (),
-                              0
-                          ) AS total_annotated_duration
-                   FROM annotation_tasks t
-                   JOIN annotation_versions v
-                     ON v.id = t.current_published_version_id
-                   JOIN annotators u ON u.id = v.submitted_by_user_id
-                   GROUP BY u.username
-               ) ranked
-               ORDER BY dur DESC, username"""
+            f"""SELECT u.username,
+                       count(*) FILTER (WHERE v.target_status = 'annotated')
+                           AS annotated,
+                       count(*) FILTER (WHERE v.target_status = 'skipped')
+                           AS skipped,
+                       COALESCE(
+                           sum(t.duration) FILTER (
+                               WHERE v.target_status = 'annotated'
+                           ),
+                           0
+                       ) AS dur
+                FROM annotation_tasks t
+                JOIN annotation_versions v
+                  ON v.id = t.current_published_version_id
+                LEFT JOIN annotators u ON u.id = {credited}
+                WHERE u.id IS NOT NULL
+                  AND v.lifecycle = 'published'
+                GROUP BY u.username
+                ORDER BY dur DESC, username"""
         ).fetchall()
-    annotated_duration = float(lb_rows[0][4]) if lb_rows else 0.0
     return {
         "stats": {
             "total": total,
@@ -2085,6 +2083,8 @@ def dashboard() -> dict:
                 round((annotated + skipped) / total * 100, 1) if total else 0.0
             ),
             "annotated_duration_seconds": annotated_duration,
+            "cross_check_submitted_count": workload_count,
+            "cross_check_submitted_audio_seconds": workload_seconds,
         },
         "leaderboard": [
             {
@@ -2598,8 +2598,10 @@ def _admin_task_filter_sql(filters: dict, *, task_alias="t",
         like = f"%{filters['q']}%"
         params.extend([like, like])
     if filters["annotator_id"]:
+        from annotation_quality.queries import credited_annotator_sql
+        credited = credited_annotator_sql(version_alias)
         clauses.append(
-            f"({version_alias}.submitted_by_user_id = %s OR EXISTS ("
+            f"({credited} = %s OR EXISTS ("
             f"SELECT 1 FROM assignments af WHERE af.task_id = {task_alias}.id "
             "AND af.user_id = %s))"
         )
@@ -2891,6 +2893,12 @@ def admin_overview(filters: dict | None = None) -> dict:
                ORDER BY task_count DESC, status"""
         ).fetchall()
         _mark("reviews")
+        from annotation_quality.queries import (
+            cross_check_quality_summary, cross_check_submitted_workload,
+        )
+        cross_check = cross_check_quality_summary(cur)
+        workload_count, workload_seconds = cross_check_submitted_workload(cur)
+        _mark("cross_check")
 
     confidence_buckets = [
         {"confidence": item[0], "task_count": int(item[1]),
@@ -2945,6 +2953,8 @@ def admin_overview(filters: dict | None = None) -> dict:
             "skipped_duration_seconds": float(row[5]),
             "pending_count": int(row[6]),
             "pending_duration_seconds": float(row[7]),
+            "cross_check_submitted_count": workload_count,
+            "cross_check_submitted_audio_seconds": workload_seconds,
         },
         "pending": {
             "assigned_count": int(row[8]),
@@ -2952,7 +2962,9 @@ def admin_overview(filters: dict | None = None) -> dict:
             "ineligible_count": int(row[10]),
             "reserved_count": int(row[11]),
             "oldest_created_at": row[12].isoformat() if row[12] else None,
+            "cross_check_in_progress_count": cross_check["in_progress_count"],
         },
+        "cross_check": cross_check,
         "segments": {
             "total_count": total_segments,
             "total_duration_seconds": float(segment_row[1]),
@@ -3345,7 +3357,9 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""WITH current_stats AS (
-                    SELECT v.submitted_by_user_id AS user_id,
+                    SELECT COALESCE(
+                               v.credited_annotator_id, v.submitted_by_user_id
+                           ) AS user_id,
                            count(*) FILTER (WHERE t.status = 'annotated') AS annotated,
                            count(*) FILTER (WHERE t.status = 'skipped') AS skipped,
                            COALESCE(sum(t.duration), 0) AS duration
@@ -3353,7 +3367,12 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
                     JOIN annotation_versions v
                       ON v.id = t.current_published_version_id
                     WHERE {current_where}
-                    GROUP BY v.submitted_by_user_id
+                      AND COALESCE(
+                          v.credited_annotator_id, v.submitted_by_user_id
+                      ) IS NOT NULL
+                    GROUP BY COALESCE(
+                        v.credited_annotator_id, v.submitted_by_user_id
+                    )
                 ), history_stats AS (
                     SELECT e.user_id, count(*) AS completed,
                            max(e.created_at) AS last_completed_at
@@ -3483,7 +3502,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
                 WHERE {current_where}""",
             (uid, *current_params),
         ).fetchone()
@@ -3496,7 +3515,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
                 LEFT JOIN segments s ON s.version_id = v.id
                 WHERE {current_where}""",
             (uid, *current_params),
@@ -3563,7 +3582,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
                 CROSS JOIN LATERAL unnest(v.skip_reasons) reason
                 WHERE {current_where}
                 GROUP BY reason ORDER BY count(*) DESC, reason""",
@@ -3574,7 +3593,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
                 WHERE {current_where}
                 GROUP BY COALESCE(t.category, 'Uncategorized')
                 ORDER BY count(*) DESC, COALESCE(t.category, 'Uncategorized')""",
@@ -3721,7 +3740,9 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
                 LEFT JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
                 LEFT JOIN annotators submitter
-                  ON submitter.id = v.submitted_by_user_id
+                  ON submitter.id = COALESCE(
+                      v.credited_annotator_id, v.submitted_by_user_id
+                  )
                 LEFT JOIN assignments a ON a.task_id = t.id
                 LEFT JOIN annotators assignee ON assignee.id = a.user_id
                 LEFT JOIN annotation_versions d
@@ -3825,7 +3846,9 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
     clauses = ["v.lifecycle IN ('published', 'revoked', 'superseded')"]
     params: list = []
     if normalized["annotator_id"]:
-        clauses.append("v.submitted_by_user_id = %s")
+        clauses.append(
+            "COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s"
+        )
         params.append(normalized["annotator_id"])
     if normalized["status"] in ("annotated", "skipped"):
         clauses.append("v.target_status = %s")
@@ -3869,7 +3892,8 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""SELECT v.id, v.submitted_at, v.lifecycle, v.target_status,
-                       v.skip_reasons, v.revision, v.submitted_by_user_id,
+                       v.skip_reasons, v.revision,
+                       COALESCE(v.credited_annotator_id, v.submitted_by_user_id),
                        u.username, u.status, t.id, t.filename, t.folder,
                        t.rel_path, t.duration, t.category,
                        (t.current_published_version_id = v.id) AS is_current,
@@ -3884,13 +3908,20 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
                            SELECT max(begin_event.created_at)
                            FROM annotation_events begin_event
                            WHERE begin_event.task_id = v.task_id
-                             AND begin_event.user_id = v.submitted_by_user_id
-                             AND begin_event.event_type IN ('claimed', 'reopened')
+                             AND begin_event.user_id = COALESCE(
+                                 v.submitted_by_user_id, v.credited_annotator_id
+                             )
+                             AND begin_event.event_type IN (
+                                 'claimed', 'reopened', 'cross_check_claimed'
+                             )
                              AND begin_event.created_at <= v.submitted_at
                        ))) AS turnaround_seconds
                 FROM annotation_versions v
                 JOIN annotation_tasks t ON t.id = v.task_id
-                LEFT JOIN annotators u ON u.id = v.submitted_by_user_id
+                LEFT JOIN annotators u
+                  ON u.id = COALESCE(
+                      v.credited_annotator_id, v.submitted_by_user_id
+                  )
                 LEFT JOIN segments s ON s.version_id = v.id
                 WHERE {' AND '.join(clauses)}
                 GROUP BY v.id, t.id, u.id
