@@ -4424,14 +4424,77 @@ def _release_task_draft(cur, task_id, *, action_id, reason: str,
     }
 
 
-def admin_revoke_preview(annotator_id: str, items: list[dict],
+def _related_cross_check_user_ids(cur, task_ids) -> set:
+    if not task_ids:
+        return set()
+    rows = cur.execute(
+        """SELECT secondary_annotator_id
+           FROM cross_check_rounds
+           WHERE task_id = ANY(%s)
+             AND state IN ('in_progress', 'awaiting_review')
+           UNION
+           SELECT user_id FROM assignments WHERE task_id = ANY(%s)""",
+        (list(task_ids), list(task_ids)),
+    ).fetchall()
+    return {row[0] for row in rows if row[0]}
+
+
+def _lock_annotators_stable(cur, user_ids, *, required_id=None) -> dict:
+    ids = sorted({uid for uid in user_ids if uid}, key=str)
+    if required_id is not None and required_id not in ids:
+        ids = sorted(ids + [required_id], key=str)
+    if not ids:
+        return {}
+    rows = cur.execute(
+        """SELECT id, status FROM annotators
+           WHERE id = ANY(%s) ORDER BY id FOR UPDATE""",
+        (ids,),
+    ).fetchall()
+    found = {row[0]: row[1] for row in rows}
+    if required_id is not None and required_id not in found:
+        raise NotFoundError("Annotator not found")
+    if any(uid not in found for uid in ids):
+        raise ConflictError("Annotator no longer exists")
+    return found
+
+
+def _lock_assignments_for_tasks(cur, task_ids) -> None:
+    if not task_ids:
+        return
+    cur.execute(
+        """SELECT user_id FROM assignments
+           WHERE task_id = ANY(%s)
+           ORDER BY task_id
+           FOR UPDATE""",
+        (list(task_ids),),
+    )
+
+
+def _is_admin_edited_version(submitted_by, purpose, published_by) -> bool:
+    return (
+        purpose == "adjudication"
+        and submitted_by is None
+        and published_by is not None
+    )
+
+
+def admin_revoke_preview(annotator_id: str | None, items: list[dict],
                          block_reclaim: bool = True,
                          release_conflicts: bool = False) -> dict:
-    uid = _validate_uuid(annotator_id, "annotator_id")
+    uid = (
+        None if annotator_id is None
+        else _validate_uuid(annotator_id, "annotator_id")
+    )
+    if uid is None:
+        if block_reclaim:
+            raise ValidationError(
+                "Admin-edited revoke requires block_reclaim=false"
+            )
+        block_reclaim = False
     normalized = _normalize_revoke_items(items)
     results = []
     with db_tx() as conn, conn.cursor() as cur:
-        if not cur.execute(
+        if uid is not None and not cur.execute(
             "SELECT 1 FROM annotators WHERE id = %s", (uid,)
         ).fetchone():
             raise NotFoundError("Annotator not found")
@@ -4444,7 +4507,12 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
                                   WHERE a.task_id = t.id),
                           EXISTS (SELECT 1 FROM annotation_versions d
                                   WHERE d.task_id = t.id
-                                    AND d.lifecycle = 'draft')
+                                    AND d.lifecycle = 'draft'),
+                          v.purpose, v.published_by_admin_action_id,
+                          (SELECT r.state FROM cross_check_rounds r
+                           WHERE r.task_id = t.id
+                             AND r.state IN ('in_progress', 'awaiting_review')
+                           LIMIT 1)
                    FROM annotation_tasks t
                    LEFT JOIN annotation_versions v
                      ON v.id = t.current_published_version_id
@@ -4452,15 +4520,19 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
                 (item["task_id"],),
             ).fetchone()
             conflict = None
+            open_state = row[12] if row else None
             if not row:
                 conflict = "not_found"
             elif row[5] != item["expected_version_id"]:
                 conflict = "current_version_changed"
+            elif uid is None:
+                if not _is_admin_edited_version(row[7], row[10], row[11]):
+                    conflict = "not_admin_adjudication"
             elif row[7] != uid:
                 conflict = "not_current_submitter"
-            elif row[6] is None:
+            if conflict is None and row[6] is None:
                 conflict = "baseline_missing"
-            elif (row[8] or row[9]) and not release_conflicts:
+            if conflict is None and (row[8] or row[9] or open_state) and not release_conflicts:
                 conflict = "active_revision"
             results.append({
                 "task_id": str(item["task_id"]),
@@ -4474,6 +4546,10 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
                 "will_release_assignment": bool(
                     row and (row[8] or row[9]) and release_conflicts
                 ),
+                "open_cross_check_state": open_state,
+                "will_invalidate_cross_check": bool(
+                    open_state and release_conflicts and conflict is None
+                ),
             })
     revokeable = [item for item in results if item["revokeable"]]
     return {
@@ -4483,6 +4559,9 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
             "duration_seconds": sum(
                 item["duration_seconds"] for item in revokeable
             ),
+            "open_cross_check_rounds": sum(
+                1 for item in results if item.get("open_cross_check_state")
+            ),
         },
         "items": results,
     }
@@ -4491,17 +4570,36 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
 def _revoke_locked_task(cur, *, task_row, expected_version_id,
                         annotator_id, action_id, reason: str,
                         block_reclaim: bool, release_conflicts: bool):
+    from annotation_quality.repository import (
+        invalidate_open_cross_check_for_task, lock_open_round_for_task,
+    )
     task_id, duration, task_status, current_id, baseline_id = task_row
     if current_id != expected_version_id:
         raise ConflictError(f"Task {task_id} current version changed")
+    open_round = lock_open_round_for_task(cur, task_id)
+    version_ids = {current_id}
+    if open_round and open_round[2]:
+        version_ids.add(open_round[2])
+    for version_id in sorted(version_ids, key=str):
+        cur.execute(
+            "SELECT id FROM annotation_versions WHERE id = %s FOR UPDATE",
+            (version_id,),
+        )
     version = cur.execute(
-        """SELECT id, submitted_by_user_id, target_status, lifecycle
-           FROM annotation_versions WHERE id = %s FOR UPDATE""",
+        """SELECT id, submitted_by_user_id, target_status, lifecycle,
+                  purpose, published_by_admin_action_id
+           FROM annotation_versions WHERE id = %s""",
         (current_id,),
     ).fetchone()
     if not version or version[3] != "published":
         raise ConflictError(f"Task {task_id} no longer has a published version")
-    if version[1] != annotator_id:
+    if annotator_id is None:
+        if not _is_admin_edited_version(version[1], version[4], version[5]):
+            raise ConflictError(
+                f"Task {task_id} is not an admin-edited adjudication version"
+            )
+        block_reclaim = False
+    elif version[1] != annotator_id:
         raise ConflictError(f"Task {task_id} is not currently submitted by annotator")
     if baseline_id is None:
         raise ConflictError(f"Task {task_id} has no baseline")
@@ -4512,12 +4610,31 @@ def _revoke_locked_task(cur, *, task_row, expected_version_id,
         (task_id, task_id),
     ).fetchone()
     released = None
-    if has_conflict[0] or has_conflict[1]:
+    invalidated = None
+    if has_conflict[0] or has_conflict[1] or open_round:
         if not release_conflicts:
             raise ConflictError(f"Task {task_id} has an active revision")
-        released = _release_task_draft(
-            cur, task_id, action_id=action_id, reason=reason
-        )
+        if open_round:
+            invalidated = invalidate_open_cross_check_for_task(
+                cur, task_id=task_id, action_id=action_id, reason=reason,
+                from_status=task_status,
+            )
+            if invalidated and invalidated.get("released"):
+                released = {
+                    "annotator_id": invalidated["secondary_annotator_id"],
+                    "working_version_id": invalidated["secondary_version_id"],
+                    "mode": "cross_check",
+                }
+        still = cur.execute(
+            """SELECT EXISTS (SELECT 1 FROM assignments WHERE task_id = %s),
+                      EXISTS (SELECT 1 FROM annotation_versions
+                              WHERE task_id = %s AND lifecycle = 'draft')""",
+            (task_id, task_id),
+        ).fetchone()
+        if still[0] or still[1]:
+            released = _release_task_draft(
+                cur, task_id, action_id=action_id, reason=reason
+            )
     cur.execute(
         """UPDATE annotation_versions
            SET lifecycle = 'revoked', revoked_at = now(), revoked_reason = %s,
@@ -4539,7 +4656,7 @@ def _revoke_locked_task(cur, *, task_row, expected_version_id,
     draft_id, baseline_quality = _clone_clean_draft_from_baseline(
         cur, task_id, action_id=action_id
     )
-    if block_reclaim:
+    if block_reclaim and annotator_id is not None:
         cur.execute(
             """INSERT INTO task_annotator_blocks
                    (task_id, user_id, reason, admin_action_id)
@@ -4550,34 +4667,54 @@ def _revoke_locked_task(cur, *, task_row, expected_version_id,
                    created_at = now()""",
             (task_id, annotator_id, reason, action_id),
         )
+    event_details = {"reason": reason, "clean_draft_id": str(draft_id)}
+    if invalidated:
+        event_details["invalidated_round_id"] = str(invalidated["round_id"])
+        event_details["invalidated_previous_state"] = invalidated["previous_state"]
+    if annotator_id is None:
+        event_details["actual_author"] = "admin"
+        event_details["source_publish_action_id"] = str(version[5])
     cur.execute(
         """INSERT INTO annotation_events
                (user_id, task_id, version_id, event_type, from_status,
                 to_status, admin_action_id, details)
            VALUES (%s, %s, %s, 'revoked_admin', %s, 'pending', %s, %s)""",
         (annotator_id, task_id, current_id, task_status, action_id,
-         Json({"reason": reason, "clean_draft_id": str(draft_id)})),
+         Json(event_details)),
     )
     return {
         "task_id": task_id, "before_version_id": current_id,
         "after_version_id": draft_id, "duration": float(duration),
-        "blocked": bool(block_reclaim), "released": released,
+        "blocked": bool(block_reclaim and annotator_id is not None),
+        "released": released,
         "baseline_quality": baseline_quality,
         "target_status": version[2],
+        "invalidated": invalidated,
+        "published_by_admin_action_id": version[5],
+        "purpose": version[4],
     }
 
 
 def admin_revoke(admin_session_id: str, operation_id: str,
-                 annotator_id: str, items: list[dict], reason: str,
+                 annotator_id: str | None, items: list[dict], reason: str,
                  block_reclaim: bool = True, confirm: bool = False,
                  release_conflicts: bool = False) -> dict:
     if not confirm:
         raise ValidationError("Revoke requires explicit confirmation")
-    uid = _validate_uuid(annotator_id, "annotator_id")
+    uid = (
+        None if annotator_id is None
+        else _validate_uuid(annotator_id, "annotator_id")
+    )
+    if uid is None:
+        if block_reclaim:
+            raise ValidationError(
+                "Admin-edited revoke requires block_reclaim=false"
+            )
+        block_reclaim = False
     normalized = _normalize_revoke_items(items)
     reason_value = _required_reason(reason)
     request_payload = {
-        "annotator_id": str(uid),
+        "annotator_id": str(uid) if uid is not None else None,
         "items": [
             {"task_id": str(item["task_id"]),
              "expected_version_id": str(item["expected_version_id"])}
@@ -4597,10 +4734,10 @@ def admin_revoke(admin_session_id: str, operation_id: str,
         )
         if action["replay"]:
             return _admin_replay_response(action)
-        if not cur.execute(
-            "SELECT 1 FROM annotators WHERE id = %s FOR UPDATE", (uid,)
-        ).fetchone():
-            raise NotFoundError("Annotator not found")
+        task_ids = [item["task_id"] for item in normalized]
+        related = _related_cross_check_user_ids(cur, task_ids)
+        _lock_annotators_stable(cur, related, required_id=uid)
+        _lock_assignments_for_tasks(cur, task_ids)
         results = []
         for item in normalized:
             task = cur.execute(
@@ -4619,22 +4756,38 @@ def admin_revoke(admin_session_id: str, operation_id: str,
                 release_conflicts=bool(release_conflicts),
             )
             results.append(result)
+            item_details = {
+                "blocked": result["blocked"],
+                "released_assignment": bool(result["released"]),
+                "baseline_quality": result["baseline_quality"],
+            }
+            if result.get("invalidated"):
+                item_details["invalidated_round_id"] = str(
+                    result["invalidated"]["round_id"]
+                )
+                item_details["invalidated_previous_state"] = (
+                    result["invalidated"]["previous_state"]
+                )
+            if uid is None:
+                item_details["actual_author"] = "admin"
+                item_details["source_publish_action_id"] = str(
+                    result["published_by_admin_action_id"]
+                )
             _insert_admin_action_item(
                 cur, action["action_id"], task_id=result["task_id"],
                 annotator_id=uid,
                 expected_version_id=item["expected_version_id"],
                 before_version_id=result["before_version_id"],
                 after_version_id=result["after_version_id"], result="revoked",
-                details={
-                    "blocked": result["blocked"],
-                    "released_assignment": bool(result["released"]),
-                    "baseline_quality": result["baseline_quality"],
-                },
+                details=item_details,
             )
         summary = {
             "requested": len(normalized), "revoked": len(results),
             "blocked": sum(1 for result in results if result["blocked"]),
             "released": sum(1 for result in results if result["released"]),
+            "invalidated": sum(
+                1 for result in results if result.get("invalidated")
+            ),
             "duration_seconds": sum(result["duration"] for result in results),
         }
         _finish_admin_action(cur, action["action_id"], summary)
@@ -4674,9 +4827,10 @@ def admin_restore(admin_session_id: str, operation_id: str,
         ).fetchone()
         if not source or source[0] != "revoke_annotations":
             raise ConflictError("Source action is not a restorable revoke")
-        # Lock every affected submitter before any task/version row. This
-        # matches deactivate (annotator -> task -> version) and prevents the
-        # reverse task -> annotator edge that can deadlock the two operations.
+        # Lock every affected ordinary submitter before any task/version row.
+        # Admin-edited items have annotator_id NULL and no ordinary user to
+        # activate-check. This matches deactivate (annotator -> task ->
+        # version) and prevents the reverse task -> annotator deadlock.
         source_items = {}
         for task_id in tids:
             source_item = cur.execute(
@@ -4691,19 +4845,22 @@ def admin_restore(admin_session_id: str, operation_id: str,
                 raise ConflictError(
                     f"Task {task_id} was not revoked by the source action"
                 )
-            if not source_item[0]:
-                raise ConflictError(f"Task {task_id} has no recorded submitter")
             source_items[task_id] = source_item
-        annotator_ids = sorted({item[0] for item in source_items.values()}, key=str)
-        annotator_rows = cur.execute(
-            """SELECT id, status FROM annotators
-               WHERE id = ANY(%s) ORDER BY id FOR UPDATE""",
-            (annotator_ids,),
-        ).fetchall()
-        annotator_status = {row[0]: row[1] for row in annotator_rows}
-        for annotator_id_value in annotator_ids:
-            if annotator_status.get(annotator_id_value) != "active":
-                raise ConflictError("Restored annotation submitter is not active")
+        annotator_ids = sorted(
+            {item[0] for item in source_items.values() if item[0]}, key=str,
+        )
+        if annotator_ids:
+            annotator_rows = cur.execute(
+                """SELECT id, status FROM annotators
+                   WHERE id = ANY(%s) ORDER BY id FOR UPDATE""",
+                (annotator_ids,),
+            ).fetchall()
+            annotator_status = {row[0]: row[1] for row in annotator_rows}
+            for annotator_id_value in annotator_ids:
+                if annotator_status.get(annotator_id_value) != "active":
+                    raise ConflictError(
+                        "Restored annotation submitter is not active"
+                    )
         # An existing assignment is already a terminal restore conflict. Check
         # it without taking an assignment lock before acquiring task locks;
         # after a task is locked, claim cannot insert a new assignment.
@@ -4730,6 +4887,16 @@ def admin_restore(admin_session_id: str, operation_id: str,
             ).fetchone():
                 raise ConflictError(f"Task {task_id} has already been claimed")
             if cur.execute(
+                """SELECT 1 FROM cross_check_rounds
+                   WHERE task_id = %s
+                     AND state IN ('in_progress', 'awaiting_review')""",
+                (task_id,),
+            ).fetchone():
+                raise ConflictError(
+                    f"Task {task_id} has an open cross-check",
+                    code="cross_check_active",
+                )
+            if cur.execute(
                 """SELECT 1 FROM annotation_events
                    WHERE task_id = %s AND event_type = 'claimed'
                      AND created_at > %s LIMIT 1""",
@@ -4749,7 +4916,8 @@ def admin_restore(admin_session_id: str, operation_id: str,
                     f"Task {task_id} clean draft has been changed"
                 )
             old = cur.execute(
-                """SELECT lifecycle, target_status, submitted_by_user_id
+                """SELECT lifecycle, target_status, submitted_by_user_id,
+                          purpose, published_by_admin_action_id
                    FROM annotation_versions WHERE id = %s FOR UPDATE""",
                 (source_item[1],),
             ).fetchone()
@@ -4757,7 +4925,12 @@ def admin_restore(admin_session_id: str, operation_id: str,
                 raise ConflictError(
                     f"Task {task_id} revoked version is no longer restorable"
                 )
-            if old[2] != source_item[0]:
+            if source_item[0] is None:
+                if not _is_admin_edited_version(old[2], old[3], old[4]):
+                    raise ConflictError(
+                        f"Task {task_id} is not an admin-edited adjudication version"
+                    )
+            elif old[2] != source_item[0]:
                 raise ConflictError(
                     f"Task {task_id} submitter does not match the revoke audit"
                 )
@@ -4791,12 +4964,13 @@ def admin_restore(admin_session_id: str, operation_id: str,
                    WHERE id = %s""",
                 (old[1], source_item[1], task_id),
             )
-            cur.execute(
-                """DELETE FROM task_annotator_blocks
-                   WHERE task_id = %s AND user_id = %s
-                     AND admin_action_id = %s""",
-                (task_id, source_item[0], source_action_id),
-            )
+            if source_item[0] is not None:
+                cur.execute(
+                    """DELETE FROM task_annotator_blocks
+                       WHERE task_id = %s AND user_id = %s
+                         AND admin_action_id = %s""",
+                    (task_id, source_item[0], source_action_id),
+                )
             cur.execute(
                 """INSERT INTO annotation_events
                        (user_id, task_id, version_id, event_type, from_status,
@@ -4942,6 +5116,27 @@ def admin_deactivate_preview(annotator_id: str) -> dict:
         sessions = cur.execute(
             "SELECT count(*) FROM active_sessions WHERE user_id = %s", (uid,)
         ).fetchone()[0]
+        own_in_progress = cur.execute(
+            """SELECT count(*) FROM cross_check_rounds r
+               JOIN assignments a ON a.cross_check_round_id = r.id
+               WHERE a.user_id = %s AND r.state = 'in_progress'""",
+            (uid,),
+        ).fetchone()[0]
+        awaiting_as_secondary = cur.execute(
+            """SELECT count(*) FROM cross_check_rounds
+               WHERE secondary_annotator_id = %s
+                 AND state = 'awaiting_review'""",
+            (uid,),
+        ).fetchone()[0]
+        open_on_published = cur.execute(
+            """SELECT count(*) FROM cross_check_rounds r
+               JOIN annotation_tasks t ON t.id = r.task_id
+               JOIN annotation_versions v
+                 ON v.id = t.current_published_version_id
+               WHERE v.submitted_by_user_id = %s
+                 AND r.state IN ('in_progress', 'awaiting_review')""",
+            (uid,),
+        ).fetchone()[0]
     return {
         "annotator": {
             "id": str(user[0]), "username": user[1], "status": user[2],
@@ -4953,6 +5148,9 @@ def admin_deactivate_preview(annotator_id: str) -> dict:
             "assignments_to_release": 1 if assignment else 0,
             "reservations_to_release": int(reservations),
             "sessions_to_revoke": int(sessions),
+            "cross_check_in_progress_to_cancel": int(own_in_progress),
+            "cross_check_awaiting_review_kept": int(awaiting_as_secondary),
+            "cross_check_open_on_published": int(open_on_published),
         },
         "assignment": ({
             "task_id": str(assignment[0]), "mode": assignment[1],
@@ -5063,6 +5261,13 @@ def admin_deactivate(admin_session_id: str, operation_id: str,
                 raise ConflictError(
                     f"Task {task_id_value} has another annotator's active revision"
                 )
+            from annotation_quality.repository import (
+                invalidate_open_cross_check_for_task,
+            )
+            invalidate_open_cross_check_for_task(
+                cur, task_id=task_id_value, action_id=action["action_id"],
+                reason=reason_value, from_status=task[2],
+            )
             result = _revoke_locked_task(
                 cur, task_row=task,
                 expected_version_id=task[3], annotator_id=uid,
@@ -5121,9 +5326,14 @@ def authorized_media(user_id: str, task_id: str) -> dict:
                    SELECT 1 FROM annotation_versions v
                    WHERE v.id = t.current_published_version_id
                      AND v.submitted_by_user_id = %s
+                 ) OR EXISTS (
+                   SELECT 1 FROM cross_check_rounds r
+                   WHERE r.task_id = t.id
+                     AND r.secondary_annotator_id = %s
+                     AND r.submitted_at IS NOT NULL
                  )
                )""",
-            (tid, uid, uid),
+            (tid, uid, uid, uid),
         ).fetchone()
         if not row:
             raise ForbiddenError("You may only access media for your current task or your own submissions")

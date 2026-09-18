@@ -83,16 +83,14 @@ def store_preprocessed_task(
             if not metadata_only:
                 from annotation_metadata.processing import require_processing_token
                 require_processing_token(cur, task_id, processing_token)
-            protected = published_vid is not None or cur.execute(
-                "SELECT 1 FROM assignments WHERE task_id = %s", (task_id,)
-            ).fetchone()
             draft = cur.execute(
                 """SELECT id, revision, human_modified
                    FROM annotation_versions
                    WHERE task_id = %s AND lifecycle = 'draft' FOR UPDATE""",
                 (task_id,),
             ).fetchone()
-            protected = protected or (draft and draft[2])
+            from annotation_metadata.ingestion import task_is_protected
+            protected = task_is_protected(cur, task_id)
             if protected or metadata_only:
                 metadata_action = _sync_sources(task_id)
                 if processing_token and not metadata_only:

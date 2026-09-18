@@ -414,6 +414,104 @@ def record_admin_cross_check_cancelled(
     )
 
 
+def record_cross_check_invalidated(
+    cur, *, user_id, task_id, version_id, from_status, action_id, details: dict,
+) -> None:
+    cur.execute(
+        """INSERT INTO annotation_events
+               (user_id, task_id, version_id, event_type, from_status,
+                to_status, admin_action_id, details)
+           VALUES (%s, %s, %s, 'cross_check_invalidated', %s, %s, %s, %s)""",
+        (user_id, task_id, version_id, from_status, from_status, action_id,
+         Json(details)),
+    )
+
+
+def peek_open_round_for_task(cur, task_id):
+    return cur.execute(
+        """SELECT id, state, secondary_version_id, secondary_annotator_id,
+                  original_version_id
+           FROM cross_check_rounds
+           WHERE task_id = %s AND state IN ('in_progress', 'awaiting_review')""",
+        (task_id,),
+    ).fetchone()
+
+
+def lock_open_round_for_task(cur, task_id):
+    return cur.execute(
+        """SELECT id, state, secondary_version_id, secondary_annotator_id,
+                  original_version_id
+           FROM cross_check_rounds
+           WHERE task_id = %s AND state IN ('in_progress', 'awaiting_review')
+           FOR UPDATE""",
+        (task_id,),
+    ).fetchone()
+
+
+def invalidate_open_cross_check_for_task(
+    cur, *, task_id, action_id, reason: str, from_status: str | None = None,
+) -> dict | None:
+    """Terminate an open round because the original result is going away.
+
+    in_progress: abandon the secondary draft and delete its assignment.
+    awaiting_review: keep the frozen submitted copy. Caller must already
+    hold related user/assignment locks when an assignment exists.
+    """
+    row = lock_open_round_for_task(cur, task_id)
+    if not row:
+        return None
+    round_id, state, secondary_version_id, secondary_annotator_id, original_version_id = row
+    released = False
+    if state == "in_progress":
+        cur.execute(
+            "SELECT id FROM annotation_versions WHERE id = %s FOR UPDATE",
+            (secondary_version_id,),
+        )
+        cur.execute(
+            """UPDATE annotation_versions
+               SET lifecycle = 'abandoned', updated_at = now()
+               WHERE id = %s AND lifecycle = 'draft'""",
+            (secondary_version_id,),
+        )
+        cur.execute("DELETE FROM assignments WHERE task_id = %s", (task_id,))
+        released = cur.rowcount > 0
+    if from_status is None:
+        status_row = cur.execute(
+            "SELECT status FROM annotation_tasks WHERE id = %s",
+            (task_id,),
+        ).fetchone()
+        from_status = status_row[0] if status_row else None
+    cur.execute(
+        """UPDATE cross_check_rounds
+           SET revision = revision + 1,
+               state = 'invalidated',
+               termination_reason = %s,
+               resolved_at = now(),
+               updated_at = now()
+           WHERE id = %s AND state IN ('in_progress', 'awaiting_review')""",
+        (reason, round_id),
+    )
+    record_cross_check_invalidated(
+        cur, user_id=secondary_annotator_id, task_id=task_id,
+        version_id=secondary_version_id, from_status=from_status,
+        action_id=action_id,
+        details={
+            "mode": "cross_check",
+            "round_id": str(round_id),
+            "previous_state": state,
+            "termination_reason": reason,
+            "original_version_id": str(original_version_id),
+        },
+    )
+    return {
+        "round_id": round_id,
+        "previous_state": state,
+        "secondary_version_id": secondary_version_id,
+        "secondary_annotator_id": secondary_annotator_id,
+        "released": released,
+    }
+
+
 def peek_round(cur, round_id):
     return cur.execute(
         """SELECT r.id, r.task_id, r.revision, r.state,

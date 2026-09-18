@@ -1172,32 +1172,63 @@ def command_assignments(args) -> None:
 def command_release(args) -> None:
     if not args.reason.strip():
         raise MigrationError("--reason is required")
+    from annotation_repository import _cancel_in_progress_cross_check
+    reason = args.reason.strip()
     with db_conn() as conn, conn.transaction(), conn.cursor() as cur:
-        row = cur.execute(
-            """SELECT a.user_id, a.task_id, a.working_version_id, t.status, a.mode
-               FROM assignments a
-               JOIN annotators u ON u.id = a.user_id
-               JOIN annotation_tasks t ON t.id = a.task_id
-               JOIN annotation_versions v ON v.id = a.working_version_id
-               WHERE u.username = %s
-               FOR UPDATE OF a, t, v""",
+        owner = cur.execute(
+            "SELECT id FROM annotators WHERE username = %s FOR UPDATE",
             (args.username,),
+        ).fetchone()
+        if not owner:
+            raise MigrationError(f"no assignment for username: {args.username}")
+        row = cur.execute(
+            """SELECT a.user_id, a.task_id, a.working_version_id, t.status, a.mode,
+                      a.cross_check_round_id
+               FROM assignments a
+               JOIN annotation_tasks t ON t.id = a.task_id
+               WHERE a.user_id = %s
+               FOR UPDATE OF a""",
+            (owner[0],),
         ).fetchone()
         if not row:
             raise MigrationError(f"no assignment for username: {args.username}")
+        cur.execute(
+            "SELECT id FROM annotation_tasks WHERE id = %s FOR UPDATE",
+            (row[1],),
+        )
         if row[4] == "revision":
+            cur.execute(
+                "SELECT id FROM annotation_versions WHERE id = %s FOR UPDATE",
+                (row[2],),
+            )
             cur.execute(
                 """UPDATE annotation_versions
                    SET lifecycle = 'abandoned', updated_at = now()
                    WHERE id = %s AND lifecycle = 'draft'""",
                 (row[2],),
             )
+        elif row[4] == "cross_check":
+            _cancel_in_progress_cross_check(
+                cur, round_id=row[5], task_id=row[1], version_id=row[2],
+                reason=reason,
+            )
+            cur.execute(
+                """INSERT INTO annotation_events
+                       (user_id, task_id, version_id, event_type, from_status,
+                        to_status, details)
+                   VALUES (%s, %s, %s, 'cross_check_cancelled', %s, %s, %s)""",
+                (row[0], row[1], row[2], row[3], row[3], Json({
+                    "mode": "cross_check",
+                    "round_id": str(row[5]),
+                    "termination_reason": reason,
+                })),
+            )
         cur.execute("DELETE FROM assignments WHERE user_id = %s", (row[0],))
         cur.execute(
             """INSERT INTO annotation_events
                    (user_id, task_id, version_id, event_type, from_status, details)
                VALUES (%s, %s, %s, 'released_admin', %s, %s)""",
-            (row[0], row[1], row[2], row[3], Json({"reason": args.reason.strip()})),
+            (row[0], row[1], row[2], row[3], Json({"reason": reason})),
         )
     print(f"released assignment for {args.username}")
 

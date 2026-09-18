@@ -539,6 +539,21 @@ def required_string(data: dict, field: str, *, allow_empty: bool = False) -> str
     return value
 
 
+def nullable_annotator_id(data: dict) -> str | None:
+    """Missing annotator_id is not admin-edited mode; only explicit JSON null is."""
+    if "annotator_id" not in data:
+        raise repo.ValidationError("annotator_id is required")
+    value = data["annotator_id"]
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise repo.ValidationError("annotator_id must be a string")
+    value = value.strip()
+    if not value:
+        raise repo.ValidationError("annotator_id is required")
+    return value
+
+
 def integer_field(data: dict, field: str, default: int | None = None) -> int:
     value = data.get(field, default)
     if isinstance(value, bool):
@@ -1381,10 +1396,12 @@ def api_admin_audit():
 @admin_write_required
 def api_admin_revoke_preview():
     data = json_object()
+    annotator_id = nullable_annotator_id(data)
+    block_reclaim = boolean_field(data, "block_reclaim", annotator_id is not None)
     return jsonify(repo.admin_revoke_preview(
-        annotator_id=required_string(data, "annotator_id"),
+        annotator_id=annotator_id,
         items=admin_items(data),
-        block_reclaim=boolean_field(data, "block_reclaim", True),
+        block_reclaim=block_reclaim,
         release_conflicts=boolean_field(data, "release_conflicts", False),
     ))
 
@@ -1397,13 +1414,15 @@ def api_admin_revoke():
     items = admin_items(data)
     if len(items) > 1:
         _require_admin_key_confirmation(data, purpose="batch_revoke")
+    annotator_id = nullable_annotator_id(data)
+    block_reclaim = boolean_field(data, "block_reclaim", annotator_id is not None)
     return jsonify(repo.admin_revoke(
         admin_session_id=str(request.admin["id"]),
         operation_id=required_string(data, "operation_id"),
-        annotator_id=required_string(data, "annotator_id"),
+        annotator_id=annotator_id,
         items=items,
         reason=required_string(data, "reason"),
-        block_reclaim=boolean_field(data, "block_reclaim", True),
+        block_reclaim=block_reclaim,
         confirm=boolean_field(data, "confirm", False),
         release_conflicts=boolean_field(data, "release_conflicts", False),
     ))

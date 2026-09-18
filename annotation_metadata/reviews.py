@@ -90,6 +90,18 @@ def admin_correct_review(cur, *, admin_session_id, command: AdminSceneReviewComm
         raise ConflictError("Task has no published version to correct")
     if task[0] != expected_version:
         raise ConflictError("expected_version_id does not match the published version")
+    open_round = cur.execute(
+        """SELECT state FROM cross_check_rounds
+           WHERE task_id = %s
+             AND state IN ('in_progress', 'awaiting_review')
+           FOR UPDATE""",
+        (tid,),
+    ).fetchone()
+    if open_round:
+        raise ConflictError(
+            "This task has an open cross-check and cannot change frozen scene evidence",
+            code="cross_check_active",
+        )
     if draft_has_active_revision(cur, tid):
         raise ConflictError(
             "An annotator has an active correction draft; resolve that assignment first"
