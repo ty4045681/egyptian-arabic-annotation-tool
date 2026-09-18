@@ -430,10 +430,8 @@ def peek_round(cur, round_id):
 def lock_round(cur, round_id):
     return cur.execute(
         """SELECT id, task_id, revision, state,
-                  original_version_id, original_annotator_id, original_review_id,
-                  secondary_version_id, secondary_annotator_id,
-                  baseline_version_id, original_word_count, secondary_word_count,
-                  edit_distance, reason_codes
+                  original_version_id, secondary_version_id,
+                  secondary_annotator_id
            FROM cross_check_rounds
            WHERE id = %s
            FOR UPDATE""",

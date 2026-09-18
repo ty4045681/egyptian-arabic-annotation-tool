@@ -235,12 +235,6 @@ class CrossCheckListItem(StrictModel):
     batch_code: str | None = None
 
 
-class CrossCheckListResponse(StrictModel):
-    items: list[CrossCheckListItem] = Field(default_factory=list)
-    next_cursor: str | None = None
-    applied_filters: dict[str, Any] = Field(default_factory=dict)
-
-
 class CrossCheckDetailView(StrictModel):
     round_id: str
     task_id: str
@@ -357,16 +351,6 @@ class CrossCheckDecisionCommand(StrictModel):
         return self
 
 
-class CrossCheckDecisionResult(StrictModel):
-    success: StrictBool
-    action_id: str
-    round_id: str
-    state: CrossCheckState
-    final_version_id: str | None = None
-    final_status: str | None = None
-    training_export_blocked: StrictBool
-
-
 class CrossCheckCancelCommand(StrictModel):
     operation_id: str
     expected_revision: StrictInt
@@ -416,11 +400,6 @@ class CrossCheckMineItem(StrictModel):
     state: CrossCheckState
     submitted_at: str | None = None
     version_id: str
-
-
-class CrossCheckMineResponse(StrictModel):
-    items: list[CrossCheckMineItem] = Field(default_factory=list)
-    next_cursor: str | None = None
 
 
 class CrossCheckSubmissionView(StrictModel):

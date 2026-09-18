@@ -29,7 +29,7 @@ from annotation_quality.service import (
 
 def register_cross_check_routes(
     app, *, login_required, admin_required, admin_write_required, json_object,
-    admin_query_filters, audit_admin_write_failures,
+    audit_admin_write_failures,
 ):
     bp = Blueprint("cross_check", __name__)
 

@@ -1702,7 +1702,6 @@ register_cross_check_routes(
     admin_required=admin_required,
     admin_write_required=admin_write_required,
     json_object=json_object,
-    admin_query_filters=admin_query_filters,
     audit_admin_write_failures=audit_admin_write_failures,
 )
 

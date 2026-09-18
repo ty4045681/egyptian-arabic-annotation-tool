@@ -35,7 +35,6 @@ from annotation_quality.queries import (
     applied_list_filters,
     list_filter_digest,
     list_where_sql,
-    word_difference_rate_sql,
 )
 from annotation_quality.repository import (
     freeze_cross_check_version,
@@ -64,6 +63,7 @@ from annotation_quality.serializers import (
     mine_item_payload,
     settings_payload,
     submission_payload,
+    word_difference_rate,
 )
 from db import db_tx
 
@@ -622,16 +622,14 @@ def list_cross_checks(query: CrossCheckListQuery, *, timezone_name: str) -> dict
         cursor_id = repo._validate_uuid(cursor_id, "cursor")
         where_sql = f"{where_sql} AND (r.created_at, r.id) < (%s::timestamptz, %s::uuid)"
         params.extend([created_at, cursor_id])
-    rate_sql = word_difference_rate_sql("r")
     limit = int(query.limit)
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""SELECT r.id, r.task_id, r.state,
                        r.original_annotator_id, r.secondary_annotator_id,
                        t.duration, r.original_word_count, r.secondary_word_count,
-                       {rate_sql} AS word_difference_rate,
-                       r.reason_codes, r.created_at, r.submitted_at,
-                       r.resolved_at, r.claim_filters, t.filename
+                       r.edit_distance, r.reason_codes, r.created_at,
+                       r.submitted_at, r.resolved_at, r.claim_filters
                 FROM cross_check_rounds r
                 JOIN annotation_tasks t ON t.id = r.task_id
                 WHERE {where_sql}
@@ -652,15 +650,14 @@ def list_cross_checks(query: CrossCheckListQuery, *, timezone_name: str) -> dict
                 "duration_seconds": row[5],
                 "original_word_count": row[6],
                 "secondary_word_count": row[7],
-                "word_difference_rate": (
-                    float(row[8]) if row[8] is not None else None
+                "word_difference_rate": word_difference_rate(
+                    row[8], row[6], row[7],
                 ),
                 "reason_codes": list(row[9] or []),
                 "created_at": row[10],
                 "submitted_at": row[11],
                 "resolved_at": row[12],
                 "claim_filters": row[13] or {},
-                "filename": row[14],
             })
         summaries = {}
         if items_raw:
@@ -954,7 +951,7 @@ def _decide_locked(cur, round_id, command: CrossCheckDecisionCommand, action: di
             code="cross_check_active",
         )
     task = cur.execute(
-        """SELECT id, status, current_published_version_id, duration
+        """SELECT id, status, current_published_version_id
            FROM annotation_tasks WHERE id = %s FOR UPDATE""",
         (hint[1],),
     ).fetchone()
@@ -979,7 +976,7 @@ def _decide_locked(cur, round_id, command: CrossCheckDecisionCommand, action: di
     expected_secondary = repo._validate_uuid(
         command.expected_secondary_version_id, "expected_secondary_version_id",
     )
-    if rnd[4] != expected_original or rnd[7] != expected_secondary:
+    if rnd[4] != expected_original or rnd[5] != expected_secondary:
         raise repo.ConflictError(
             "Cross-check versions changed",
             code="cross_check_version_changed",
@@ -999,9 +996,9 @@ def _decide_locked(cur, round_id, command: CrossCheckDecisionCommand, action: di
             "Task has an open draft",
             code="cross_check_state_conflict",
         )
-    versions = _lock_versions_stable(cur, (rnd[4], rnd[7]))
+    versions = _lock_versions_stable(cur, (rnd[4], rnd[5]))
     original = versions[rnd[4]]
-    secondary = versions[rnd[7]]
+    secondary = versions[rnd[5]]
     from_status = task[1]
     decision = command.decision
     if decision == CrossCheckDecision.ORIGINAL:
@@ -1053,7 +1050,7 @@ def _decide_locked(cur, round_id, command: CrossCheckDecisionCommand, action: di
     )
     repo._insert_admin_action_item(
         cur, action["action_id"], task_id=task[0],
-        annotator_id=rnd[8],
+        annotator_id=rnd[6],
         expected_version_id=expected_secondary,
         before_version_id=original["id"],
         after_version_id=final_version_id,
@@ -1217,7 +1214,7 @@ def _cancel_locked(cur, round_id, command: CrossCheckCancelCommand, action: dict
             "Cross-check round revision changed",
             code="stale_revision",
         )
-    version_id = rnd[7]
+    version_id = rnd[5]
     repo._cancel_in_progress_cross_check(
         cur, round_id=round_id, task_id=rnd[1], version_id=version_id,
         reason=command.reason,
@@ -1235,7 +1232,7 @@ def _cancel_locked(cur, round_id, command: CrossCheckCancelCommand, action: dict
     }
     repo._insert_admin_action_item(
         cur, action["action_id"], task_id=rnd[1],
-        annotator_id=rnd[8],
+        annotator_id=rnd[6],
         before_version_id=version_id,
         after_version_id=task[2],
         result="cancelled",
@@ -1243,7 +1240,7 @@ def _cancel_locked(cur, round_id, command: CrossCheckCancelCommand, action: dict
     )
     repo._finish_admin_action(cur, action["action_id"], result)
     record_admin_cross_check_cancelled(
-        cur, user_id=rnd[8], task_id=rnd[1], version_id=version_id,
+        cur, user_id=rnd[6], task_id=rnd[1], version_id=version_id,
         from_status=task[1], action_id=action["action_id"],
         details={
             "mode": "cross_check",

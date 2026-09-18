@@ -11,24 +11,6 @@ from annotation_metadata.queries import metadata_filter_sql
 from annotation_quality.contracts import OPEN_ROUND_STATES, CrossCheckListQuery
 
 
-def list_filter_digest(query: CrossCheckListQuery, *, timezone_name: str) -> str:
-    payload = {
-        "state": str(query.state),
-        "source_scene": query.source_scene,
-        "batch_code": query.batch_code,
-        "original_annotator_id": query.original_annotator_id,
-        "secondary_annotator_id": query.secondary_annotator_id,
-        "reason_code": query.reason_code,
-        "q": query.q,
-        "from": query.created_from,
-        "to": query.created_to,
-        "timezone": timezone_name,
-    }
-    return hashlib.sha256(json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-    ).encode("utf-8")).hexdigest()[:16]
-
-
 def applied_list_filters(query: CrossCheckListQuery, *, timezone_name: str) -> dict:
     return {
         "state": str(query.state),
@@ -43,6 +25,14 @@ def applied_list_filters(query: CrossCheckListQuery, *, timezone_name: str) -> d
         "timezone": timezone_name,
         "limit": int(query.limit),
     }
+
+
+def list_filter_digest(query: CrossCheckListQuery, *, timezone_name: str) -> str:
+    payload = dict(applied_list_filters(query, timezone_name=timezone_name))
+    payload.pop("limit", None)
+    return hashlib.sha256(json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()[:16]
 
 
 def list_where_sql(query: CrossCheckListQuery) -> tuple[str, list]:
@@ -85,19 +75,6 @@ def list_where_sql(query: CrossCheckListQuery) -> tuple[str, list]:
         clauses.append(meta_sql)
         params.extend(meta_params)
     return " AND ".join(clauses), params
-
-
-def word_difference_rate_sql(alias: str = "r") -> str:
-    return (
-        f"CASE WHEN {alias}.edit_distance IS NULL "
-        f"OR {alias}.original_word_count IS NULL "
-        f"OR {alias}.secondary_word_count IS NULL "
-        f"OR GREATEST({alias}.original_word_count, "
-        f"{alias}.secondary_word_count) <= 0 "
-        f"THEN NULL ELSE {alias}.edit_distance::float "
-        f"/ GREATEST({alias}.original_word_count, "
-        f"{alias}.secondary_word_count) END"
-    )
 
 
 def cross_check_quality_summary(cur) -> dict:
