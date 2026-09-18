@@ -12,6 +12,7 @@ import db
 from annotation_quality.contracts import (
     COMPARISON_VERSION,
     WORD_DIFFERENCE_THRESHOLD_BPS,
+    CrossCheckDecision,
     CrossCheckDecisionCommand,
     CrossCheckSettingsUpdateCommand,
     parse_strict,
@@ -957,12 +958,32 @@ def test_contracts_reject_unknown_fields_and_bool_integers():
     assert WORD_DIFFERENCE_THRESHOLD_BPS == 1000
     assert COMPARISON_VERSION == "worddiff_v1"
 
+    original_version_id = str(uuid.uuid4())
+    secondary_version_id = str(uuid.uuid4())
+    accepted = parse_strict(CrossCheckDecisionCommand, {
+        "operation_id": operation_id,
+        "expected_revision": 1,
+        "expected_original_version_id": original_version_id,
+        "expected_secondary_version_id": secondary_version_id,
+        "decision": "original",
+        "reason": "keep original",
+    })
+    assert accepted.decision == CrossCheckDecision.ORIGINAL
+    with pytest.raises(ValidationError):
+        parse_strict(CrossCheckDecisionCommand, {
+            "operation_id": operation_id,
+            "expected_revision": True,
+            "expected_original_version_id": original_version_id,
+            "expected_secondary_version_id": secondary_version_id,
+            "decision": "original",
+            "reason": "keep original",
+        })
     with pytest.raises(ValidationError):
         parse_strict(CrossCheckDecisionCommand, {
             "operation_id": operation_id,
             "expected_revision": 1,
-            "expected_original_version_id": str(uuid.uuid4()),
-            "expected_secondary_version_id": str(uuid.uuid4()),
+            "expected_original_version_id": original_version_id,
+            "expected_secondary_version_id": secondary_version_id,
             "decision": "original",
             "reason": "keep original",
             "segments": [{"id": 1}],

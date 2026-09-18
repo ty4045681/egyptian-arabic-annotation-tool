@@ -10,7 +10,15 @@ import uuid
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from annotation_metadata.contracts import parse_strict as parse_strict
 
@@ -33,7 +41,7 @@ EXCEPTION_REASON_CODES = frozenset({
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid")
 
 
 class CrossCheckState(StrEnum):
@@ -95,10 +103,10 @@ def _require_reason(value: str) -> str:
 
 
 class CrossCheckSettingsView(StrictModel):
-    enabled: bool
-    sampling_rate_bps: int
-    revision: int
-    word_difference_threshold_bps: int = WORD_DIFFERENCE_THRESHOLD_BPS
+    enabled: StrictBool
+    sampling_rate_bps: StrictInt
+    revision: StrictInt
+    word_difference_threshold_bps: StrictInt = WORD_DIFFERENCE_THRESHOLD_BPS
     comparison_version: str = COMPARISON_VERSION
     updated_at: str | None = None
     updated_by_admin_action_id: str | None = None
@@ -107,9 +115,9 @@ class CrossCheckSettingsView(StrictModel):
 
 class CrossCheckSettingsUpdateCommand(StrictModel):
     operation_id: str
-    expected_revision: int
-    enabled: bool
-    sampling_rate_bps: int
+    expected_revision: StrictInt
+    enabled: StrictBool
+    sampling_rate_bps: StrictInt
     reason: str
 
     @field_validator("operation_id", mode="before")
@@ -150,7 +158,7 @@ class CrossCheckAssignmentInfo(StrictModel):
 class CrossCheckCompleteInfo(StrictModel):
     round_id: str
     state: CrossCheckState
-    training_export_blocked: bool
+    training_export_blocked: StrictBool
 
     @field_validator("round_id", mode="before")
     @classmethod
@@ -174,7 +182,7 @@ class CrossCheckListQuery(StrictModel):
     q: str | None = None
     created_from: str | None = None
     created_to: str | None = None
-    limit: int = 50
+    limit: StrictInt = 50
     cursor: str | None = None
 
     @field_validator("original_annotator_id", "secondary_annotator_id", mode="before")
@@ -206,14 +214,14 @@ class CrossCheckListItem(StrictModel):
     original_annotator_id: str | None = None
     secondary_annotator_id: str
     duration_seconds: float | None = None
-    original_word_count: int | None = None
-    secondary_word_count: int | None = None
+    original_word_count: StrictInt | None = None
+    secondary_word_count: StrictInt | None = None
     word_difference_rate: float | None = None
     reason_codes: list[str] = Field(default_factory=list)
     created_at: str
     submitted_at: str | None = None
     resolved_at: str | None = None
-    training_export_blocked: bool
+    training_export_blocked: StrictBool
     source_scene: str | None = None
     batch_code: str | None = None
 
@@ -227,7 +235,7 @@ class CrossCheckListResponse(StrictModel):
 class CrossCheckDetailView(StrictModel):
     round_id: str
     task_id: str
-    revision: int
+    revision: StrictInt
     state: CrossCheckState
     original_version_id: str
     original_annotator_id: str | None = None
@@ -237,27 +245,27 @@ class CrossCheckDetailView(StrictModel):
     baseline_version_id: str
     baseline_quality: str
     current_published_version_id: str | None = None
-    settings_revision: int
-    sampling_rate_bps: int
+    settings_revision: StrictInt
+    sampling_rate_bps: StrictInt
     claim_policy: str
     claim_filters: dict[str, Any] = Field(default_factory=dict)
     comparison_version: str = COMPARISON_VERSION
-    threshold_bps: int = WORD_DIFFERENCE_THRESHOLD_BPS
-    original_word_count: int | None = None
-    secondary_word_count: int | None = None
-    edit_distance: int | None = None
-    substitutions: int | None = None
-    insertions: int | None = None
-    deletions: int | None = None
+    threshold_bps: StrictInt = WORD_DIFFERENCE_THRESHOLD_BPS
+    original_word_count: StrictInt | None = None
+    secondary_word_count: StrictInt | None = None
+    edit_distance: StrictInt | None = None
+    substitutions: StrictInt | None = None
+    insertions: StrictInt | None = None
+    deletions: StrictInt | None = None
     word_difference_rate: float | None = None
     original_normalized_summary: str | None = None
     secondary_normalized_summary: str | None = None
-    original_input_revision: int | None = None
-    secondary_input_revision: int | None = None
+    original_input_revision: StrictInt | None = None
+    secondary_input_revision: StrictInt | None = None
     diff_ops: Any = None
     segment_map: Any = None
     reason_codes: list[str] = Field(default_factory=list)
-    comparison_unavailable: bool = False
+    comparison_unavailable: StrictBool = False
     original_segments: list[dict[str, Any]] = Field(default_factory=list)
     secondary_segments: list[dict[str, Any]] = Field(default_factory=list)
     decision: CrossCheckDecision | None = None
@@ -268,13 +276,13 @@ class CrossCheckDetailView(StrictModel):
     submitted_at: str | None = None
     compared_at: str | None = None
     resolved_at: str | None = None
-    training_export_blocked: bool
+    training_export_blocked: StrictBool
     termination_reason: str | None = None
 
 
 class CrossCheckDecisionCommand(StrictModel):
     operation_id: str
-    expected_revision: int
+    expected_revision: StrictInt
     expected_original_version_id: str
     expected_secondary_version_id: str
     decision: CrossCheckDecision
@@ -331,20 +339,20 @@ class CrossCheckDecisionCommand(StrictModel):
 
 
 class CrossCheckDecisionResult(StrictModel):
-    success: bool
+    success: StrictBool
     action_id: str
     round_id: str
     state: CrossCheckState
     final_version_id: str | None = None
     final_status: str | None = None
-    training_export_blocked: bool
+    training_export_blocked: StrictBool
 
 
 class CrossCheckCancelCommand(StrictModel):
     operation_id: str
-    expected_revision: int
+    expected_revision: StrictInt
     reason: str
-    confirm: bool
+    confirm: StrictBool
 
     @field_validator("operation_id", mode="before")
     @classmethod
@@ -372,7 +380,7 @@ class CrossCheckCancelCommand(StrictModel):
 
 
 class CrossCheckMineQuery(StrictModel):
-    limit: int = 50
+    limit: StrictInt = 50
     cursor: str | None = None
 
     @field_validator("limit")
