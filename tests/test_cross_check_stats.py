@@ -175,6 +175,32 @@ def test_pool_splits_normal_and_cross_check_available(client, seed_tasks):
     assert enabled["cross_check_in_progress"] == 0
 
 
+def test_cross_check_by_scene_matches_claim_source_row(client, seed_tasks):
+    task_id = seed_tasks(1)[0]
+    source(task_id, "airport", "high")
+    source(task_id, "shopping", "low")
+    login(client, "alice")
+    claimed = client.post("/api/assignment/claim", json={})
+    assert claimed.status_code == 200, claimed.json
+    complete(
+        client, claimed.json,
+        segments=text_segments(claimed.json, IDENTICAL),
+    )
+    client.post("/api/logout", json={})
+    enable_cross_check(enabled=True, sampling_rate_bps=10000)
+    bob = repo.login("bob", str(uuid.uuid4()), 1800)
+    high = repo.pool_state(bob["id"], source_confidence="high")
+    by_scene = {item["scene_code"]: item["available"] for item in high["by_scene"]}
+    assert high["cross_check_available"] == 1
+    assert by_scene["airport"] == 1
+    assert by_scene["shopping"] == 0
+    shopping_high = repo.pool_state(
+        bob["id"], source_scene="shopping", source_confidence="high",
+    )
+    assert shopping_high["cross_check_available"] == 0
+    assert shopping_high["available"] == 0
+
+
 def test_auto_pass_does_not_move_speed_bucket(client, seed_tasks, monkeypatch):
     monkeypatch.setattr(
         repo, "utcnow",

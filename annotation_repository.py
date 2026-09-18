@@ -3354,12 +3354,12 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
         revoked_where.append("rv.revoked_at < %s")
         revoked_params.append(normalized["to"])
 
+    from annotation_quality.queries import credited_annotator_sql
+    credited = credited_annotator_sql()
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""WITH current_stats AS (
-                    SELECT COALESCE(
-                               v.credited_annotator_id, v.submitted_by_user_id
-                           ) AS user_id,
+                    SELECT {credited} AS user_id,
                            count(*) FILTER (WHERE t.status = 'annotated') AS annotated,
                            count(*) FILTER (WHERE t.status = 'skipped') AS skipped,
                            COALESCE(sum(t.duration), 0) AS duration
@@ -3367,12 +3367,8 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
                     JOIN annotation_versions v
                       ON v.id = t.current_published_version_id
                     WHERE {current_where}
-                      AND COALESCE(
-                          v.credited_annotator_id, v.submitted_by_user_id
-                      ) IS NOT NULL
-                    GROUP BY COALESCE(
-                        v.credited_annotator_id, v.submitted_by_user_id
-                    )
+                      AND {credited} IS NOT NULL
+                    GROUP BY {credited}
                 ), history_stats AS (
                     SELECT e.user_id, count(*) AS completed,
                            max(e.created_at) AS last_completed_at
@@ -3493,6 +3489,8 @@ def admin_annotator_detail(annotator_id: str,
         ).fetchone()
         if not user:
             raise NotFoundError("Annotator not found")
+        from annotation_quality.queries import credited_annotator_sql
+        credited = credited_annotator_sql()
         current = cur.execute(
             f"""SELECT count(*) FILTER (WHERE t.status = 'annotated'),
                        count(*) FILTER (WHERE t.status = 'skipped'),
@@ -3502,7 +3500,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
+                 AND {credited} = %s
                 WHERE {current_where}""",
             (uid, *current_params),
         ).fetchone()
@@ -3515,7 +3513,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
+                 AND {credited} = %s
                 LEFT JOIN segments s ON s.version_id = v.id
                 WHERE {current_where}""",
             (uid, *current_params),
@@ -3582,7 +3580,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
+                 AND {credited} = %s
                 CROSS JOIN LATERAL unnest(v.skip_reasons) reason
                 WHERE {current_where}
                 GROUP BY reason ORDER BY count(*) DESC, reason""",
@@ -3593,7 +3591,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s
+                 AND {credited} = %s
                 WHERE {current_where}
                 GROUP BY COALESCE(t.category, 'Uncategorized')
                 ORDER BY count(*) DESC, COALESCE(t.category, 'Uncategorized')""",
@@ -3710,6 +3708,7 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
         task_id = _validate_uuid(task_id, "cursor")
         clauses.append("(t.created_at, t.id) < (%s::timestamptz, %s::uuid)")
         params.extend([created_at, task_id])
+    from annotation_quality.queries import credited_annotator_sql
     with db_tx() as conn, conn.cursor() as cur:
         matched = cur.execute(
             f"""SELECT count(*), COALESCE(sum(t.duration), 0)
@@ -3740,9 +3739,7 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
                 LEFT JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
                 LEFT JOIN annotators submitter
-                  ON submitter.id = COALESCE(
-                      v.credited_annotator_id, v.submitted_by_user_id
-                  )
+                  ON submitter.id = {credited_annotator_sql()}
                 LEFT JOIN assignments a ON a.task_id = t.id
                 LEFT JOIN annotators assignee ON assignee.id = a.user_id
                 LEFT JOIN annotation_versions d
@@ -3846,9 +3843,8 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
     clauses = ["v.lifecycle IN ('published', 'revoked', 'superseded')"]
     params: list = []
     if normalized["annotator_id"]:
-        clauses.append(
-            "COALESCE(v.credited_annotator_id, v.submitted_by_user_id) = %s"
-        )
+        from annotation_quality.queries import credited_annotator_sql
+        clauses.append(f"{credited_annotator_sql()} = %s")
         params.append(normalized["annotator_id"])
     if normalized["status"] in ("annotated", "skipped"):
         clauses.append("v.target_status = %s")
@@ -3889,11 +3885,13 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
         clauses.append("(v.submitted_at, v.id) < (%s::timestamptz, %s::uuid)")
         params.extend([submitted_at, version_id])
 
+    from annotation_quality.queries import credited_annotator_sql
+    credited = credited_annotator_sql()
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""SELECT v.id, v.submitted_at, v.lifecycle, v.target_status,
                        v.skip_reasons, v.revision,
-                       COALESCE(v.credited_annotator_id, v.submitted_by_user_id),
+                       {credited},
                        u.username, u.status, t.id, t.filename, t.folder,
                        t.rel_path, t.duration, t.category,
                        (t.current_published_version_id = v.id) AS is_current,
@@ -3919,9 +3917,7 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
                 FROM annotation_versions v
                 JOIN annotation_tasks t ON t.id = v.task_id
                 LEFT JOIN annotators u
-                  ON u.id = COALESCE(
-                      v.credited_annotator_id, v.submitted_by_user_id
-                  )
+                  ON u.id = {credited}
                 LEFT JOIN segments s ON s.version_id = v.id
                 WHERE {' AND '.join(clauses)}
                 GROUP BY v.id, t.id, u.id

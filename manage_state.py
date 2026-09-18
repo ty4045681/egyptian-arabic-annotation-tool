@@ -796,7 +796,14 @@ def migrate_manifest(manifest: dict) -> uuid.UUID:
 
 
 def db_export_rows(conn) -> Iterable[dict]:
-    query = """
+    from annotation_quality.queries import (
+        credited_annotator_sql, latest_quality_round_lateral_sql,
+        training_export_eligible_sql,
+    )
+    eligible_sql, eligible_params = training_export_eligible_sql()
+    credited = credited_annotator_sql()
+    quality_join = latest_quality_round_lateral_sql()
+    query = f"""
         SELECT t.id, t.rel_path, t.legacy_audio_key, t.filename, t.folder, t.duration, t.status,
                t.category, t.preprocessed_at, t.extra AS task_extra,
                v.id AS version_id, v.version_no, v.revision, v.target_status,
@@ -816,42 +823,24 @@ def db_export_rows(conn) -> Iterable[dict]:
                  ) FILTER (WHERE s.segment_id IS NOT NULL), '[]'::jsonb
                ) AS segments,
                q.id AS quality_round_id, q.state AS quality_state,
-               (t.status = 'annotated'
-                AND v.lifecycle = 'published'
-                AND v.target_status = 'annotated'
-                AND NOT EXISTS (
-                    SELECT 1 FROM cross_check_rounds open_round
-                    WHERE open_round.task_id = t.id
-                      AND open_round.state IN ('in_progress', 'awaiting_review')
-                )) AS training_eligible
+               ({eligible_sql}) AS training_eligible
         FROM annotation_tasks t
         JOIN annotation_versions v ON v.task_id = t.id AND (
              v.id = t.current_published_version_id OR
              (t.current_published_version_id IS NULL AND v.lifecycle = 'draft')
         )
-        LEFT JOIN annotators u ON u.id = COALESCE(
-            v.credited_annotator_id, v.submitted_by_user_id
-        )
+        LEFT JOIN annotators u ON u.id = {credited}
         LEFT JOIN annotators editor ON editor.id = v.modified_by_user_id
         LEFT JOIN waveforms w ON w.task_id = t.id
         LEFT JOIN segments s ON s.version_id = v.id
-        LEFT JOIN LATERAL (
-            SELECT r.id, r.state
-            FROM cross_check_rounds r
-            WHERE r.task_id = t.id
-              AND r.state NOT IN ('cancelled', 'invalidated')
-            ORDER BY CASE WHEN r.state IN ('in_progress', 'awaiting_review')
-                          THEN 0 ELSE 1 END,
-                     r.created_at DESC, r.id DESC
-            LIMIT 1
-        ) q ON TRUE
+        {quality_join}
         GROUP BY t.id, v.id, u.username, editor.username, w.payload,
                  q.id, q.state
         ORDER BY t.allocation_order
     """
     with conn.cursor(name="state_export", row_factory=dict_row) as cur:
         cur.itersize = 500
-        cur.execute(query)
+        cur.execute(query, eligible_params)
         yield from cur
 
 

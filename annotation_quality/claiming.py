@@ -7,9 +7,11 @@ from psycopg.errors import IntegrityError
 from annotation_metadata.contracts import TaskFilter
 from annotation_metadata.queries import (
     SceneScope,
+    _scope_source_clause,
     best_source_lateral,
     claim_match_predicate,
     claim_source_exists_sql,
+    source_row_match_sql,
 )
 from annotation_metadata.taxonomy import FALLBACK_SOURCE_SCENE
 from annotation_quality.repository import (
@@ -93,7 +95,7 @@ def count_cross_check_candidates(cur, scope: SceneScope, filters: TaskFilter,
 def cross_check_scene_counts(
     cur, scope: SceneScope, filters: TaskFilter, user_id,
 ) -> dict[str | None, int]:
-    """Per-scene candidate counts using the same eligibility as claim."""
+    """Per-scene candidate counts using the same source-row match as claim."""
     if not scope.can_claim:
         return {}
     scene_filters = TaskFilter(
@@ -101,14 +103,18 @@ def cross_check_scene_counts(
         batch_code=filters.batch_code,
     )
     from_sql, where_sql, params = _candidate_sql(scope, scene_filters, user_id)
+    match_sql, match_params = source_row_match_sql(scene_filters, src_alias="src")
+    scope_sql, scope_params = _scope_source_clause(scope, src_alias="src")
     effective = f"COALESCE(src.scene_code, '{FALLBACK_SOURCE_SCENE}')"
     rows = cur.execute(
         f"""SELECT {effective}, count(DISTINCT t.id)
             {from_sql}
-            JOIN task_sources src ON src.task_id = t.id AND src.is_current
+            JOIN task_sources src ON src.task_id = t.id
             WHERE {where_sql}
+              AND ({match_sql})
+              AND ({scope_sql})
             GROUP BY 1""",
-        params,
+        (*params, *match_params, *scope_params),
     ).fetchall()
     by_code = {row[0]: int(row[1]) for row in rows}
     if scope.allows_fallback_source():

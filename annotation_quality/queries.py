@@ -168,20 +168,58 @@ def assignment_queue_counts(cur) -> tuple[int, int]:
     return int(assigned or 0), int(in_progress or 0)
 
 
-def training_export_eligible_sql(
+def current_published_annotated_sql(
     *, task_alias: str = "t", version_alias: str = "v",
-) -> tuple[str, list]:
-    """Current annotated published version with no open quality round."""
-    sql = (
+) -> str:
+    return (
         f"{task_alias}.status = 'annotated'"
         f" AND {version_alias}.lifecycle = 'published'"
         f" AND {version_alias}.target_status = 'annotated'"
-        f" AND NOT EXISTS ("
+    )
+
+
+def open_quality_round_sql(
+    *, task_alias: str = "t", exists: bool = True,
+) -> tuple[str, list]:
+    keyword = "EXISTS" if exists else "NOT EXISTS"
+    sql = (
+        f"{keyword} ("
         f" SELECT 1 FROM cross_check_rounds open_round"
         f" WHERE open_round.task_id = {task_alias}.id"
         f" AND open_round.state = ANY(%s))"
     )
     return sql, [list(OPEN_ROUND_STATES)]
+
+
+def _training_current_sql(
+    filters: TaskFilter | None,
+    *,
+    task_alias: str,
+    version_alias: str,
+    require_open_round: bool,
+) -> tuple[str, list]:
+    open_sql, params = open_quality_round_sql(
+        task_alias=task_alias, exists=require_open_round,
+    )
+    sql = (
+        f"{current_published_annotated_sql(task_alias=task_alias, version_alias=version_alias)}"
+        f" AND {open_sql}"
+    )
+    if filters is not None and not filters.is_empty():
+        meta_sql, meta_params = metadata_filter_sql(filters, task_alias=task_alias)
+        if meta_sql != "true":
+            sql = f"{sql} AND ({meta_sql})"
+            params.extend(meta_params)
+    return sql, params
+
+
+def training_export_eligible_sql(
+    *, task_alias: str = "t", version_alias: str = "v",
+) -> tuple[str, list]:
+    """Current annotated published version with no open quality round."""
+    return training_export_where_sql(
+        None, task_alias=task_alias, version_alias=version_alias,
+    )
 
 
 def training_export_where_sql(
@@ -190,15 +228,10 @@ def training_export_where_sql(
     task_alias: str = "t",
     version_alias: str = "v",
 ) -> tuple[str, list]:
-    sql, params = training_export_eligible_sql(
-        task_alias=task_alias, version_alias=version_alias,
+    return _training_current_sql(
+        filters, task_alias=task_alias, version_alias=version_alias,
+        require_open_round=False,
     )
-    if filters is not None and not filters.is_empty():
-        meta_sql, meta_params = metadata_filter_sql(filters, task_alias=task_alias)
-        if meta_sql != "true":
-            sql = f"{sql} AND ({meta_sql})"
-            params.extend(meta_params)
-    return sql, params
 
 
 def unique_open_quality_blocked_sql(
@@ -208,22 +241,10 @@ def unique_open_quality_blocked_sql(
     version_alias: str = "v",
 ) -> tuple[str, list]:
     """Annotated published tasks excluded only because a quality round is open."""
-    sql = (
-        f"{task_alias}.status = 'annotated'"
-        f" AND {version_alias}.lifecycle = 'published'"
-        f" AND {version_alias}.target_status = 'annotated'"
-        f" AND EXISTS ("
-        f" SELECT 1 FROM cross_check_rounds open_round"
-        f" WHERE open_round.task_id = {task_alias}.id"
-        f" AND open_round.state = ANY(%s))"
+    return _training_current_sql(
+        filters, task_alias=task_alias, version_alias=version_alias,
+        require_open_round=True,
     )
-    params: list = [list(OPEN_ROUND_STATES)]
-    if filters is not None and not filters.is_empty():
-        meta_sql, meta_params = metadata_filter_sql(filters, task_alias=task_alias)
-        if meta_sql != "true":
-            sql = f"{sql} AND ({meta_sql})"
-            params.extend(meta_params)
-    return sql, params
 
 
 def training_timing_joins_sql(
@@ -272,7 +293,7 @@ def latest_quality_round_lateral_sql(
     open_states = ", ".join(f"'{item}'" for item in sorted(OPEN_ROUND_STATES))
     return f"""
         LEFT JOIN LATERAL (
-            SELECT r.id, r.state, r.decision, r.final_version_id
+            SELECT r.id, r.state
             FROM cross_check_rounds r
             WHERE r.task_id = {task_alias}.id
               AND r.state NOT IN ('cancelled', 'invalidated')
