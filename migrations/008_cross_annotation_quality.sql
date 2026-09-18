@@ -183,84 +183,30 @@ CREATE INDEX idx_cross_check_rounds_secondary_submitted
 CREATE INDEX idx_cross_check_rounds_task_created
     ON cross_check_rounds (task_id, created_at, id);
 
+-- MATCH SIMPLE: ordinary annotation/revision rows have round_id NULL, so
+-- the composite FK is not checked. in_progress rounds store the draft as
+-- secondary_version_id before the assignment is inserted.
+ALTER TABLE cross_check_rounds
+    ADD CONSTRAINT cross_check_rounds_assignment_match_key
+        UNIQUE (id, task_id, secondary_annotator_id, secondary_version_id);
+
 ALTER TABLE assignments
     DROP CONSTRAINT assignments_mode_check;
 
 ALTER TABLE assignments
     ADD CONSTRAINT assignments_mode_check
         CHECK (mode IN ('annotation', 'revision', 'cross_check')),
-    ADD COLUMN cross_check_round_id UUID REFERENCES cross_check_rounds (id),
+    ADD COLUMN cross_check_round_id UUID,
     ADD CONSTRAINT assignments_cross_check_round_id_check
         CHECK (
             (mode = 'cross_check' AND cross_check_round_id IS NOT NULL)
             OR (mode <> 'cross_check' AND cross_check_round_id IS NULL)
+        ),
+    ADD CONSTRAINT assignments_cross_check_round_match
+        FOREIGN KEY (cross_check_round_id, task_id, user_id, working_version_id)
+        REFERENCES cross_check_rounds (
+            id, task_id, secondary_annotator_id, secondary_version_id
         );
-
-CREATE OR REPLACE FUNCTION enforce_assignment_cross_check_round_match()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $func$
-DECLARE
-    round_task uuid;
-    round_user uuid;
-    round_version uuid;
-BEGIN
-    IF NEW.cross_check_round_id IS NULL THEN
-        RETURN NEW;
-    END IF;
-    SELECT task_id, secondary_annotator_id, secondary_version_id
-      INTO round_task, round_user, round_version
-      FROM cross_check_rounds
-     WHERE id = NEW.cross_check_round_id;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'cross_check round % does not exist', NEW.cross_check_round_id
-            USING ERRCODE = '23503';
-    END IF;
-    IF round_task IS DISTINCT FROM NEW.task_id
-       OR round_user IS DISTINCT FROM NEW.user_id
-       OR round_version IS DISTINCT FROM NEW.working_version_id THEN
-        RAISE EXCEPTION
-            'cross_check assignment must match round task, annotator, and working version'
-            USING ERRCODE = '23514';
-    END IF;
-    RETURN NEW;
-END;
-$func$;
-
-CREATE CONSTRAINT TRIGGER assignments_cross_check_round_match
-    AFTER INSERT OR UPDATE ON assignments
-    DEFERRABLE INITIALLY IMMEDIATE
-    FOR EACH ROW
-    EXECUTE FUNCTION enforce_assignment_cross_check_round_match();
-
-CREATE OR REPLACE FUNCTION enforce_cross_check_round_assignment_match()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $func$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-          FROM assignments a
-         WHERE a.cross_check_round_id = NEW.id
-           AND (
-               a.task_id IS DISTINCT FROM NEW.task_id
-               OR a.user_id IS DISTINCT FROM NEW.secondary_annotator_id
-               OR a.working_version_id IS DISTINCT FROM NEW.secondary_version_id
-           )
-    ) THEN
-        RAISE EXCEPTION
-            'cross_check round must match its assignment task, annotator, and working version'
-            USING ERRCODE = '23514';
-    END IF;
-    RETURN NEW;
-END;
-$func$;
-
-CREATE CONSTRAINT TRIGGER cross_check_rounds_assignment_match
-    AFTER UPDATE ON cross_check_rounds
-    DEFERRABLE INITIALLY IMMEDIATE
-    FOR EACH ROW
-    EXECUTE FUNCTION enforce_cross_check_round_assignment_match();
 
 CREATE TABLE task_annotation_participants (
     task_id                 UUID NOT NULL REFERENCES annotation_tasks(id) ON DELETE CASCADE,

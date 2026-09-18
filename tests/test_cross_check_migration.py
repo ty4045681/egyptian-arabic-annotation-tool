@@ -542,7 +542,7 @@ def _insert_round(conn, ids, original_user, secondary_user, *,
             original_user_id if original_user_id is not None else original_user,
             secondary_id or ids["secondary_id"],
             secondary_user_id if secondary_user_id is not None else secondary_user,
-            ids["baseline_id"],
+            extra.get("baseline_version_id") or ids["baseline_id"],
             state,
             extra.get("submitted_at"),
             extra.get("compared_at"),
@@ -573,6 +573,17 @@ def _insert_assignment(conn, user_id, task_id, version_id, mode,
            VALUES (%s, %s, %s, %s, %s, 0, %s)""",
         (user_id, task_id, version_id, mode, uuid.uuid4(), round_id),
     )
+
+
+def _insert_admin_action(conn):
+    action_id = uuid.uuid4()
+    conn.execute(
+        """INSERT INTO admin_actions
+               (id, operation_id, action_type, reason, request_hash, status)
+           VALUES (%s, %s, 'cross_check_decision', 'test', %s, 'completed')""",
+        (action_id, uuid.uuid4(), "a" * 64),
+    )
+    return action_id
 
 
 def test_database_rejects_invalid_cross_check_rows_and_rolls_back(database):
@@ -705,6 +716,77 @@ def test_database_rejects_invalid_cross_check_rows_and_rolls_back(database):
             )
 
         _reject(conn, assignment_update_mismatch)
+
+        def assignment_task_mismatch():
+            ids = _round_task(conn, original, secondary, "cc-task-mis.wav")
+            other_ids = _round_task(conn, original, other, "cc-task-mis-b.wav")
+            round_id = _insert_round(conn, ids, original, secondary)
+            _insert_assignment(
+                conn, secondary, other_ids["task_id"], ids["secondary_id"],
+                "cross_check", round_id,
+            )
+
+        _reject(conn, assignment_task_mismatch)
+
+        def assignment_version_mismatch():
+            ids = _round_task(conn, original, secondary, "cc-ver-mis.wav")
+            round_id = _insert_round(conn, ids, original, secondary)
+            _insert_assignment(
+                conn, secondary, ids["task_id"], ids["original_id"],
+                "cross_check", round_id,
+            )
+
+        _reject(conn, assignment_version_mismatch)
+
+        def round_update_annotator_mismatch():
+            ids = _round_task(conn, original, secondary, "cc-round-upd.wav")
+            round_id = _insert_round(conn, ids, original, secondary)
+            _insert_assignment(
+                conn, secondary, ids["task_id"], ids["secondary_id"],
+                "cross_check", round_id,
+            )
+            conn.execute(
+                """UPDATE cross_check_rounds
+                   SET secondary_annotator_id = %s WHERE id = %s""",
+                (other, round_id),
+            )
+
+        _reject(conn, round_update_annotator_mismatch)
+
+        def secondary_version_other_task():
+            ids = _round_task(conn, original, secondary, "cc-sec-x.wav")
+            other_ids = _round_task(conn, original, other, "cc-sec-y.wav")
+            _insert_round(
+                conn, ids, original, secondary,
+                secondary_id=other_ids["secondary_id"],
+            )
+
+        _reject(conn, secondary_version_other_task)
+
+        def baseline_version_other_task():
+            ids = _round_task(conn, original, secondary, "cc-base-x.wav")
+            other_ids = _round_task(conn, original, other, "cc-base-y.wav")
+            _insert_round(
+                conn, ids, original, secondary,
+                extra={"baseline_version_id": other_ids["baseline_id"]},
+            )
+
+        _reject(conn, baseline_version_other_task)
+
+        def final_version_other_task():
+            ids = _round_task(conn, original, secondary, "cc-final-x.wav")
+            other_ids = _round_task(conn, original, other, "cc-final-y.wav")
+            action_id = _insert_admin_action(conn)
+            _insert_round(
+                conn, ids, original, secondary, state="adjudicated",
+                extra={
+                    "decision": "original",
+                    "final_version_id": other_ids["original_id"],
+                    "decided_by_admin_action_id": action_id,
+                },
+            )
+
+        _reject(conn, final_version_other_task)
         assert conn.execute("SELECT count(*) FROM assignments").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM cross_check_rounds").fetchone()[0] == 0
 
@@ -764,6 +846,57 @@ def test_state_checks_reject_illegal_passed_and_review_rows(database):
             )
 
         _reject(conn, adjudicated_without_admin)
+
+        def awaiting_without_submitted_at():
+            ids = _round_task(conn, original, secondary, "state5.wav")
+            _insert_round(
+                conn, ids, original, secondary, state="awaiting_review",
+                extra={
+                    "submitted_at": None,
+                    "reason_codes": ["word_difference_exceeded"],
+                },
+            )
+
+        _reject(conn, awaiting_without_submitted_at)
+
+        passed_ids = _round_task(conn, original, secondary, "legal-passed.wav")
+        _insert_round(
+            conn, passed_ids, original, secondary, state="passed",
+            extra={
+                "submitted_at": now,
+                "compared_at": now,
+                "original_word_count": 10,
+                "secondary_word_count": 10,
+                "edit_distance": 0,
+                "reason_codes": [],
+            },
+        )
+        review_ids = _round_task(conn, original, secondary, "legal-review.wav")
+        _insert_round(
+            conn, review_ids, original, secondary, state="awaiting_review",
+            extra={
+                "submitted_at": now,
+                "reason_codes": ["word_difference_exceeded"],
+            },
+        )
+        adjudicated_ids = _round_task(
+            conn, original, secondary, "legal-adjudicated.wav",
+        )
+        action_id = _insert_admin_action(conn)
+        _insert_round(
+            conn, adjudicated_ids, original, secondary, state="adjudicated",
+            extra={
+                "decision": "original",
+                "final_version_id": adjudicated_ids["original_id"],
+                "decided_by_admin_action_id": action_id,
+            },
+        )
+        states = {
+            row[0] for row in conn.execute(
+                "SELECT state FROM cross_check_rounds"
+            ).fetchall()
+        }
+        assert states == {"passed", "awaiting_review", "adjudicated"}
 
 
 def test_settings_singleton_and_sampling_bounds(database):

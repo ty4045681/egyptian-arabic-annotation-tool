@@ -12,6 +12,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from annotation_metadata.contracts import parse_strict as parse_strict
+
 
 WORD_DIFFERENCE_THRESHOLD_BPS = 1000
 COMPARISON_VERSION = "worddiff_v1"
@@ -31,7 +33,7 @@ EXCEPTION_REASON_CODES = frozenset({
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class CrossCheckState(StrEnum):
@@ -83,18 +85,6 @@ def _require_uuid(value: str, field: str) -> str:
     return str(value)
 
 
-def _require_int(value: Any, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be an integer")
-    return value
-
-
-def _require_bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
-
-
 def _require_reason(value: str) -> str:
     reason = (value or "").strip()
     if not reason:
@@ -127,26 +117,19 @@ class CrossCheckSettingsUpdateCommand(StrictModel):
     def _operation_id(cls, value: Any) -> str:
         return _require_uuid(value, "operation_id")
 
-    @field_validator("expected_revision", mode="before")
+    @field_validator("expected_revision")
     @classmethod
-    def _revision(cls, value: Any) -> int:
-        revision = _require_int(value, "expected_revision")
-        if revision < 0:
+    def _revision(cls, value: int) -> int:
+        if value < 0:
             raise ValueError("expected_revision must be >= 0")
-        return revision
+        return value
 
-    @field_validator("enabled", mode="before")
+    @field_validator("sampling_rate_bps")
     @classmethod
-    def _enabled(cls, value: Any) -> bool:
-        return _require_bool(value, "enabled")
-
-    @field_validator("sampling_rate_bps", mode="before")
-    @classmethod
-    def _rate(cls, value: Any) -> int:
-        rate = _require_int(value, "sampling_rate_bps")
-        if rate < 0 or rate > 10000:
+    def _rate(cls, value: int) -> int:
+        if value < 0 or value > 10000:
             raise ValueError("sampling_rate_bps must be between 0 and 10000")
-        return rate
+        return value
 
     @field_validator("reason")
     @classmethod
@@ -173,11 +156,6 @@ class CrossCheckCompleteInfo(StrictModel):
     @classmethod
     def _round_id(cls, value: Any) -> str:
         return _require_uuid(value, "round_id")
-
-    @field_validator("training_export_blocked", mode="before")
-    @classmethod
-    def _blocked(cls, value: Any) -> bool:
-        return _require_bool(value, "training_export_blocked")
 
 
 class CrossCheckClaimFilters(StrictModel):
@@ -206,13 +184,12 @@ class CrossCheckListQuery(StrictModel):
             return None
         return _require_uuid(value, "annotator_id")
 
-    @field_validator("limit", mode="before")
+    @field_validator("limit")
     @classmethod
-    def _limit(cls, value: Any) -> int:
-        limit = _require_int(value, "limit")
-        if limit < 1 or limit > 100:
+    def _limit(cls, value: int) -> int:
+        if value < 1 or value > 100:
             raise ValueError("limit must be between 1 and 100")
-        return limit
+        return value
 
     @field_validator("q", "batch_code", "source_scene", "reason_code", "cursor")
     @classmethod
@@ -314,13 +291,12 @@ class CrossCheckDecisionCommand(StrictModel):
     def _uuids(cls, value: Any, info) -> str:
         return _require_uuid(value, info.field_name)
 
-    @field_validator("expected_revision", mode="before")
+    @field_validator("expected_revision")
     @classmethod
-    def _revision(cls, value: Any) -> int:
-        revision = _require_int(value, "expected_revision")
-        if revision < 0:
+    def _revision(cls, value: int) -> int:
+        if value < 0:
             raise ValueError("expected_revision must be >= 0")
-        return revision
+        return value
 
     @field_validator("reason")
     @classmethod
@@ -375,21 +351,19 @@ class CrossCheckCancelCommand(StrictModel):
     def _operation_id(cls, value: Any) -> str:
         return _require_uuid(value, "operation_id")
 
-    @field_validator("expected_revision", mode="before")
+    @field_validator("expected_revision")
     @classmethod
-    def _revision(cls, value: Any) -> int:
-        revision = _require_int(value, "expected_revision")
-        if revision < 0:
+    def _revision(cls, value: int) -> int:
+        if value < 0:
             raise ValueError("expected_revision must be >= 0")
-        return revision
+        return value
 
-    @field_validator("confirm", mode="before")
+    @field_validator("confirm")
     @classmethod
-    def _confirm(cls, value: Any) -> bool:
-        flag = _require_bool(value, "confirm")
-        if flag is not True:
+    def _confirm(cls, value: bool) -> bool:
+        if value is not True:
             raise ValueError("confirm must be true")
-        return flag
+        return value
 
     @field_validator("reason")
     @classmethod
@@ -401,13 +375,12 @@ class CrossCheckMineQuery(StrictModel):
     limit: int = 50
     cursor: str | None = None
 
-    @field_validator("limit", mode="before")
+    @field_validator("limit")
     @classmethod
-    def _limit(cls, value: Any) -> int:
-        limit = _require_int(value, "limit")
-        if limit < 1 or limit > 100:
+    def _limit(cls, value: int) -> int:
+        if value < 1 or value > 100:
             raise ValueError("limit must be between 1 and 100")
-        return limit
+        return value
 
 
 class CrossCheckMineItem(StrictModel):
@@ -432,23 +405,3 @@ class CrossCheckSubmissionView(StrictModel):
     target_status: str | None = None
     segments: list[dict[str, Any]] = Field(default_factory=list)
     skip_reasons: list[str] = Field(default_factory=list)
-
-
-def parse_strict(model_cls: type[BaseModel], payload: dict[str, Any]):
-    """Parse a request body; map Pydantic errors onto repository ValidationError."""
-    from annotation_repository import ValidationError
-
-    try:
-        return model_cls.model_validate(payload)
-    except Exception as exc:  # pydantic ValidationError
-        errors = getattr(exc, "errors", lambda: [])()
-        if errors:
-            first = errors[0]
-            loc = ".".join(str(part) for part in first.get("loc", ()) if part != "body")
-            message = first.get("msg") or str(exc)
-            raise ValidationError(
-                message if not loc else f"{loc}: {message}",
-                code="invalid_field",
-                field=loc or None,
-            ) from exc
-        raise ValidationError(str(exc), code="invalid_field") from exc

@@ -1,8 +1,4 @@
-"""Cross-annotation quality: independent re-annotation, comparison, and adjudication.
-
-This package holds request/response contracts, database access, claiming,
-comparison, and admin APIs. P0 ships schema and models only.
-"""
+"""Cross-annotation quality: independent re-annotation, comparison, and adjudication contracts."""
 
 from __future__ import annotations
 
