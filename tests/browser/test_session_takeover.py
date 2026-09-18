@@ -1,8 +1,11 @@
 """Browser acceptance for session takeover, idle timeout, and IndexedDB drafts."""
 from __future__ import annotations
 
+import uuid
+
 from playwright.sync_api import expect, sync_playwright
 
+import annotation_repository as repo
 import db
 import server
 from tests.browser.conftest import start_app_server, stop_app_server, write_silence_wav
@@ -49,29 +52,24 @@ def test_live_session_requires_takeover_and_freezes_old_page(provenance_site, tm
 
 def test_stale_presence_allows_automatic_login(provenance_site):
     url = provenance_site["url"]
+    user = repo.login("takeover-stale", str(uuid.uuid4()), 1800)
+    repo.claim(user["fence"])
+    with db.db_conn() as conn:
+        stale = conn.execute(
+            """UPDATE active_sessions AS session
+                  SET last_seen_at = now() - interval '2 days'
+                 FROM annotators AS annotator
+                WHERE session.user_id = annotator.id
+                  AND annotator.username = %s
+            RETURNING session.last_seen_at < now() - interval '1 day'""",
+            ("takeover-stale",),
+        ).fetchone()
+        conn.commit()
+    assert stale == (True,)
+
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        context_a = browser.new_context()
-        page_a = context_a.new_page()
         try:
-            context_a.route("**/api/session/heartbeat", lambda route: route.abort("failed"))
-            _login_annotator(page_a, url, "takeover-stale")
-            page_a.locator("#claimButton").click()
-            expect(page_a.locator("textarea[data-text='0']")).to_be_visible(timeout=15000)
-            page_a.evaluate("() => window.AnnotatorSession && window.AnnotatorSession.stopHeartbeat()")
-            context_a.set_offline(True)
-            page_a.close()
-            context_a.close()
-            with db.db_conn() as conn:
-                conn.execute(
-                    """UPDATE active_sessions AS session
-                          SET last_seen_at = now() - interval '2 days'
-                         FROM annotators AS annotator
-                        WHERE session.user_id = annotator.id
-                          AND annotator.username = %s""",
-                    ("takeover-stale",),
-                )
-                conn.commit()
             context_b = browser.new_context()
             page_b = context_b.new_page()
             _login_and_wait_workspace(page_b, url, "takeover-stale")
