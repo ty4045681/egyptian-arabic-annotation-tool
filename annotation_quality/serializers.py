@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-from annotation_quality.repository import SEGMENT_PROTECTED_KEYS
-
-
-_CROSS_CHECK_SEGMENT_KEYS = (
-    "id", "start", "end", "duration", "asr_text", "text", "exclude_from_training",
-)
 
 _LEAK_KEYS = (
     "original_version_id",
@@ -26,29 +20,12 @@ _LEAK_KEYS = (
 )
 
 
-def _sanitize_cross_check_segments(segments: list | None) -> list:
-    clean = []
-    for segment in segments or []:
-        if not isinstance(segment, dict):
-            continue
-        item = {key: segment.get(key) for key in _CROSS_CHECK_SEGMENT_KEYS}
-        item["text"] = "" if item.get("text") is None else item.get("text")
-        item["asr_text"] = item.get("asr_text") or ""
-        item["exclude_from_training"] = bool(item.get("exclude_from_training"))
-        for key in list(item):
-            if key in SEGMENT_PROTECTED_KEYS and key not in _CROSS_CHECK_SEGMENT_KEYS:
-                item.pop(key, None)
-        clean.append(item)
-    return clean
-
-
 def apply_assignment_visibility(payload: dict) -> dict:
     """Drop original-result fields from a cross-check assignment body."""
     if payload.get("mode") != "cross_check":
         return payload
     for key in _LEAK_KEYS:
         payload.pop(key, None)
-    payload["segments"] = _sanitize_cross_check_segments(payload.get("segments"))
     payload["mode"] = "cross_check"
     info = payload.get("cross_check")
     if not isinstance(info, dict):

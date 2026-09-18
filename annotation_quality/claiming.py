@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
-
 from psycopg.errors import IntegrityError
 
 from annotation_metadata.contracts import TaskFilter
@@ -19,17 +17,7 @@ from annotation_quality.repository import (
 )
 
 
-CLAIM_TYPE_RANGE = 10000
 MAX_LOCK_ATTEMPTS = 8
-
-
-def default_claim_rng():
-    return secrets.SystemRandom()
-
-
-def draw_claim_type_hit(rng, sampling_rate_bps: int) -> bool:
-    """One draw in [0, 10000). Does not resample on lock retries."""
-    return int(rng.randrange(CLAIM_TYPE_RANGE)) < int(sampling_rate_bps)
 
 
 def _candidate_sql(scope: SceneScope, filters: TaskFilter, user_id):
@@ -223,25 +211,3 @@ def try_claim_cross_check(
             _abandon_savepoint(cur)
             continue
     return None, "busy" if had_candidates else "empty"
-
-
-def build_cross_check_assignment_payload(created: dict) -> dict:
-    return {
-        "assigned": True,
-        "task_id": str(created["task_id"]),
-        "mode": "cross_check",
-        "lease_token": str(created["lease_token"]),
-        "status": created["status"],
-        "version_id": str(created["draft_id"]),
-        "revision": created["revision"],
-        "rel_path": created["rel_path"],
-        "filename": created["filename"],
-        "folder": created["folder"],
-        "duration": created["duration"],
-        "skip_reasons": [],
-        "resumed": False,
-        "cross_check": {
-            "round_id": str(created["round_id"]),
-            "state": "in_progress",
-        },
-    }

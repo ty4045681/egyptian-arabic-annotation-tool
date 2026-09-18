@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import os
+import secrets
 import time
 import uuid
 from dataclasses import dataclass
@@ -986,8 +987,7 @@ def get_assignment(user_id: str) -> dict | None:
         row = cur.execute(_ASSIGNMENT_QUERY, (user_id,)).fetchone()
         if not row:
             return None
-        allow_extra = row[1] != "cross_check"
-        segments = _load_segments(cur, row[9], allow_extra_keys=allow_extra)
+        segments = _load_segments(cur, row[9])
         wf = _load_waveform(cur, row[0])
         payload = _row_to_assignment(row, segments, wf)
         return _attach_assignment_metadata(cur, payload, user_id)
@@ -1125,13 +1125,28 @@ def _try_claim_reserved(cur, fence, session_policy, uid, scope, filters,
 
 
 def _finish_cross_check_claim(cur, fence, session_policy, uid, created: dict) -> dict:
-    from annotation_quality.claiming import build_cross_check_assignment_payload
-    payload = build_cross_check_assignment_payload(created)
-    payload["assigned_at"] = utcnow().isoformat()
-    payload["segments"] = _load_segments(
-        cur, created["draft_id"], allow_extra_keys=False,
-    )
-    payload["waveform_b64"] = _load_waveform(cur, created["task_id"])
+    payload = {
+        "assigned": True,
+        "task_id": str(created["task_id"]),
+        "mode": "cross_check",
+        "lease_token": str(created["lease_token"]),
+        "assigned_at": utcnow().isoformat(),
+        "status": created["status"],
+        "version_id": str(created["draft_id"]),
+        "revision": created["revision"],
+        "rel_path": created["rel_path"],
+        "filename": created["filename"],
+        "folder": created["folder"],
+        "duration": created["duration"],
+        "skip_reasons": [],
+        "resumed": False,
+        "cross_check": {
+            "round_id": str(created["round_id"]),
+            "state": "in_progress",
+        },
+        "segments": _load_segments(cur, created["draft_id"]),
+        "waveform_b64": _load_waveform(cur, created["task_id"]),
+    }
     _touch_real_activity(cur, fence, policy=session_policy)
     return _attach_assignment_metadata(cur, payload, uid)
 
@@ -1150,9 +1165,7 @@ def claim(fence: SessionFence, *, source_scene: str | None = None,
     from annotation_metadata.claim_policy import get_claim_policy
     from annotation_metadata.claiming import assert_scope_allows, parse_claim_filters
     from annotation_metadata.queries import load_scope
-    from annotation_quality.claiming import (
-        default_claim_rng, draw_claim_type_hit, try_claim_cross_check,
-    )
+    from annotation_quality.claiming import try_claim_cross_check
     from annotation_quality.repository import cross_check_allowed, load_settings
 
     fence = _as_fence(fence)
@@ -1173,10 +1186,7 @@ def claim(fence: SessionFence, *, source_scene: str | None = None,
         ).fetchone()
         if existing:
             _touch_real_activity(cur, fence, policy=session_policy)
-            allow_extra = existing[1] != "cross_check"
-            segments = _load_segments(
-                cur, existing[9], allow_extra_keys=allow_extra,
-            )
+            segments = _load_segments(cur, existing[9])
             wf = _load_waveform(cur, existing[0])
             payload = _row_to_assignment(existing, segments, wf)
             return _attach_assignment_metadata(cur, payload, uid)
@@ -1192,11 +1202,11 @@ def claim(fence: SessionFence, *, source_scene: str | None = None,
 
         settings = load_settings(cur)
         allowed = cross_check_allowed(settings)
-        claim_rng = rng if rng is not None else default_claim_rng()
+        claim_rng = rng if rng is not None else secrets.SystemRandom()
         prefer_cross = False
         if allowed:
-            prefer_cross = draw_claim_type_hit(
-                claim_rng, settings["sampling_rate_bps"],
+            prefer_cross = (
+                int(claim_rng.randrange(10000)) < int(settings["sampling_rate_bps"])
             )
 
         if prefer_cross:
@@ -1276,6 +1286,38 @@ def _require_open_cross_check_round(cur, asg) -> None:
         raise ConflictError("Cross-check round is no longer in progress")
 
 
+def _cancel_in_progress_cross_check(
+    cur, *, round_id, task_id, version_id, reason: str,
+) -> None:
+    """Cancel an in-progress round and abandon its draft. Caller deletes assignment."""
+    if not round_id:
+        raise ConflictError("Cross-check assignment is missing its round")
+    row = cur.execute(
+        """SELECT state FROM cross_check_rounds
+           WHERE id = %s AND task_id = %s
+           FOR UPDATE""",
+        (round_id, task_id),
+    ).fetchone()
+    if not row or row[0] != "in_progress":
+        raise ConflictError("Cross-check round is no longer in progress")
+    cur.execute(
+        """SELECT id FROM annotation_versions WHERE id = %s FOR UPDATE""",
+        (version_id,),
+    )
+    cur.execute(
+        """UPDATE cross_check_rounds
+           SET state = 'cancelled', termination_reason = %s, updated_at = now()
+           WHERE id = %s AND state = 'in_progress'""",
+        (reason, round_id),
+    )
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'abandoned', updated_at = now()
+           WHERE id = %s AND lifecycle = 'draft'""",
+        (version_id,),
+    )
+
+
 def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: bool,
             policy: SessionPolicy | None = None) -> dict:
     if not confirm:
@@ -1293,7 +1335,13 @@ def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: b
         if prior:
             return {**prior["response"], "idempotent_replay": True}
         asg = _lock_assignment(cur, uid, lease_token)
-        if asg["mode"] == "revision":
+        if asg["mode"] == "cross_check":
+            _cancel_in_progress_cross_check(
+                cur, round_id=asg["cross_check_round_id"],
+                task_id=asg["task_id"], version_id=asg["version_id"],
+                reason="abandoned",
+            )
+        elif asg["mode"] == "revision":
             # Discard the revision draft; published data is untouched.
             cur.execute(
                 """UPDATE annotation_versions
@@ -1306,20 +1354,37 @@ def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: b
         cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
         response = {"success": True, "abandoned": True}
         _store_operation(cur, op_uuid, uid, "abandon", request_hash, response)
-        cur.execute(
-            """INSERT INTO annotation_events
-                   (operation_id, user_id, task_id, version_id, event_type,
-                    from_status, details)
-               VALUES (%s, %s, %s, %s, 'abandoned', %s, %s)""",
-            (
-                op_uuid,
-                uid,
-                asg["task_id"],
-                asg["version_id"],
-                asg["task_status"],
-                Json({"mode": asg["mode"]}),
-            ),
-        )
+        if asg["mode"] == "cross_check":
+            cur.execute(
+                """INSERT INTO annotation_events
+                       (operation_id, user_id, task_id, version_id, event_type,
+                        from_status, to_status, details)
+                   VALUES (%s, %s, %s, %s, 'cross_check_cancelled', %s, %s, %s)""",
+                (
+                    op_uuid, uid, asg["task_id"], asg["version_id"],
+                    asg["task_status"], asg["task_status"],
+                    Json({
+                        "mode": "cross_check",
+                        "round_id": str(asg["cross_check_round_id"]),
+                        "termination_reason": "abandoned",
+                    }),
+                ),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO annotation_events
+                       (operation_id, user_id, task_id, version_id, event_type,
+                        from_status, details)
+                   VALUES (%s, %s, %s, %s, 'abandoned', %s, %s)""",
+                (
+                    op_uuid,
+                    uid,
+                    asg["task_id"],
+                    asg["version_id"],
+                    asg["task_status"],
+                    Json({"mode": asg["mode"]}),
+                ),
+            )
         _touch_real_activity(cur, fence, policy=policy, assignment=False)
         return response
 
@@ -1327,7 +1392,7 @@ def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: b
 # ============================================================
 # Segments / waveform helpers
 # ============================================================
-def _load_segments(cur, version_id, *, allow_extra_keys: bool = True) -> list[dict]:
+def _load_segments(cur, version_id) -> list[dict]:
     rows = cur.execute(
         """SELECT segment_id, start_s, end_s, duration, asr_text, text,
                   exclude_from_training, extra
@@ -1346,7 +1411,7 @@ def _load_segments(cur, version_id, *, allow_extra_keys: bool = True) -> list[di
             "exclude_from_training": bool(r[6]),
         }
         extra = r[7] if isinstance(r[7], dict) else None
-        if extra and allow_extra_keys:
+        if extra:
             for key, value in extra.items():
                 if key not in _SEGMENT_PROTECTED_EXTRA:
                     seg[key] = value
@@ -4210,25 +4275,44 @@ def _release_task_draft(cur, task_id, *, action_id, reason: str,
                         event: bool = True) -> dict | None:
     assignment = cur.execute(
         """SELECT a.user_id, a.working_version_id, a.mode, u.username,
-                  v.human_modified
+                  v.human_modified, a.cross_check_round_id
            FROM assignments a
            JOIN annotators u ON u.id = a.user_id
            JOIN annotation_versions v ON v.id = a.working_version_id
-           WHERE a.task_id = %s FOR UPDATE OF a, v""",
+           WHERE a.task_id = %s FOR UPDATE OF a""",
         (task_id,),
     ).fetchone()
+    if assignment and assignment[2] == "cross_check":
+        _cancel_in_progress_cross_check(
+            cur, round_id=assignment[5], task_id=task_id,
+            version_id=assignment[1], reason=reason,
+        )
+        cur.execute(
+            """INSERT INTO annotation_events
+                   (user_id, task_id, version_id, event_type, from_status,
+                    to_status, admin_action_id, details)
+               SELECT %s, t.id, %s, 'cross_check_cancelled', t.status, t.status,
+                      %s, %s FROM annotation_tasks t WHERE t.id = %s""",
+            (assignment[0], assignment[1], action_id,
+             Json({
+                 "mode": "cross_check",
+                 "round_id": str(assignment[5]),
+                 "termination_reason": reason,
+             }), task_id),
+        )
     drafts = cur.execute(
         """SELECT id FROM annotation_versions
            WHERE task_id = %s AND lifecycle = 'draft' FOR UPDATE""",
         (task_id,),
     ).fetchall()
     if assignment:
-        cur.execute(
-            """UPDATE annotation_versions
-               SET lifecycle = 'abandoned', updated_at = now()
-               WHERE id = %s AND lifecycle = 'draft'""",
-            (assignment[1],),
-        )
+        if assignment[2] != "cross_check":
+            cur.execute(
+                """UPDATE annotation_versions
+                   SET lifecycle = 'abandoned', updated_at = now()
+                   WHERE id = %s AND lifecycle = 'draft'""",
+                (assignment[1],),
+            )
         cur.execute("DELETE FROM assignments WHERE task_id = %s", (task_id,))
         if event:
             cur.execute(

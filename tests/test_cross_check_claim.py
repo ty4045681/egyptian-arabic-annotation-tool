@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 import pytest
@@ -604,3 +605,128 @@ def test_cancelled_round_save_is_rejected(database, seed_tasks):
             fence_of(bob), assignment["lease_token"], 0,
             full_segments(assignment, "bob"), str(uuid.uuid4()), "save-hash",
         )
+
+
+def _assert_round_cancelled(task_id, round_id, draft_id, secondary_user,
+                            published_id, *, termination_reason):
+    with db.db_conn() as conn:
+        round_row = conn.execute(
+            """SELECT state, termination_reason FROM cross_check_rounds
+               WHERE id = %s""",
+            (round_id,),
+        ).fetchone()
+        draft_lifecycle = conn.execute(
+            "SELECT lifecycle FROM annotation_versions WHERE id = %s",
+            (draft_id,),
+        ).fetchone()[0]
+        live_drafts = conn.execute(
+            """SELECT count(*) FROM annotation_versions
+               WHERE task_id = %s AND lifecycle = 'draft'""",
+            (task_id,),
+        ).fetchone()[0]
+        assignment_count = conn.execute(
+            "SELECT count(*) FROM assignments WHERE task_id = %s",
+            (task_id,),
+        ).fetchone()[0]
+        task = conn.execute(
+            """SELECT status, current_published_version_id FROM annotation_tasks
+               WHERE id = %s""",
+            (task_id,),
+        ).fetchone()
+        participant = conn.execute(
+            """SELECT 1 FROM task_annotation_participants
+               WHERE task_id = %s AND user_id = %s""",
+            (task_id, secondary_user),
+        ).fetchone()
+        cancelled = conn.execute(
+            """SELECT count(*) FROM annotation_events
+               WHERE event_type = 'cross_check_cancelled'
+                 AND task_id = %s AND version_id = %s""",
+            (task_id, draft_id),
+        ).fetchone()[0]
+    assert round_row == ("cancelled", termination_reason)
+    assert draft_lifecycle == "abandoned"
+    assert live_drafts == 0
+    assert assignment_count == 0
+    assert task[0] == "annotated"
+    assert str(task[1]) == str(published_id)
+    assert participant is not None
+    assert cancelled >= 1
+
+
+def test_abandon_cancels_in_progress_cross_check_round(database, seed_tasks):
+    task = seed_tasks(1, folder="abn")[0]
+    source(task, "airport", "high")
+    annotate_all("alice-abn", [task], prefix="alice-keep", source_scene="airport")
+    with db.db_conn() as conn:
+        published, published_text = conn.execute(
+            """SELECT t.current_published_version_id, s.text
+               FROM annotation_tasks t
+               JOIN segments s ON s.version_id = t.current_published_version_id
+               WHERE t.id = %s ORDER BY s.segment_id LIMIT 1""",
+            (task,),
+        ).fetchone()
+    enable_cross_check(enabled=True, sampling_rate_bps=10000)
+    bob = user("bob-abn")
+    assignment = repo.claim(
+        fence_of(bob), source_scene="airport", rng=ScriptedRng(0, 0),
+    )
+    result = repo.abandon(
+        fence_of(bob), assignment["lease_token"], str(uuid.uuid4()), True,
+    )
+    assert result["abandoned"] is True
+    _assert_round_cancelled(
+        task, assignment["cross_check"]["round_id"], assignment["version_id"],
+        bob, published, termination_reason="abandoned",
+    )
+    with db.db_conn() as conn:
+        text = conn.execute(
+            "SELECT text FROM segments WHERE version_id = %s ORDER BY segment_id LIMIT 1",
+            (published,),
+        ).fetchone()[0]
+    assert text == published_text
+    redrawn = repo.claim(
+        fence_of(user("carol-abn")), source_scene="airport",
+        rng=ScriptedRng(0, 0),
+    )
+    assert redrawn["mode"] == "cross_check"
+    assert redrawn["task_id"] == task
+
+
+def test_admin_release_cancels_in_progress_cross_check_round(database, seed_tasks):
+    task = seed_tasks(1, folder="rel")[0]
+    source(task, "airport", "high")
+    annotate_all("alice-rel", [task], prefix="alice-keep", source_scene="airport")
+    with db.db_conn() as conn:
+        published = conn.execute(
+            "SELECT current_published_version_id FROM annotation_tasks WHERE id = %s",
+            (task,),
+        ).fetchone()[0]
+    enable_cross_check(enabled=True, sampling_rate_bps=10000)
+    bob = user("bob-rel")
+    assignment = repo.claim(
+        fence_of(bob), source_scene="airport", rng=ScriptedRng(0, 0),
+    )
+    nonce = uuid.uuid4().hex
+    admin = repo.create_admin_session(
+        key_id="primary",
+        token_digest=hashlib.sha256(f"token-{nonce}".encode()).hexdigest(),
+        csrf_digest=hashlib.sha256(f"csrf-{nonce}".encode()).hexdigest(),
+        idle_seconds=1800,
+        absolute_seconds=28800,
+        ip_hash="test-ip",
+        user_agent="pytest",
+    )
+    released = repo.admin_release_assignment(
+        admin_session_id=admin["id"],
+        operation_id=str(uuid.uuid4()),
+        task_id=assignment["task_id"],
+        reason="operator release",
+        confirm=True,
+    )
+    assert released["success"] is True
+    _assert_round_cancelled(
+        task, assignment["cross_check"]["round_id"], assignment["version_id"],
+        bob, published, termination_reason="operator release",
+    )
+    assert repo.get_assignment(bob) is None

@@ -15,15 +15,6 @@ SEGMENT_EXTRA_TECHNICAL_KEYS = frozenset({
     "lang", "language", "energy", "snr", "vad", "vad_score",
 })
 
-SEGMENT_PROTECTED_KEYS = frozenset({
-    "id", "start", "end", "duration", "asr_text", "text",
-    "exclude_from_training", "segment_id", "start_s", "end_s",
-    "annotator", "annotator_id", "username", "user_id",
-    "submitted_by", "author", "original_text", "original_annotator",
-    "original_annotator_id", "original_version_id",
-    "credited_annotator_id",
-})
-
 
 def load_settings(cur) -> dict:
     row = cur.execute(
@@ -70,7 +61,7 @@ def whitelisted_segment_extra(extra) -> dict:
     return {
         key: value
         for key, value in extra.items()
-        if key in SEGMENT_EXTRA_TECHNICAL_KEYS and key not in SEGMENT_PROTECTED_KEYS
+        if key in SEGMENT_EXTRA_TECHNICAL_KEYS
     }
 
 
