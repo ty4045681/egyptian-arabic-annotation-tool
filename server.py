@@ -1695,6 +1695,16 @@ register_metadata_routes(
     json_object=json_object,
     admin_query_filters=admin_query_filters,
 )
+from annotation_quality.routes import register_cross_check_routes
+register_cross_check_routes(
+    app,
+    login_required=login_required,
+    admin_required=admin_required,
+    admin_write_required=admin_write_required,
+    json_object=json_object,
+    admin_query_filters=admin_query_filters,
+    audit_admin_write_failures=audit_admin_write_failures,
+)
 
 _init_app_config()
 

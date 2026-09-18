@@ -19,12 +19,51 @@ from annotation_quality.comparison import (
     UNAVAILABLE_COMPUTE_FAILURE,
     compare_transcripts,
 )
-from annotation_quality.contracts import OPEN_ROUND_STATES
+from psycopg.errors import IntegrityError
+
+from annotation_quality.contracts import (
+    OPEN_ROUND_STATES,
+    CrossCheckCancelCommand,
+    CrossCheckDecision,
+    CrossCheckDecisionCommand,
+    CrossCheckEditBase,
+    CrossCheckListQuery,
+    CrossCheckMineQuery,
+    CrossCheckSettingsUpdateCommand,
+)
+from annotation_quality.queries import (
+    applied_list_filters,
+    list_filter_digest,
+    list_where_sql,
+    word_difference_rate_sql,
+)
 from annotation_quality.repository import (
     freeze_cross_check_version,
+    insert_adjudication_draft,
+    load_review_by_id,
+    load_settings,
+    lock_round,
+    lock_settings,
+    mark_round_adjudicated,
+    peek_round,
+    publish_adjudication_version,
+    publish_secondary_version,
+    record_admin_cross_check_cancelled,
+    record_cross_check_adjudicated,
     record_cross_check_passed,
     record_cross_check_submitted,
+    set_task_published,
     store_round_submission,
+    supersede_published_version,
+    update_settings,
+)
+from annotation_quality.serializers import (
+    decision_result_payload,
+    detail_payload,
+    list_item_payload,
+    mine_item_payload,
+    settings_payload,
+    submission_payload,
 )
 from db import db_tx
 
@@ -530,3 +569,686 @@ def _segment_map(comparison: ComparisonResult, original_digest: str,
             for item in comparison.secondary_bad_quality
         ],
     }
+
+
+def get_cross_check_settings() -> dict:
+    with db_tx() as conn, conn.cursor() as cur:
+        return settings_payload(load_settings(cur))
+
+
+def update_cross_check_settings(
+    admin_session_id: str, command: CrossCheckSettingsUpdateCommand,
+) -> dict:
+    request_payload = command.model_dump(mode="json")
+    request_hash = repo._canonical_request_hash(request_payload)
+    with db_tx() as conn, conn.cursor() as cur:
+        action = repo._begin_admin_action(
+            cur, admin_session_id=admin_session_id,
+            operation_id=command.operation_id,
+            action_type="update_cross_check_settings",
+            reason=command.reason, request_hash=request_hash,
+            request_payload=request_payload,
+        )
+        if action["replay"]:
+            return settings_payload(
+                action["summary"], action_id=action["action_id"],
+                idempotent_replay=True,
+            )
+        current = lock_settings(cur)
+        if int(current["revision"]) != int(command.expected_revision):
+            raise repo.ConflictError(
+                "Cross-check settings revision changed",
+                code="stale_revision",
+            )
+        updated = update_settings(
+            cur, enabled=bool(command.enabled),
+            sampling_rate_bps=int(command.sampling_rate_bps),
+            action_id=action["action_id"],
+        )
+        body = settings_payload(updated, action_id=action["action_id"])
+        repo._finish_admin_action(cur, action["action_id"], body)
+        return body
+
+
+def list_cross_checks(query: CrossCheckListQuery, *, timezone_name: str) -> dict:
+    digest = list_filter_digest(query, timezone_name=timezone_name)
+    where_sql, params = list_where_sql(query)
+    if query.cursor:
+        created_at, cursor_id, cursor_digest = repo._decode_admin_cursor(
+            query.cursor, 3,
+        )
+        if cursor_digest != digest:
+            raise repo.ValidationError("Invalid cursor")
+        cursor_id = repo._validate_uuid(cursor_id, "cursor")
+        where_sql = f"{where_sql} AND (r.created_at, r.id) < (%s::timestamptz, %s::uuid)"
+        params.extend([created_at, cursor_id])
+    rate_sql = word_difference_rate_sql("r")
+    limit = int(query.limit)
+    with db_tx() as conn, conn.cursor() as cur:
+        rows = cur.execute(
+            f"""SELECT r.id, r.task_id, r.state,
+                       r.original_annotator_id, r.secondary_annotator_id,
+                       t.duration, r.original_word_count, r.secondary_word_count,
+                       {rate_sql} AS word_difference_rate,
+                       r.reason_codes, r.created_at, r.submitted_at,
+                       r.resolved_at, r.claim_filters, t.filename
+                FROM cross_check_rounds r
+                JOIN annotation_tasks t ON t.id = r.task_id
+                WHERE {where_sql}
+                ORDER BY r.created_at DESC, r.id DESC
+                LIMIT %s""",
+            (*params, limit + 1),
+        ).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        items_raw = []
+        for row in rows:
+            items_raw.append({
+                "round_id": row[0],
+                "task_id": row[1],
+                "state": row[2],
+                "original_annotator_id": row[3],
+                "secondary_annotator_id": row[4],
+                "duration_seconds": row[5],
+                "original_word_count": row[6],
+                "secondary_word_count": row[7],
+                "word_difference_rate": (
+                    float(row[8]) if row[8] is not None else None
+                ),
+                "reason_codes": list(row[9] or []),
+                "created_at": row[10],
+                "submitted_at": row[11],
+                "resolved_at": row[12],
+                "claim_filters": row[13] or {},
+                "filename": row[14],
+            })
+        summaries = {}
+        if items_raw:
+            from annotation_metadata.contracts import TaskFilter, parse_strict
+            from annotation_metadata.repository import metadata_summaries
+            meta = parse_strict(TaskFilter, {
+                "source_scene": query.source_scene,
+                "batch_code": query.batch_code,
+            })
+            summaries = metadata_summaries(
+                cur, [item["task_id"] for item in items_raw], filters=meta,
+            )
+    items = []
+    for item in items_raw:
+        summary = summaries.get(str(item["task_id"]), {})
+        claim = item["claim_filters"] if isinstance(item["claim_filters"], dict) else {}
+        scenes = summary.get("source_scenes") or []
+        batches = summary.get("batch_codes") or []
+        item["source_scene"] = scenes[0] if scenes else claim.get("source_scene")
+        item["batch_code"] = batches[0] if batches else claim.get("batch_code")
+        items.append(list_item_payload(item))
+    next_cursor = None
+    if has_more and rows:
+        next_cursor = repo._encode_admin_cursor(rows[-1][10], rows[-1][0], digest)
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "applied_filters": applied_list_filters(
+            query, timezone_name=timezone_name,
+        ),
+    }
+
+
+def get_cross_check_detail(round_id: str) -> dict:
+    rid = repo._validate_uuid(round_id, "round_id")
+    with db_tx() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT r.id, r.task_id, r.revision, r.state,
+                      r.original_version_id, r.original_annotator_id,
+                      r.original_review_id, r.secondary_version_id,
+                      r.secondary_annotator_id, r.baseline_version_id,
+                      r.baseline_quality, r.settings_revision, r.sampling_rate_bps,
+                      r.claim_policy, r.claim_filters, r.comparison_version,
+                      r.threshold_bps, r.original_word_count, r.secondary_word_count,
+                      r.edit_distance, r.substitutions, r.insertions, r.deletions,
+                      r.original_normalized_summary, r.secondary_normalized_summary,
+                      r.original_input_revision, r.secondary_input_revision,
+                      r.diff_ops, r.segment_map, r.reason_codes, r.decision,
+                      r.final_version_id, r.decided_by_admin_action_id,
+                      r.decision_reason, r.created_at, r.submitted_at,
+                      r.compared_at, r.resolved_at, r.termination_reason,
+                      t.current_published_version_id, t.duration AS duration_seconds,
+                      t.filename,
+                      ov.target_status AS original_target_status,
+                      ov.skip_reasons AS original_skip_reasons,
+                      sv.target_status AS secondary_target_status,
+                      sv.skip_reasons AS secondary_skip_reasons
+               FROM cross_check_rounds r
+               JOIN annotation_tasks t ON t.id = r.task_id
+               JOIN annotation_versions ov ON ov.id = r.original_version_id
+               JOIN annotation_versions sv ON sv.id = r.secondary_version_id
+               WHERE r.id = %s""",
+            (rid,),
+        )
+        fetched = cur.fetchone()
+        if not fetched:
+            raise repo.NotFoundError("Cross-check round not found")
+        cols = [desc.name for desc in cur.description]
+        row = dict(zip(cols, fetched))
+        original_segments = repo._load_segments(cur, row["original_version_id"])
+        secondary_segments = repo._load_segments(cur, row["secondary_version_id"])
+        from annotation_metadata.repository import latest_review
+        original_review = load_review_by_id(cur, row["original_review_id"])
+        if original_review is None:
+            original_review = latest_review(cur, row["original_version_id"])
+        secondary_review = latest_review(cur, row["secondary_version_id"])
+    return detail_payload(
+        row,
+        original_segments=original_segments,
+        secondary_segments=secondary_segments,
+        original_review=original_review,
+        secondary_review=secondary_review,
+    )
+
+
+def list_my_cross_checks(user_id, query: CrossCheckMineQuery) -> dict:
+    uid = repo._validate_uuid(str(user_id), "user_id")
+    params: list = [uid]
+    where = (
+        "r.secondary_annotator_id = %s AND r.submitted_at IS NOT NULL"
+    )
+    if query.cursor:
+        submitted_at, cursor_id = repo._decode_admin_cursor(query.cursor, 2)
+        cursor_id = repo._validate_uuid(cursor_id, "cursor")
+        where += " AND (r.submitted_at, r.id) < (%s::timestamptz, %s::uuid)"
+        params.extend([submitted_at, cursor_id])
+    limit = int(query.limit)
+    with db_tx() as conn, conn.cursor() as cur:
+        rows = cur.execute(
+            f"""SELECT r.id, r.task_id, r.state, r.submitted_at,
+                       r.secondary_version_id
+                FROM cross_check_rounds r
+                WHERE {where}
+                ORDER BY r.submitted_at DESC, r.id DESC
+                LIMIT %s""",
+            (*params, limit + 1),
+        ).fetchall()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    items = [
+        mine_item_payload({
+            "round_id": row[0],
+            "task_id": row[1],
+            "state": row[2],
+            "submitted_at": row[3],
+            "version_id": row[4],
+        })
+        for row in rows
+    ]
+    next_cursor = None
+    if has_more and rows:
+        next_cursor = repo._encode_admin_cursor(rows[-1][3], rows[-1][0])
+    return {"items": items, "next_cursor": next_cursor}
+
+
+def get_my_submission(user_id, round_id: str) -> dict:
+    uid = repo._validate_uuid(str(user_id), "user_id")
+    rid = repo._validate_uuid(round_id, "round_id")
+    with db_tx() as conn, conn.cursor() as cur:
+        row = cur.execute(
+            """SELECT r.id, r.task_id, r.state, r.submitted_at,
+                      r.secondary_version_id, r.secondary_annotator_id,
+                      v.target_status, v.skip_reasons
+               FROM cross_check_rounds r
+               JOIN annotation_versions v ON v.id = r.secondary_version_id
+               WHERE r.id = %s""",
+            (rid,),
+        ).fetchone()
+        if (
+            not row
+            or row[5] != uid
+            or row[3] is None
+        ):
+            raise repo.NotFoundError("Cross-check submission not found")
+        segments = repo._load_segments(cur, row[4])
+        from annotation_metadata.repository import latest_review
+        review = latest_review(cur, row[4])
+    return submission_payload(
+        {
+            "round_id": row[0],
+            "task_id": row[1],
+            "state": row[2],
+            "submitted_at": row[3],
+            "version_id": row[4],
+            "target_status": row[6],
+            "skip_reasons": list(row[7] or []),
+        },
+        segments=segments,
+        review=review,
+    )
+
+
+def decide_cross_check(
+    admin_session_id: str, round_id: str, command: CrossCheckDecisionCommand,
+) -> dict:
+    rid = repo._validate_uuid(round_id, "round_id")
+    request_payload = {**command.model_dump(mode="json"), "round_id": str(rid)}
+    request_hash = repo._canonical_request_hash(request_payload)
+    try:
+        with db_tx() as conn, conn.cursor() as cur:
+            action = repo._begin_admin_action(
+                cur, admin_session_id=admin_session_id,
+                operation_id=command.operation_id,
+                action_type="cross_check_decision",
+                reason=command.reason, request_hash=request_hash,
+                request_payload=request_payload,
+            )
+            if action["replay"]:
+                summary = action["summary"] or {}
+                return decision_result_payload(
+                    action_id=action["action_id"],
+                    round_id=summary.get("round_id") or rid,
+                    state=summary.get("state") or "adjudicated",
+                    final_version_id=summary.get("final_version_id"),
+                    final_status=summary.get("final_status"),
+                    training_blocked=bool(
+                        summary.get("training_export_blocked", False)
+                    ),
+                    idempotent_replay=True,
+                )
+            return _decide_locked(cur, rid, command, action)
+    except IntegrityError as exc:
+        raise repo.ConflictError(
+            "Cross-check decision conflicted with another update",
+            code="cross_check_state_conflict",
+        ) from exc
+
+
+def cancel_cross_check(
+    admin_session_id: str, round_id: str, command: CrossCheckCancelCommand,
+) -> dict:
+    rid = repo._validate_uuid(round_id, "round_id")
+    request_payload = {**command.model_dump(mode="json"), "round_id": str(rid)}
+    request_hash = repo._canonical_request_hash(request_payload)
+    try:
+        with db_tx() as conn, conn.cursor() as cur:
+            action = repo._begin_admin_action(
+                cur, admin_session_id=admin_session_id,
+                operation_id=command.operation_id,
+                action_type="cancel_cross_check",
+                reason=command.reason, request_hash=request_hash,
+                request_payload=request_payload,
+            )
+            if action["replay"]:
+                summary = action["summary"] or {}
+                return {
+                    "success": True,
+                    "action_id": str(action["action_id"]),
+                    "round_id": str(summary.get("round_id") or rid),
+                    "state": summary.get("state") or "cancelled",
+                    "training_export_blocked": bool(
+                        summary.get("training_export_blocked", False)
+                    ),
+                    "idempotent_replay": True,
+                }
+            return _cancel_locked(cur, rid, command, action)
+    except IntegrityError as exc:
+        raise repo.ConflictError(
+            "Cross-check cancel conflicted with another update",
+            code="cross_check_state_conflict",
+        ) from exc
+
+
+def _lock_users_stable(cur, user_ids) -> None:
+    for uid in sorted({value for value in user_ids if value}, key=str):
+        row = cur.execute(
+            "SELECT id FROM annotators WHERE id = %s FOR UPDATE",
+            (uid,),
+        ).fetchone()
+        if not row:
+            raise repo.ConflictError("Annotator no longer exists")
+
+
+def _lock_versions_stable(cur, version_ids) -> dict:
+    locked = {}
+    for version_id in sorted({value for value in version_ids if value}, key=str):
+        row = cur.execute(
+            """SELECT id, revision, lifecycle, purpose, target_status,
+                      credited_annotator_id, submitted_by_user_id, skip_reasons,
+                      submitted_at
+               FROM annotation_versions WHERE id = %s FOR UPDATE""",
+            (version_id,),
+        ).fetchone()
+        if not row:
+            raise repo.ConflictError(
+                "Version no longer exists",
+                code="cross_check_version_changed",
+            )
+        locked[row[0]] = {
+            "id": row[0],
+            "revision": int(row[1]),
+            "lifecycle": row[2],
+            "purpose": row[3],
+            "target_status": row[4],
+            "credited_annotator_id": row[5],
+            "submitted_by_user_id": row[6],
+            "skip_reasons": list(row[7] or []),
+            "submitted_at": row[8],
+        }
+    return locked
+
+
+def _decide_locked(cur, round_id, command: CrossCheckDecisionCommand, action: dict) -> dict:
+    hint = peek_round(cur, round_id)
+    if not hint:
+        raise repo.NotFoundError("Cross-check round not found")
+    if hint[3] != "awaiting_review":
+        raise repo.ConflictError(
+            "Cross-check round is not awaiting review",
+            code="cross_check_state_conflict",
+        )
+    _lock_users_stable(cur, (hint[5], hint[7], hint[8]))
+    assignment = cur.execute(
+        """SELECT user_id, working_version_id, mode
+           FROM assignments WHERE task_id = %s FOR UPDATE""",
+        (hint[1],),
+    ).fetchone()
+    if assignment:
+        raise repo.ConflictError(
+            "Task has an active assignment",
+            code="cross_check_active",
+        )
+    task = cur.execute(
+        """SELECT id, status, current_published_version_id, duration
+           FROM annotation_tasks WHERE id = %s FOR UPDATE""",
+        (hint[1],),
+    ).fetchone()
+    if not task:
+        raise repo.NotFoundError("Task not found")
+    rnd = lock_round(cur, round_id)
+    if not rnd:
+        raise repo.NotFoundError("Cross-check round not found")
+    if rnd[3] != "awaiting_review":
+        raise repo.ConflictError(
+            "Cross-check round is not awaiting review",
+            code="cross_check_state_conflict",
+        )
+    if int(rnd[2]) != int(command.expected_revision):
+        raise repo.ConflictError(
+            "Cross-check round revision changed",
+            code="stale_revision",
+        )
+    expected_original = repo._validate_uuid(
+        command.expected_original_version_id, "expected_original_version_id",
+    )
+    expected_secondary = repo._validate_uuid(
+        command.expected_secondary_version_id, "expected_secondary_version_id",
+    )
+    if rnd[4] != expected_original or rnd[7] != expected_secondary:
+        raise repo.ConflictError(
+            "Cross-check versions changed",
+            code="cross_check_version_changed",
+        )
+    if task[2] != rnd[4]:
+        raise repo.ConflictError(
+            "Original published version changed",
+            code="cross_check_version_changed",
+        )
+    draft = cur.execute(
+        """SELECT id FROM annotation_versions
+           WHERE task_id = %s AND lifecycle = 'draft' FOR UPDATE""",
+        (task[0],),
+    ).fetchone()
+    if draft:
+        raise repo.ConflictError(
+            "Task has an open draft",
+            code="cross_check_state_conflict",
+        )
+    versions = _lock_versions_stable(cur, (rnd[4], rnd[7]))
+    original = versions[rnd[4]]
+    secondary = versions[rnd[7]]
+    from_status = task[1]
+    decision = command.decision
+    if decision == CrossCheckDecision.ORIGINAL:
+        final_version_id = original["id"]
+        final_status = original["target_status"]
+    elif decision == CrossCheckDecision.SECONDARY:
+        if supersede_published_version(
+            cur, version_id=original["id"], task_id=task[0],
+        ) != 1:
+            raise repo.ConflictError(
+                "Original published version changed",
+                code="cross_check_version_changed",
+            )
+        if publish_secondary_version(
+            cur, version_id=secondary["id"], action_id=action["action_id"],
+        ) != 1:
+            raise repo.ConflictError(
+                "Secondary version is no longer frozen",
+                code="cross_check_state_conflict",
+            )
+        final_version_id = secondary["id"]
+        final_status = secondary["target_status"]
+        set_task_published(
+            cur, task_id=task[0], version_id=final_version_id,
+            status=final_status,
+        )
+    else:
+        final_version_id, final_status = _publish_edited(
+            cur, task=task, original=original, secondary=secondary,
+            command=command, action=action,
+        )
+    stored = mark_round_adjudicated(
+        cur, round_id=round_id, expected_revision=int(command.expected_revision),
+        decision=str(decision), final_version_id=final_version_id,
+        action_id=action["action_id"], reason=command.reason,
+    )
+    if stored != 1:
+        raise repo.ConflictError(
+            "Cross-check round is no longer awaiting review",
+            code="cross_check_state_conflict",
+        )
+    result = decision_result_payload(
+        action_id=action["action_id"],
+        round_id=round_id,
+        state="adjudicated",
+        final_version_id=final_version_id,
+        final_status=final_status,
+        training_blocked=False,
+    )
+    repo._insert_admin_action_item(
+        cur, action["action_id"], task_id=task[0],
+        annotator_id=rnd[8],
+        expected_version_id=expected_secondary,
+        before_version_id=original["id"],
+        after_version_id=final_version_id,
+        result="adjudicated",
+        details={
+            "decision": str(decision),
+            "round_id": str(round_id),
+            "base": str(command.base) if command.base else None,
+        },
+    )
+    repo._finish_admin_action(cur, action["action_id"], result)
+    record_cross_check_adjudicated(
+        cur, task_id=task[0], version_id=final_version_id,
+        from_status=from_status, to_status=final_status,
+        action_id=action["action_id"],
+        details={
+            "round_id": str(round_id),
+            "decision": str(decision),
+            "final_version_id": str(final_version_id),
+            "reason": command.reason,
+        },
+    )
+    return result
+
+
+def _publish_edited(cur, *, task, original, secondary, command, action):
+    if command.base == CrossCheckEditBase.ORIGINAL:
+        base = original
+        base_name = "original"
+    else:
+        base = secondary
+        base_name = "secondary"
+    target_status = command.target_status
+    skip_reasons = list(command.skip_reasons or [])
+    if target_status == "skipped":
+        if not skip_reasons:
+            raise repo.ValidationError("Skip requires at least one skip reason")
+        bad = set(skip_reasons) - repo.ALLOWED_SKIP_REASONS
+        if bad:
+            raise repo.ValidationError(f"Invalid skip reasons: {sorted(bad)}")
+    else:
+        skip_reasons = []
+    base_segments = repo._load_segments(cur, base["id"])
+    base_ids = {int(seg["id"]) for seg in base_segments}
+    payload_ids: set[int] = set()
+    for seg in command.segments or []:
+        try:
+            payload_ids.add(int(seg["id"]))
+        except (TypeError, ValueError, KeyError) as exc:
+            raise repo.ValidationError("segment entry missing valid id") from exc
+    if payload_ids != base_ids:
+        raise repo.ValidationError(
+            "edited decision must include every segment from the chosen base"
+        )
+    credited = base["credited_annotator_id"] or base["submitted_by_user_id"]
+    draft_id = insert_adjudication_draft(
+        cur, task_id=task[0], base_version_id=base["id"],
+        credited_annotator_id=credited, action_id=action["action_id"],
+        base_name=base_name,
+    )
+    repo._apply_dirty_segments(cur, draft_id, command.segments or [])
+    repo._validate_version_segments(cur, draft_id, task[0])
+    if target_status == "annotated":
+        empty = cur.execute(
+            """SELECT segment_id FROM segments
+               WHERE version_id = %s AND exclude_from_training = false
+                 AND btrim(text) = '' ORDER BY segment_id""",
+            (draft_id,),
+        ).fetchall()
+        if empty:
+            ids = [str(item[0]) for item in empty]
+            raise repo.ValidationError(
+                "Segments without text must be annotated or marked Bad Quality: "
+                + ", ".join(ids)
+            )
+    from annotation_metadata.contracts import SceneReviewInput, parse_strict
+    from annotation_metadata.features import scene_review_write_enabled
+    from annotation_metadata.repository import append_review, latest_review
+    copied = latest_review(cur, base["id"])
+    if copied and copied.get("id"):
+        append_review(
+            cur, version_id=draft_id, status=copied["status"],
+            scene_codes=list(copied.get("scene_codes") or []),
+            note=copied.get("note") or "",
+            actor_kind="admin",
+            actor_admin_action_id=action["action_id"],
+            operation_id=command.operation_id,
+        )
+    if command.scene_review is not None:
+        if not scene_review_write_enabled():
+            raise repo.ForbiddenError("Scene review editing is disabled")
+        parsed = parse_strict(SceneReviewInput, command.scene_review)
+        append_review(
+            cur, version_id=draft_id, status=parsed.status,
+            scene_codes=list(parsed.scene_codes), note=parsed.note,
+            actor_kind="admin",
+            actor_admin_action_id=action["action_id"],
+            operation_id=command.operation_id,
+        )
+    if supersede_published_version(
+        cur, version_id=original["id"], task_id=task[0],
+    ) != 1:
+        raise repo.ConflictError(
+            "Original published version changed",
+            code="cross_check_version_changed",
+        )
+    if publish_adjudication_version(
+        cur, version_id=draft_id, target_status=target_status,
+        skip_reasons=skip_reasons, action_id=action["action_id"],
+    ) != 1:
+        raise repo.ConflictError(
+            "Adjudication version could not be published",
+            code="cross_check_state_conflict",
+        )
+    set_task_published(
+        cur, task_id=task[0], version_id=draft_id, status=target_status,
+    )
+    return draft_id, target_status
+
+
+def _cancel_locked(cur, round_id, command: CrossCheckCancelCommand, action: dict) -> dict:
+    hint = peek_round(cur, round_id)
+    if not hint:
+        raise repo.NotFoundError("Cross-check round not found")
+    if hint[3] == "awaiting_review":
+        raise repo.ConflictError(
+            "Awaiting-review rounds cannot be cancelled",
+            code="cross_check_state_conflict",
+        )
+    if hint[3] != "in_progress":
+        raise repo.ConflictError(
+            "Cross-check round is not in progress",
+            code="cross_check_state_conflict",
+        )
+    # Peek owner without holding the assignment lock, then lock user first.
+    _lock_users_stable(cur, (hint[5], hint[7], hint[8]))
+    assignment = cur.execute(
+        """SELECT user_id, working_version_id, mode, cross_check_round_id
+           FROM assignments WHERE task_id = %s FOR UPDATE""",
+        (hint[1],),
+    ).fetchone()
+    if assignment and assignment[0] != hint[7]:
+        raise repo.ConflictError("Task assignment changed during cancel")
+    task = cur.execute(
+        """SELECT id, status, current_published_version_id
+           FROM annotation_tasks WHERE id = %s FOR UPDATE""",
+        (hint[1],),
+    ).fetchone()
+    if not task:
+        raise repo.NotFoundError("Task not found")
+    rnd = lock_round(cur, round_id)
+    if not rnd:
+        raise repo.NotFoundError("Cross-check round not found")
+    if rnd[3] != "in_progress":
+        raise repo.ConflictError(
+            "Cross-check round is not in progress",
+            code="cross_check_state_conflict",
+        )
+    if int(rnd[2]) != int(command.expected_revision):
+        raise repo.ConflictError(
+            "Cross-check round revision changed",
+            code="stale_revision",
+        )
+    version_id = rnd[7]
+    repo._cancel_in_progress_cross_check(
+        cur, round_id=round_id, task_id=rnd[1], version_id=version_id,
+        reason=command.reason,
+    )
+    cur.execute(
+        "DELETE FROM assignments WHERE task_id = %s",
+        (rnd[1],),
+    )
+    result = {
+        "success": True,
+        "action_id": str(action["action_id"]),
+        "round_id": str(round_id),
+        "state": "cancelled",
+        "training_export_blocked": False,
+    }
+    repo._insert_admin_action_item(
+        cur, action["action_id"], task_id=rnd[1],
+        annotator_id=rnd[8],
+        before_version_id=version_id,
+        after_version_id=task[2],
+        result="cancelled",
+        details={"round_id": str(round_id), "reason": command.reason},
+    )
+    repo._finish_admin_action(cur, action["action_id"], result)
+    record_admin_cross_check_cancelled(
+        cur, user_id=rnd[8], task_id=rnd[1], version_id=version_id,
+        from_status=task[1], action_id=action["action_id"],
+        details={
+            "mode": "cross_check",
+            "round_id": str(round_id),
+            "termination_reason": command.reason,
+        },
+    )
+    return result

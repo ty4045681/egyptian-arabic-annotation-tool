@@ -1310,7 +1310,11 @@ def _cancel_in_progress_cross_check(
     )
     cur.execute(
         """UPDATE cross_check_rounds
-           SET state = 'cancelled', termination_reason = %s, updated_at = now()
+           SET revision = revision + 1,
+               state = 'cancelled',
+               termination_reason = %s,
+               resolved_at = now(),
+               updated_at = now()
            WHERE id = %s AND state = 'in_progress'""",
         (reason, round_id),
     )
@@ -3214,6 +3218,8 @@ def admin_quality(filters: dict | None = None, limit: int = 50) -> dict:
                 WHERE {' AND '.join(revoked_clauses)}""",
             revoked_params,
         ).fetchone()[0]
+        from annotation_quality.queries import cross_check_quality_summary
+        cross_check = cross_check_quality_summary(cur)
 
     items = [
         {
@@ -3266,6 +3272,7 @@ def admin_quality(filters: dict | None = None, limit: int = 50) -> dict:
             "stale_assignment": "last activity more than 4 hours ago",
             "warning": "Signals require human review and are not quality scores",
         },
+        "cross_check": cross_check,
         "updated_at": utcnow().isoformat(),
     }
 

@@ -18,15 +18,61 @@ SEGMENT_EXTRA_TECHNICAL_KEYS = frozenset({
 
 def load_settings(cur) -> dict:
     row = cur.execute(
-        """SELECT enabled, sampling_rate_bps, revision
+        """SELECT enabled, sampling_rate_bps, revision, updated_at,
+                  updated_by_admin_action_id
            FROM cross_check_settings WHERE id = 1""",
     ).fetchone()
     if not row:
-        return {"enabled": False, "sampling_rate_bps": 0, "revision": 0}
+        return {
+            "enabled": False, "sampling_rate_bps": 0, "revision": 0,
+            "updated_at": None, "updated_by_admin_action_id": None,
+        }
     return {
         "enabled": bool(row[0]),
         "sampling_rate_bps": int(row[1]),
         "revision": int(row[2]),
+        "updated_at": row[3],
+        "updated_by_admin_action_id": row[4],
+    }
+
+
+def lock_settings(cur) -> dict:
+    row = cur.execute(
+        """SELECT enabled, sampling_rate_bps, revision, updated_at,
+                  updated_by_admin_action_id
+           FROM cross_check_settings WHERE id = 1 FOR UPDATE""",
+    ).fetchone()
+    if not row:
+        raise RuntimeError("cross_check_settings row is missing")
+    return {
+        "enabled": bool(row[0]),
+        "sampling_rate_bps": int(row[1]),
+        "revision": int(row[2]),
+        "updated_at": row[3],
+        "updated_by_admin_action_id": row[4],
+    }
+
+
+def update_settings(cur, *, enabled: bool, sampling_rate_bps: int,
+                    action_id) -> dict:
+    row = cur.execute(
+        """UPDATE cross_check_settings
+           SET enabled = %s,
+               sampling_rate_bps = %s,
+               revision = revision + 1,
+               updated_at = now(),
+               updated_by_admin_action_id = %s
+           WHERE id = 1
+           RETURNING enabled, sampling_rate_bps, revision, updated_at,
+                     updated_by_admin_action_id""",
+        (enabled, sampling_rate_bps, action_id),
+    ).fetchone()
+    return {
+        "enabled": bool(row[0]),
+        "sampling_rate_bps": int(row[1]),
+        "revision": int(row[2]),
+        "updated_at": row[3],
+        "updated_by_admin_action_id": row[4],
     }
 
 
@@ -341,3 +387,200 @@ def record_cross_check_passed(
            VALUES (%s, %s, %s, 'cross_check_passed', %s, %s, %s)""",
         (user_id, task_id, version_id, from_status, from_status, Json(details)),
     )
+
+
+def record_cross_check_adjudicated(
+    cur, *, task_id, version_id, from_status, to_status, action_id, details: dict,
+) -> None:
+    cur.execute(
+        """INSERT INTO annotation_events
+               (task_id, version_id, event_type, from_status, to_status,
+                admin_action_id, details)
+           VALUES (%s, %s, 'cross_check_adjudicated', %s, %s, %s, %s)""",
+        (task_id, version_id, from_status, to_status, action_id, Json(details)),
+    )
+
+
+def record_admin_cross_check_cancelled(
+    cur, *, user_id, task_id, version_id, from_status, action_id, details: dict,
+) -> None:
+    cur.execute(
+        """INSERT INTO annotation_events
+               (user_id, task_id, version_id, event_type, from_status,
+                to_status, admin_action_id, details)
+           VALUES (%s, %s, %s, 'cross_check_cancelled', %s, %s, %s, %s)""",
+        (user_id, task_id, version_id, from_status, from_status, action_id,
+         Json(details)),
+    )
+
+
+def peek_round(cur, round_id):
+    return cur.execute(
+        """SELECT r.id, r.task_id, r.revision, r.state,
+                  r.original_version_id, r.original_annotator_id,
+                  r.secondary_version_id, r.secondary_annotator_id,
+                  a.user_id
+           FROM cross_check_rounds r
+           LEFT JOIN assignments a ON a.task_id = r.task_id
+           WHERE r.id = %s""",
+        (round_id,),
+    ).fetchone()
+
+
+def lock_round(cur, round_id):
+    return cur.execute(
+        """SELECT id, task_id, revision, state,
+                  original_version_id, original_annotator_id, original_review_id,
+                  secondary_version_id, secondary_annotator_id,
+                  baseline_version_id, original_word_count, secondary_word_count,
+                  edit_distance, reason_codes
+           FROM cross_check_rounds
+           WHERE id = %s
+           FOR UPDATE""",
+        (round_id,),
+    ).fetchone()
+
+
+def mark_round_adjudicated(
+    cur, *, round_id, expected_revision: int, decision: str,
+    final_version_id, action_id, reason: str,
+) -> int:
+    cur.execute(
+        """UPDATE cross_check_rounds
+           SET revision = revision + 1,
+               state = 'adjudicated',
+               decision = %s,
+               final_version_id = %s,
+               decided_by_admin_action_id = %s,
+               decision_reason = %s,
+               resolved_at = now(),
+               updated_at = now()
+           WHERE id = %s AND state = 'awaiting_review' AND revision = %s""",
+        (decision, final_version_id, action_id, reason, round_id,
+         expected_revision),
+    )
+    return cur.rowcount
+
+
+def insert_adjudication_draft(
+    cur, *, task_id, base_version_id, credited_annotator_id, action_id,
+    base_name: str,
+):
+    version_no = cur.execute(
+        """SELECT COALESCE(max(version_no), 0) + 1
+           FROM annotation_versions WHERE task_id = %s""",
+        (task_id,),
+    ).fetchone()[0]
+    draft_id = uuid.uuid4()
+    cur.execute(
+        """INSERT INTO annotation_versions
+               (id, task_id, version_no, lifecycle, target_status, purpose,
+                base_version_id, revision, human_modified,
+                credited_annotator_id, skip_reasons, extra)
+           VALUES (%s, %s, %s, 'draft', 'pending', 'adjudication',
+                   %s, 0, true, %s, '{}', %s)""",
+        (draft_id, task_id, version_no, base_version_id, credited_annotator_id,
+         Json({
+             "adjudication_base": base_name,
+             "admin_action_id": str(action_id),
+         })),
+    )
+    cur.execute(
+        """INSERT INTO segments
+               (version_id, segment_id, start_s, end_s, duration, asr_text,
+                text, exclude_from_training, extra)
+           SELECT %s, segment_id, start_s, end_s, duration, asr_text,
+                  text, exclude_from_training, extra
+           FROM segments WHERE version_id = %s""",
+        (draft_id, base_version_id),
+    )
+    return draft_id
+
+
+def publish_adjudication_version(
+    cur, *, version_id, target_status: str, skip_reasons: list[str], action_id,
+) -> int:
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'published',
+               target_status = %s,
+               skip_reasons = %s,
+               revision = revision + 1,
+               submitted_by_user_id = NULL,
+               submitted_at = now(),
+               published_by_admin_action_id = %s,
+               updated_at = now()
+           WHERE id = %s
+             AND lifecycle = 'draft'
+             AND purpose = 'adjudication'""",
+        (target_status, skip_reasons, action_id, version_id),
+    )
+    return cur.rowcount
+
+
+def publish_secondary_version(cur, *, version_id, action_id) -> int:
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'published',
+               published_by_admin_action_id = %s,
+               updated_at = now()
+           WHERE id = %s AND lifecycle = 'cross_check_submitted'""",
+        (action_id, version_id),
+    )
+    return cur.rowcount
+
+
+def supersede_published_version(cur, *, version_id, task_id) -> int:
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'superseded', updated_at = now()
+           WHERE id = %s AND task_id = %s AND lifecycle = 'published'""",
+        (version_id, task_id),
+    )
+    return cur.rowcount
+
+
+def set_task_published(cur, *, task_id, version_id, status: str) -> None:
+    cur.execute(
+        """UPDATE annotation_tasks
+           SET status = %s,
+               current_published_version_id = %s,
+               updated_at = now()
+           WHERE id = %s""",
+        (status, version_id, task_id),
+    )
+
+
+def load_review_by_id(cur, review_id) -> dict | None:
+    if review_id is None:
+        return None
+    row = cur.execute(
+        """SELECT id, review_no, status, note, actor_kind, actor_user_id,
+                  actor_admin_action_id, operation_id, previous_review_id,
+                  created_at, version_id
+           FROM scene_reviews WHERE id = %s""",
+        (review_id,),
+    ).fetchone()
+    if not row:
+        return None
+    labels = [
+        item[0] for item in cur.execute(
+            """SELECT scene_code FROM scene_review_labels
+               WHERE review_id = %s ORDER BY scene_code""",
+            (row[0],),
+        ).fetchall()
+    ]
+    return {
+        "id": str(row[0]),
+        "review_no": int(row[1]),
+        "status": row[2],
+        "note": row[3] or "",
+        "scene_codes": labels,
+        "actor_kind": row[4],
+        "actor_user_id": str(row[5]) if row[5] else None,
+        "actor_admin_action_id": str(row[6]) if row[6] else None,
+        "operation_id": str(row[7]) if row[7] else None,
+        "previous_review_id": str(row[8]) if row[8] else None,
+        "created_at": row[9].isoformat() if row[9] else None,
+        "version_id": str(row[10]),
+    }

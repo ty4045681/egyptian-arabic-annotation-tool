@@ -206,6 +206,15 @@ class CrossCheckListQuery(StrictModel):
             return None
         return str(value).strip() or None
 
+    @field_validator("reason_code")
+    @classmethod
+    def _known_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if value not in EXCEPTION_REASON_CODES:
+            raise ValueError("unknown reason_code")
+        return value
+
 
 class CrossCheckListItem(StrictModel):
     round_id: str
@@ -268,6 +277,16 @@ class CrossCheckDetailView(StrictModel):
     comparison_unavailable: StrictBool = False
     original_segments: list[dict[str, Any]] = Field(default_factory=list)
     secondary_segments: list[dict[str, Any]] = Field(default_factory=list)
+    original_review: dict[str, Any] | None = None
+    secondary_review: dict[str, Any] | None = None
+    original_target_status: str | None = None
+    secondary_target_status: str | None = None
+    original_skip_reasons: list[str] = Field(default_factory=list)
+    secondary_skip_reasons: list[str] = Field(default_factory=list)
+    audio_url: str | None = None
+    filename: str | None = None
+    duration_seconds: float | None = None
+    comparison_unavailable_reason: str | None = None
     decision: CrossCheckDecision | None = None
     final_version_id: str | None = None
     decided_by_admin_action_id: str | None = None
@@ -413,3 +432,4 @@ class CrossCheckSubmissionView(StrictModel):
     target_status: str | None = None
     segments: list[dict[str, Any]] = Field(default_factory=list)
     skip_reasons: list[str] = Field(default_factory=list)
+    review: dict[str, Any] | None = None
