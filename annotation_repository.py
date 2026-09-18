@@ -916,16 +916,27 @@ def pool_state(user_id: str | None = None, *, source_scene: str | None = None,
 _ASSIGNMENT_QUERY = """
     SELECT a.task_id, a.mode, a.lease_token, a.assigned_at,
            t.rel_path, t.filename, t.folder, t.duration, t.status,
-           v.id AS version_id, v.revision, v.skip_reasons
+           v.id AS version_id, v.revision, v.skip_reasons,
+           a.cross_check_round_id, r.state
     FROM assignments a
     JOIN annotation_tasks t ON t.id = a.task_id
     JOIN annotation_versions v ON v.id = a.working_version_id
+    LEFT JOIN cross_check_rounds r ON r.id = a.cross_check_round_id
     WHERE a.user_id = %s
 """
 
+_SEGMENT_PROTECTED_EXTRA = frozenset({
+    "id", "start", "end", "duration", "asr_text", "text",
+    "exclude_from_training", "segment_id", "start_s", "end_s",
+    "annotator", "annotator_id", "username", "user_id",
+    "submitted_by", "author", "original_text", "original_annotator",
+    "original_annotator_id", "original_version_id",
+    "credited_annotator_id",
+})
+
 
 def _row_to_assignment(row, segments: list, waveform_b64: str | None) -> dict:
-    return {
+    payload = {
         "assigned": True,
         "task_id": str(row[0]),
         "mode": row[1],
@@ -943,10 +954,17 @@ def _row_to_assignment(row, segments: list, waveform_b64: str | None) -> dict:
         "waveform_b64": waveform_b64,
         "resumed": True,
     }
+    if row[1] == "cross_check" and row[12]:
+        payload["cross_check"] = {
+            "round_id": str(row[12]),
+            "state": row[13] or "in_progress",
+        }
+    return payload
 
 
 def _attach_assignment_metadata(cur, payload: dict, user_id) -> dict:
     from annotation_metadata.serializers import attach_metadata
+    from annotation_quality.serializers import apply_assignment_visibility
     published = cur.execute(
         "SELECT current_published_version_id FROM annotation_tasks WHERE id = %s",
         (payload["task_id"],),
@@ -957,8 +975,9 @@ def _attach_assignment_metadata(cur, payload: dict, user_id) -> dict:
         published_version_id=published[0] if published else None,
         assignment_user_id=user_id,
         include_draft_review=True,
+        blind=payload.get("mode") == "cross_check",
     )
-    return payload
+    return apply_assignment_visibility(payload)
 
 
 def get_assignment(user_id: str) -> dict | None:
@@ -967,7 +986,8 @@ def get_assignment(user_id: str) -> dict | None:
         row = cur.execute(_ASSIGNMENT_QUERY, (user_id,)).fetchone()
         if not row:
             return None
-        segments = _load_segments(cur, row[9])
+        allow_extra = row[1] != "cross_check"
+        segments = _load_segments(cur, row[9], allow_extra_keys=allow_extra)
         wf = _load_waveform(cur, row[0])
         payload = _row_to_assignment(row, segments, wf)
         return _attach_assignment_metadata(cur, payload, user_id)
@@ -982,10 +1002,145 @@ def has_assignment(user_id: str) -> bool:
         ).fetchone()[0]
 
 
+def _raise_claim_pool_outcome(*statuses: str) -> None:
+    if any(status == "busy" for status in statuses):
+        raise TaskPoolBusy("Task pool is busy; retry claim")
+    raise NoTaskAvailable("No task available to claim")
+
+
+def _commit_normal_assignment(
+    cur, fence: SessionFence, session_policy: SessionPolicy | None, uid,
+    claim_policy_name: str, task_id, rel_path, filename, folder, duration,
+    status, version_id, revision, best_id, best_scene, best_confidence,
+) -> dict | None:
+    from annotation_quality.repository import ensure_participant
+    candidate_token = uuid.uuid4()
+    inserted = cur.execute(
+        """INSERT INTO assignments
+               (user_id, task_id, working_version_id, mode, lease_token,
+                base_revision, assigned_at, last_activity_at,
+                claim_scene_code, claim_source_id, claim_policy,
+                claim_confidence)
+           VALUES (%s, %s, %s, 'annotation', %s, %s, now(), now(),
+                   %s, %s, %s, %s)
+           ON CONFLICT DO NOTHING
+           RETURNING lease_token""",
+        (uid, task_id, version_id, candidate_token, revision,
+         best_scene, best_id, claim_policy_name, best_confidence),
+    ).fetchone()
+    if not inserted:
+        return None
+    cur.execute(
+        "UPDATE annotation_tasks SET reserved_for_user_id = NULL, updated_at = now() WHERE id = %s",
+        (task_id,),
+    )
+    cur.execute(
+        """INSERT INTO annotation_events (user_id, task_id, version_id,
+                                          event_type, to_status, details)
+           VALUES (%s, %s, %s, 'claimed', 'pending', %s)""",
+        (uid, task_id, version_id, Json({
+            "mode": "annotation",
+            "claim_scene_code": best_scene,
+            "claim_confidence": best_confidence,
+            "claim_policy": claim_policy_name,
+            "claim_source_id": str(best_id) if best_id else None,
+        })),
+    )
+    ensure_participant(cur, task_id, uid)
+    segments = _load_segments(cur, version_id)
+    wf = _load_waveform(cur, task_id)
+    payload = {
+        "assigned": True,
+        "task_id": str(task_id),
+        "mode": "annotation",
+        "lease_token": str(inserted[0]),
+        "assigned_at": utcnow().isoformat(),
+        "rel_path": rel_path,
+        "filename": filename,
+        "folder": folder,
+        "duration": duration,
+        "status": status,
+        "version_id": str(version_id),
+        "revision": revision,
+        "skip_reasons": [],
+        "segments": segments,
+        "waveform_b64": wf,
+        "resumed": False,
+    }
+    _touch_real_activity(cur, fence, policy=session_policy)
+    return _attach_assignment_metadata(cur, payload, uid)
+
+
+def _try_claim_normal_pool(cur, fence, session_policy, uid, scope, filters,
+                           claim_policy_name: str) -> tuple[dict | None, str]:
+    from annotation_metadata.claiming import (
+        candidate_exists_sql, fetch_claim_candidate, task_still_matches,
+    )
+    exists_sql, exists_params = candidate_exists_sql(scope, filters, uid)
+    for _attempt in range(64):
+        task_row = fetch_claim_candidate(cur, scope, filters, uid, claim_policy_name)
+        if not task_row:
+            candidate_exists = cur.execute(exists_sql, exists_params).fetchone()[0]
+            if candidate_exists:
+                return None, "busy"
+            return None, "empty"
+        (task_id, rel_path, filename, folder, duration, status, version_id,
+         revision, _reserved, best_id, best_scene, best_confidence) = task_row
+        still = task_still_matches(cur, task_id, scope, filters, uid)
+        if still is None:
+            continue
+        _task_id, best_id, best_scene, best_confidence = still
+        payload = _commit_normal_assignment(
+            cur, fence, session_policy, uid, claim_policy_name,
+            task_id, rel_path, filename, folder, duration, status,
+            version_id, revision, best_id, best_scene, best_confidence,
+        )
+        if payload:
+            return payload, "claimed"
+    return None, "busy"
+
+
+def _try_claim_reserved(cur, fence, session_policy, uid, scope, filters,
+                        claim_policy_name: str) -> dict | None:
+    from annotation_metadata.claiming import claim_lock_query, task_still_matches
+    if not scope.can_claim:
+        return None
+    sql, params = claim_lock_query(
+        scope, filters, uid, claim_policy_name, reserved_only=True,
+    )
+    reserved = cur.execute(sql, params).fetchone()
+    if not reserved:
+        return None
+    (task_id, rel_path, filename, folder, duration, status, version_id,
+     revision, _reserved, best_id, best_scene, best_confidence) = reserved
+    still = task_still_matches(cur, task_id, scope, filters, uid)
+    if still is None:
+        return None
+    _task_id, best_id, best_scene, best_confidence = still
+    return _commit_normal_assignment(
+        cur, fence, session_policy, uid, claim_policy_name,
+        task_id, rel_path, filename, folder, duration, status,
+        version_id, revision, best_id, best_scene, best_confidence,
+    )
+
+
+def _finish_cross_check_claim(cur, fence, session_policy, uid, created: dict) -> dict:
+    from annotation_quality.claiming import build_cross_check_assignment_payload
+    payload = build_cross_check_assignment_payload(created)
+    payload["assigned_at"] = utcnow().isoformat()
+    payload["segments"] = _load_segments(
+        cur, created["draft_id"], allow_extra_keys=False,
+    )
+    payload["waveform_b64"] = _load_waveform(cur, created["task_id"])
+    _touch_real_activity(cur, fence, policy=session_policy)
+    return _attach_assignment_metadata(cur, payload, uid)
+
+
 def claim(fence: SessionFence, *, source_scene: str | None = None,
           batch_code: str | None = None,
           source_confidence: str | None = None,
-          policy: SessionPolicy | None = None) -> dict:
+          policy: SessionPolicy | None = None,
+          rng=None) -> dict:
     """Claim one task for the user, preferring migration-reserved drafts.
 
     An existing assignment is always resumed, ignoring the new scene selector.
@@ -993,11 +1148,12 @@ def claim(fence: SessionFence, *, source_scene: str | None = None,
     or TaskPoolBusy when matching rows are temporarily locked.
     """
     from annotation_metadata.claim_policy import get_claim_policy
-    from annotation_metadata.claiming import (
-        assert_scope_allows, candidate_exists_sql, fetch_claim_candidate,
-        parse_claim_filters, task_still_matches,
-    )
+    from annotation_metadata.claiming import assert_scope_allows, parse_claim_filters
     from annotation_metadata.queries import load_scope
+    from annotation_quality.claiming import (
+        default_claim_rng, draw_claim_type_hit, try_claim_cross_check,
+    )
+    from annotation_quality.repository import cross_check_allowed, load_settings
 
     fence = _as_fence(fence)
     uid = fence.user_id
@@ -1017,95 +1173,74 @@ def claim(fence: SessionFence, *, source_scene: str | None = None,
         ).fetchone()
         if existing:
             _touch_real_activity(cur, fence, policy=session_policy)
-            segments = _load_segments(cur, existing[9])
+            allow_extra = existing[1] != "cross_check"
+            segments = _load_segments(
+                cur, existing[9], allow_extra_keys=allow_extra,
+            )
             wf = _load_waveform(cur, existing[0])
             payload = _row_to_assignment(existing, segments, wf)
             return _attach_assignment_metadata(cur, payload, uid)
 
         scope = load_scope(cur, uid)
         assert_scope_allows(scope, filters)
-        exists_sql, exists_params = candidate_exists_sql(scope, filters, uid)
 
-        task_row = None
-        lease_token = None
-        for _attempt in range(64):
-            task_row = fetch_claim_candidate(cur, scope, filters, uid, claim_policy.name)
-            if not task_row:
-                candidate_exists = cur.execute(exists_sql, exists_params).fetchone()[0]
-                if candidate_exists:
-                    raise TaskPoolBusy("Task pool is busy; retry claim")
-                raise NoTaskAvailable("No task available to claim")
+        reserved = _try_claim_reserved(
+            cur, fence, session_policy, uid, scope, filters, claim_policy.name,
+        )
+        if reserved:
+            return reserved
 
-            (task_id, rel_path, filename, folder, duration, status, version_id,
-             revision, _reserved, best_id, best_scene, best_confidence) = task_row
-            still = task_still_matches(cur, task_id, scope, filters, uid)
-            if still is None:
-                continue
-            _task_id, best_id, best_scene, best_confidence = still
-            candidate_token = uuid.uuid4()
-            inserted = cur.execute(
-                """INSERT INTO assignments
-                       (user_id, task_id, working_version_id, mode, lease_token,
-                        base_revision, assigned_at, last_activity_at,
-                        claim_scene_code, claim_source_id, claim_policy,
-                        claim_confidence)
-                   VALUES (%s, %s, %s, 'annotation', %s, %s, now(), now(),
-                           %s, %s, %s, %s)
-                   ON CONFLICT DO NOTHING
-                   RETURNING lease_token""",
-                (uid, task_id, version_id, candidate_token, revision,
-                 best_scene, best_id, claim_policy.name, best_confidence),
-            ).fetchone()
-            if inserted:
-                lease_token = inserted[0]
-                break
-        if lease_token is None:
-            raise TaskPoolBusy("Task pool is busy; retry claim")
-        cur.execute(
-            "UPDATE annotation_tasks SET reserved_for_user_id = NULL, updated_at = now() WHERE id = %s",
-            (task_id,),
+        settings = load_settings(cur)
+        allowed = cross_check_allowed(settings)
+        claim_rng = rng if rng is not None else default_claim_rng()
+        prefer_cross = False
+        if allowed:
+            prefer_cross = draw_claim_type_hit(
+                claim_rng, settings["sampling_rate_bps"],
+            )
+
+        if prefer_cross:
+            created, cc_status = try_claim_cross_check(
+                cur, user_id=uid, scope=scope, filters=filters,
+                claim_policy=claim_policy.name, settings=settings,
+                rng=claim_rng,
+            )
+            if created:
+                return _finish_cross_check_claim(
+                    cur, fence, session_policy, uid, created,
+                )
+            payload, normal_status = _try_claim_normal_pool(
+                cur, fence, session_policy, uid, scope, filters,
+                claim_policy.name,
+            )
+            if payload:
+                return payload
+            _raise_claim_pool_outcome(cc_status, normal_status)
+
+        payload, normal_status = _try_claim_normal_pool(
+            cur, fence, session_policy, uid, scope, filters, claim_policy.name,
         )
-        cur.execute(
-            """INSERT INTO annotation_events (user_id, task_id, version_id,
-                                              event_type, to_status, details)
-               VALUES (%s, %s, %s, 'claimed', 'pending', %s)""",
-            (uid, task_id, version_id, Json({
-                "mode": "annotation",
-                "claim_scene_code": best_scene,
-                "claim_confidence": best_confidence,
-                "claim_policy": claim_policy.name,
-                "claim_source_id": str(best_id) if best_id else None,
-            })),
-        )
-        segments = _load_segments(cur, version_id)
-        wf = _load_waveform(cur, task_id)
-        payload = {
-            "assigned": True,
-            "task_id": str(task_id),
-            "mode": "annotation",
-            "lease_token": str(lease_token),
-            "assigned_at": utcnow().isoformat(),
-            "rel_path": rel_path,
-            "filename": filename,
-            "folder": folder,
-            "duration": duration,
-            "status": status,
-            "version_id": str(version_id),
-            "revision": revision,
-            "skip_reasons": [],
-            "segments": segments,
-            "waveform_b64": wf,
-            "resumed": False,
-        }
-        _touch_real_activity(cur, fence, policy=session_policy)
-        return _attach_assignment_metadata(cur, payload, uid)
+        if payload:
+            return payload
+        if allowed:
+            created, cc_status = try_claim_cross_check(
+                cur, user_id=uid, scope=scope, filters=filters,
+                claim_policy=claim_policy.name, settings=settings,
+                rng=claim_rng,
+            )
+            if created:
+                return _finish_cross_check_claim(
+                    cur, fence, session_policy, uid, created,
+                )
+            _raise_claim_pool_outcome(normal_status, cc_status)
+        _raise_claim_pool_outcome(normal_status)
 
 
 def _lock_assignment(cur, user_id, lease_token: str | None):
     """Lock and validate the caller's assignment row + working version."""
     row = cur.execute(
         """SELECT a.task_id, a.working_version_id, a.mode, a.lease_token,
-                  t.status, t.rel_path
+                  t.status, t.rel_path, a.cross_check_round_id
            FROM assignments a
            JOIN annotation_tasks t ON t.id = a.task_id
            WHERE a.user_id = %s
@@ -1123,7 +1258,22 @@ def _lock_assignment(cur, user_id, lease_token: str | None):
         "lease_token": str(row[3]),
         "task_status": row[4],
         "rel_path": row[5],
+        "cross_check_round_id": row[6],
     }
+
+
+def _require_open_cross_check_round(cur, asg) -> None:
+    round_id = asg.get("cross_check_round_id")
+    if not round_id:
+        raise ConflictError("Cross-check assignment is missing its round")
+    row = cur.execute(
+        """SELECT state FROM cross_check_rounds
+           WHERE id = %s AND task_id = %s
+           FOR UPDATE""",
+        (round_id, asg["task_id"]),
+    ).fetchone()
+    if not row or row[0] != "in_progress":
+        raise ConflictError("Cross-check round is no longer in progress")
 
 
 def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: bool,
@@ -1177,7 +1327,7 @@ def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: b
 # ============================================================
 # Segments / waveform helpers
 # ============================================================
-def _load_segments(cur, version_id) -> list[dict]:
+def _load_segments(cur, version_id, *, allow_extra_keys: bool = True) -> list[dict]:
     rows = cur.execute(
         """SELECT segment_id, start_s, end_s, duration, asr_text, text,
                   exclude_from_training, extra
@@ -1195,8 +1345,11 @@ def _load_segments(cur, version_id) -> list[dict]:
             "text": r[5] or "",
             "exclude_from_training": bool(r[6]),
         }
-        if r[7]:
-            seg.update(r[7])
+        extra = r[7] if isinstance(r[7], dict) else None
+        if extra and allow_extra_keys:
+            for key, value in extra.items():
+                if key not in _SEGMENT_PROTECTED_EXTRA:
+                    seg[key] = value
         segs.append(seg)
     return segs
 
@@ -1287,6 +1440,8 @@ def save_draft(fence: SessionFence, lease_token: str, expected_revision: int,
         if prior:
             return prior["response"]
         asg = _lock_assignment(cur, uid, lease_token)
+        if asg["mode"] == "cross_check":
+            _require_open_cross_check_round(cur, asg)
         row = cur.execute(
             "SELECT revision FROM annotation_versions WHERE id = %s FOR UPDATE",
             (asg["version_id"],),
@@ -1356,6 +1511,10 @@ def complete(fence: SessionFence, lease_token: str, expected_revision: int,
                     "status_code": prior["status_code"], "response": prior["response"]}
 
         asg = _lock_assignment(cur, uid, lease_token)
+        if asg["mode"] == "cross_check":
+            raise ConflictError(
+                "Cross-check assignments cannot use the normal complete path"
+            )
         cur.execute(
             "SELECT id FROM annotation_tasks WHERE id = %s FOR UPDATE",
             (asg["task_id"],),
