@@ -23,9 +23,6 @@ COMPARISON_VERSION = "worddiff_v1"
 MAX_COMPARISON_CELLS = 10_000_000
 DEFAULT_THRESHOLD_BPS = 1000
 
-# Backward reconstruction order when several operations share the same cost.
-ALIGNMENT_PRIORITY = ("match", "replace", "delete", "insert")
-
 REASON_WORD_DIFFERENCE_EXCEEDED = "word_difference_exceeded"
 REASON_SUBMISSION_STATUS_CONFLICT = "submission_status_conflict"
 REASON_EMPTY_ORIGINAL_TEXT = "empty_original_text"
@@ -60,7 +57,6 @@ _WORD_JOINERS = frozenset({
 })
 
 _BQ_ENDPOINT_TOLERANCE_MS = 1
-_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -113,7 +109,6 @@ class ComparisonResult:
     original_normalized: str
     secondary_normalized: str
     comparison_unavailable: str | None = None
-    comparison_unavailable_detail: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -176,19 +171,11 @@ def compare_transcripts(
     deletions: int | None = None
     ops: tuple[EditOp, ...] = ()
     unavailable: str | None = None
-    unavailable_detail: dict[str, Any] | None = None
     cells = n_original * n_secondary
 
     if cells > MAX_COMPARISON_CELLS:
         reasons.add(REASON_COMPARISON_UNAVAILABLE)
         unavailable = UNAVAILABLE_INPUT_TOO_LARGE
-        unavailable_detail = {
-            "subreason": UNAVAILABLE_INPUT_TOO_LARGE,
-            "max_cells": MAX_COMPARISON_CELLS,
-            "cells": cells,
-            "n_original": n_original,
-            "n_secondary": n_secondary,
-        }
     else:
         try:
             edit_distance, ops, substitutions, insertions, deletions = (
@@ -197,13 +184,6 @@ def compare_transcripts(
         except MemoryError:
             reasons.add(REASON_COMPARISON_UNAVAILABLE)
             unavailable = UNAVAILABLE_COMPUTE_FAILURE
-            unavailable_detail = {
-                "subreason": UNAVAILABLE_COMPUTE_FAILURE,
-                "max_cells": MAX_COMPARISON_CELLS,
-                "cells": cells,
-                "n_original": n_original,
-                "n_secondary": n_secondary,
-            }
             edit_distance = None
             substitutions = None
             insertions = None
@@ -244,7 +224,6 @@ def compare_transcripts(
         original_normalized=original_normalized,
         secondary_normalized=secondary_normalized,
         comparison_unavailable=unavailable,
-        comparison_unavailable_detail=unavailable_detail,
     )
 
 
@@ -252,11 +231,11 @@ def _parse_segments(segments: Sequence[Mapping[str, Any]]) -> list[_Segment]:
     parsed: list[_Segment] = []
     for raw in segments:
         segment_id = _first_present(raw, ("segment_id", "id"))
-        if segment_id is _MISSING:
+        if segment_id is None:
             raise ValueError("segment missing id/segment_id")
         start = _first_present(raw, ("start_s", "start"))
         end = _first_present(raw, ("end_s", "end"))
-        if start is _MISSING or end is _MISSING:
+        if start is None or end is None:
             raise ValueError(f"segment {segment_id!r}: missing start/end")
         text = raw.get("text", "")
         if text is None:
@@ -272,7 +251,7 @@ def _parse_segments(segments: Sequence[Mapping[str, Any]]) -> list[_Segment]:
                 exclude_from_training=bool(raw.get("exclude_from_training", False)),
             )
         )
-    parsed.sort(key=_segment_sort_key)
+    parsed.sort(key=lambda s: (s.start_s, s.end_s, s.segment_id))
     return parsed
 
 
@@ -280,16 +259,7 @@ def _first_present(raw: Mapping[str, Any], keys: tuple[str, ...]) -> Any:
     for key in keys:
         if key in raw and raw[key] is not None:
             return raw[key]
-    return _MISSING
-
-
-def _segment_sort_key(segment: _Segment) -> tuple:
-    sid = segment.segment_id
-    if isinstance(sid, int):
-        sid_key: tuple[int, Any] = (0, sid)
-    else:
-        sid_key = (1, str(sid))
-    return (segment.start_s, segment.end_s, sid_key)
+    return None
 
 
 def _tokenize_transcript(segments: Sequence[_Segment]) -> list[_Token]:

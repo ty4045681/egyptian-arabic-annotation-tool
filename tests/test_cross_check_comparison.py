@@ -5,7 +5,6 @@ from __future__ import annotations
 import unicodedata
 
 from annotation_quality.comparison import (
-    ALIGNMENT_PRIORITY,
     COMPARISON_VERSION,
     MAX_COMPARISON_CELLS,
     compare_transcripts,
@@ -86,7 +85,6 @@ def test_repeated_words_and_stable_equal_cost_priority():
     assert swapped.edit_distance == 2
     assert swapped.substitutions == 2
     assert [op.op for op in swapped.ops] == ["replace", "replace"]
-    assert ALIGNMENT_PRIORITY == ("match", "replace", "delete", "insert")
 
     duplicate = compare("a a", "a")
     assert [op.op for op in duplicate.ops] == ["delete", "match"]
@@ -372,9 +370,6 @@ def test_over_budget_does_not_invent_zero_distance(monkeypatch):
     assert result.needs_word_review is False
     assert result.reason_codes == ("comparison_unavailable",)
     assert result.comparison_unavailable == "input_too_large"
-    assert result.comparison_unavailable_detail["subreason"] == "input_too_large"
-    assert result.comparison_unavailable_detail["cells"] == 6
-    assert result.comparison_unavailable_detail["max_cells"] == 4
 
 
 def test_cell_budget_boundary_still_returns_exact_distance(monkeypatch):
