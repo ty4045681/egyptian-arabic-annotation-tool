@@ -4478,6 +4478,16 @@ def _is_admin_edited_version(submitted_by, purpose, published_by) -> bool:
     )
 
 
+def _admin_edited_block_reclaim(annotator_id, block_reclaim: bool) -> bool:
+    if annotator_id is None:
+        if block_reclaim:
+            raise ValidationError(
+                "Admin-edited revoke requires block_reclaim=false"
+            )
+        return False
+    return bool(block_reclaim)
+
+
 def admin_revoke_preview(annotator_id: str | None, items: list[dict],
                          block_reclaim: bool = True,
                          release_conflicts: bool = False) -> dict:
@@ -4485,12 +4495,7 @@ def admin_revoke_preview(annotator_id: str | None, items: list[dict],
         None if annotator_id is None
         else _validate_uuid(annotator_id, "annotator_id")
     )
-    if uid is None:
-        if block_reclaim:
-            raise ValidationError(
-                "Admin-edited revoke requires block_reclaim=false"
-            )
-        block_reclaim = False
+    block_reclaim = _admin_edited_block_reclaim(uid, block_reclaim)
     normalized = _normalize_revoke_items(items)
     results = []
     with db_tx() as conn, conn.cursor() as cur:
@@ -4705,12 +4710,7 @@ def admin_revoke(admin_session_id: str, operation_id: str,
         None if annotator_id is None
         else _validate_uuid(annotator_id, "annotator_id")
     )
-    if uid is None:
-        if block_reclaim:
-            raise ValidationError(
-                "Admin-edited revoke requires block_reclaim=false"
-            )
-        block_reclaim = False
+    block_reclaim = _admin_edited_block_reclaim(uid, block_reclaim)
     normalized = _normalize_revoke_items(items)
     reason_value = _required_reason(reason)
     request_payload = {
@@ -4846,21 +4846,13 @@ def admin_restore(admin_session_id: str, operation_id: str,
                     f"Task {task_id} was not revoked by the source action"
                 )
             source_items[task_id] = source_item
-        annotator_ids = sorted(
-            {item[0] for item in source_items.values() if item[0]}, key=str,
-        )
-        if annotator_ids:
-            annotator_rows = cur.execute(
-                """SELECT id, status FROM annotators
-                   WHERE id = ANY(%s) ORDER BY id FOR UPDATE""",
-                (annotator_ids,),
-            ).fetchall()
-            annotator_status = {row[0]: row[1] for row in annotator_rows}
-            for annotator_id_value in annotator_ids:
-                if annotator_status.get(annotator_id_value) != "active":
-                    raise ConflictError(
-                        "Restored annotation submitter is not active"
-                    )
+        annotator_ids = {item[0] for item in source_items.values() if item[0]}
+        annotator_status = _lock_annotators_stable(cur, annotator_ids)
+        for annotator_id_value in annotator_ids:
+            if annotator_status.get(annotator_id_value) != "active":
+                raise ConflictError(
+                    "Restored annotation submitter is not active"
+                )
         # An existing assignment is already a terminal restore conflict. Check
         # it without taking an assignment lock before acquiring task locks;
         # after a task is locked, claim cannot insert a new assignment.

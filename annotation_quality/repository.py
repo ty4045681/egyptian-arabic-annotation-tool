@@ -427,16 +427,6 @@ def record_cross_check_invalidated(
     )
 
 
-def peek_open_round_for_task(cur, task_id):
-    return cur.execute(
-        """SELECT id, state, secondary_version_id, secondary_annotator_id,
-                  original_version_id
-           FROM cross_check_rounds
-           WHERE task_id = %s AND state IN ('in_progress', 'awaiting_review')""",
-        (task_id,),
-    ).fetchone()
-
-
 def lock_open_round_for_task(cur, task_id):
     return cur.execute(
         """SELECT id, state, secondary_version_id, secondary_annotator_id,
@@ -449,7 +439,7 @@ def lock_open_round_for_task(cur, task_id):
 
 
 def invalidate_open_cross_check_for_task(
-    cur, *, task_id, action_id, reason: str, from_status: str | None = None,
+    cur, *, task_id, action_id, reason: str, from_status: str,
 ) -> dict | None:
     """Terminate an open round because the original result is going away.
 
@@ -475,12 +465,6 @@ def invalidate_open_cross_check_for_task(
         )
         cur.execute("DELETE FROM assignments WHERE task_id = %s", (task_id,))
         released = cur.rowcount > 0
-    if from_status is None:
-        status_row = cur.execute(
-            "SELECT status FROM annotation_tasks WHERE id = %s",
-            (task_id,),
-        ).fetchone()
-        from_status = status_row[0] if status_row else None
     cur.execute(
         """UPDATE cross_check_rounds
            SET revision = revision + 1,

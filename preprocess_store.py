@@ -71,7 +71,7 @@ def store_preprocessed_task(
             return apply_store_side_effects(cur, task_id, payload)
 
         if row is not None:
-            task_id, published_vid, status, baseline_vid = row[0], row[1], row[2], row[3]
+            task_id, baseline_vid = row[0], row[3]
             canonical_rel = row[4] if len(row) > 4 else rel_path
             if canonical_rel != rel_path:
                 names = cur.execute(

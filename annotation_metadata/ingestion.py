@@ -170,21 +170,14 @@ def task_is_protected(cur, task_id) -> bool:
     ).fetchone()
     if draft and draft[0]:
         return True
-    if cur.execute(
+    return bool(cur.execute(
         """SELECT 1 FROM annotation_versions
            WHERE task_id = %s
              AND (lifecycle = 'cross_check_submitted'
                   OR purpose IN ('cross_check', 'adjudication'))
            LIMIT 1""",
         (task_id,),
-    ).fetchone():
-        return True
-    if cur.execute(
-        "SELECT 1 FROM cross_check_rounds WHERE task_id = %s LIMIT 1",
-        (task_id,),
-    ).fetchone():
-        return True
-    return False
+    ).fetchone())
 
 
 def sync_sources_for_task(cur, task_id, *, batch_id,
