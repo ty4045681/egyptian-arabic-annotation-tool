@@ -65,6 +65,7 @@ def test_claim_save_complete_and_resume(database, seed_tasks):
     assert repo.dashboard()["stats"] == {
         "total": 2, "annotated": 1, "skipped": 0,
         "pending": 1, "percent_complete": 50.0,
+        "annotated_duration_seconds": 10.0,
     }
 
 

@@ -22,6 +22,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import psycopg
 from psycopg.types.json import Json
 
+from annotation_metadata.taxonomy import (
+    SCENE_DEFS,
+    SCENE_ORDER,
+    effective_source_scene,
+    effective_source_scene_sql,
+)
 from db import db_tx
 
 ALLOWED_SKIP_REASONS = {"noisy", "not_egyptian", "poor_quality"}
@@ -1734,16 +1740,39 @@ def dashboard() -> dict:
         annotated = counts.get("annotated", 0)
         skipped = counts.get("skipped", 0)
         lb_rows = cur.execute(
-            """SELECT u.username,
-                      count(*) FILTER (WHERE v.target_status = 'annotated') AS annotated,
-                      count(*) FILTER (WHERE v.target_status = 'skipped') AS skipped,
-                      COALESCE(sum(t.duration) FILTER (WHERE v.target_status = 'annotated'), 0) AS dur
-               FROM annotation_tasks t
-               JOIN annotation_versions v ON v.id = t.current_published_version_id
-               JOIN annotators u ON u.id = v.submitted_by_user_id
-               GROUP BY u.username
-               ORDER BY dur DESC, u.username"""
+            """SELECT username, annotated, skipped, dur, total_annotated_duration
+               FROM (
+                   SELECT u.username,
+                          count(*) FILTER (WHERE v.target_status = 'annotated')
+                              AS annotated,
+                          count(*) FILTER (WHERE v.target_status = 'skipped')
+                              AS skipped,
+                          COALESCE(
+                              sum(t.duration) FILTER (
+                                  WHERE v.target_status = 'annotated'
+                              ),
+                              0
+                          ) AS dur,
+                          COALESCE(
+                              SUM(
+                                  COALESCE(
+                                      sum(t.duration) FILTER (
+                                          WHERE v.target_status = 'annotated'
+                                      ),
+                                      0
+                                  )
+                              ) OVER (),
+                              0
+                          ) AS total_annotated_duration
+                   FROM annotation_tasks t
+                   JOIN annotation_versions v
+                     ON v.id = t.current_published_version_id
+                   JOIN annotators u ON u.id = v.submitted_by_user_id
+                   GROUP BY u.username
+               ) ranked
+               ORDER BY dur DESC, username"""
         ).fetchall()
+    annotated_duration = float(lb_rows[0][4]) if lb_rows else 0.0
     return {
         "stats": {
             "total": total,
@@ -1753,6 +1782,7 @@ def dashboard() -> dict:
             "percent_complete": (
                 round((annotated + skipped) / total * 100, 1) if total else 0.0
             ),
+            "annotated_duration_seconds": annotated_duration,
         },
         "leaderboard": [
             {
@@ -1770,6 +1800,78 @@ def dashboard() -> dict:
 
 PUBLIC_ANNOTATION_SPEED_WINDOW_DAYS = 28
 PUBLIC_ANNOTATION_SPEED_WEEK_DAYS = 7
+PUBLIC_ANNOTATION_SPEED_SQL = f"""
+WITH eligible AS (
+    SELECT t.id AS task_id,
+           timezone(%s, v.submitted_at)::date AS day,
+           t.duration
+    FROM annotation_versions v
+    JOIN annotation_tasks t
+      ON t.current_published_version_id = v.id
+     AND t.status = 'annotated'
+    WHERE v.lifecycle = 'published'
+      AND v.target_status = 'annotated'
+      AND v.submitted_at IS NOT NULL
+      AND v.submitted_at >= %s
+      AND v.submitted_at < %s
+),
+task_scenes AS (
+    SELECT DISTINCT
+           eligible.task_id,
+           eligible.day,
+           eligible.duration,
+           {effective_source_scene_sql("source.scene_code")} AS scene_code
+    FROM eligible
+    LEFT JOIN task_sources source
+      ON source.task_id = eligible.task_id
+     AND source.is_current
+)
+SELECT CAST(NULL AS text) AS scene_code,
+       day,
+       COALESCE(SUM(duration), 0) AS duration_seconds
+FROM eligible
+GROUP BY day
+UNION ALL
+SELECT scene_code,
+       day,
+       COALESCE(SUM(duration), 0) AS duration_seconds
+FROM task_scenes
+GROUP BY scene_code, day
+"""
+
+
+def public_scene_options() -> list[dict]:
+    """Public login-page scene catalog: stable codes and English labels."""
+    return [
+        {"code": str(item["code"]), "label": str(item["label_en"])}
+        for item in SCENE_DEFS
+    ]
+
+
+def _speed_days_from_map(by_day: dict, start_date, today, window_days: int) -> list[dict]:
+    days = []
+    for offset in range(window_days):
+        day = start_date + timedelta(days=offset)
+        days.append({
+            "date": day.isoformat(),
+            "duration_seconds": float(by_day.get(day, 0.0)),
+            "is_partial": day == today,
+        })
+    return days
+
+
+def _speed_weeks_from_days(days: list[dict]) -> list[dict]:
+    weeks = []
+    step = PUBLIC_ANNOTATION_SPEED_WEEK_DAYS
+    for index in range(0, len(days), step):
+        chunk = days[index:index + step]
+        total = sum(item["duration_seconds"] for item in chunk)
+        weeks.append({
+            "start_date": chunk[0]["date"],
+            "end_date": chunk[-1]["date"],
+            "average_daily_duration_seconds": total / float(step),
+        })
+    return weeks
 
 
 def public_annotation_speed(
@@ -1782,7 +1884,10 @@ def public_annotation_speed(
     Counts currently effective published/annotated versions, bucketed by the
     version's ``submitted_at`` calendar date in ``timezone_name``. Duration
     comes from ``annotation_tasks.duration`` (the same "currently valid
-    annotated audio" definition as the leaderboard).
+    annotated audio" definition as the leaderboard). Root ``days``/``weeks``
+    are the All-scenes series; ``by_scene`` repeats the window for each
+    source scene. A task with several current source scenes appears in each
+    of those filters, but only once in All scenes.
     """
     if window_days <= 0 or window_days % PUBLIC_ANNOTATION_SPEED_WEEK_DAYS != 0:
         raise ValidationError(
@@ -1807,48 +1912,34 @@ def public_annotation_speed(
 
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
-            """SELECT timezone(%s, v.submitted_at)::date AS day,
-                      COALESCE(SUM(t.duration), 0) AS duration_seconds
-               FROM annotation_versions v
-               JOIN annotation_tasks t
-                 ON t.current_published_version_id = v.id
-                AND t.status = 'annotated'
-               WHERE v.lifecycle = 'published'
-                 AND v.target_status = 'annotated'
-                 AND v.submitted_at IS NOT NULL
-                 AND v.submitted_at >= %s
-                 AND v.submitted_at < %s
-               GROUP BY day""",
+            PUBLIC_ANNOTATION_SPEED_SQL,
             (str(timezone_name), start_utc, end_utc),
         ).fetchall()
 
-    by_day = {}
-    for day, duration in rows:
-        if day is None:
+    all_by_day = {}
+    scene_by_day = {code: {} for code in SCENE_ORDER}
+    for scene_code, day, duration in rows:
+        if day is None or day < start_date or day > today:
             continue
-        if day < start_date or day > today:
+        amount = float(duration or 0.0)
+        if scene_code is None:
+            all_by_day[day] = amount
             continue
-        by_day[day] = float(duration)
+        code = effective_source_scene(scene_code)
+        if code not in scene_by_day:
+            continue
+        scene_by_day[code][day] = scene_by_day[code].get(day, 0.0) + amount
 
-    days = []
-    for offset in range(window_days):
-        day = start_date + timedelta(days=offset)
-        days.append({
-            "date": day.isoformat(),
-            "duration_seconds": float(by_day.get(day, 0.0)),
-            "is_partial": day == today,
-        })
-
-    weeks = []
-    step = PUBLIC_ANNOTATION_SPEED_WEEK_DAYS
-    for index in range(0, window_days, step):
-        chunk = days[index:index + step]
-        total = sum(item["duration_seconds"] for item in chunk)
-        weeks.append({
-            "start_date": chunk[0]["date"],
-            "end_date": chunk[-1]["date"],
-            "average_daily_duration_seconds": total / float(step),
-        })
+    days = _speed_days_from_map(all_by_day, start_date, today, window_days)
+    by_scene = {}
+    for code in SCENE_ORDER:
+        scene_days = _speed_days_from_map(
+            scene_by_day[code], start_date, today, window_days,
+        )
+        by_scene[code] = {
+            "days": scene_days,
+            "weeks": _speed_weeks_from_days(scene_days),
+        }
 
     return {
         "timezone": str(timezone_name),
@@ -1857,7 +1948,8 @@ def public_annotation_speed(
         "through": today.isoformat(),
         "generated_at": now_local.isoformat(timespec="seconds"),
         "days": days,
-        "weeks": weeks,
+        "weeks": _speed_weeks_from_days(days),
+        "by_scene": by_scene,
     }
 
 

@@ -8,7 +8,22 @@ from playwright.sync_api import expect, sync_playwright
 
 import annotation_repository as repo
 import db
+from annotation_metadata.taxonomy import SCENE_ORDER
+from tests.browser.conftest import insert_source
 from tests.browser.test_scene_workflow import _login_annotator
+
+SCENE_LABELS = {
+    "restaurant": "Restaurant",
+    "hotel": "Hotel",
+    "taxi": "Taxi",
+    "airport": "Airport",
+    "clinic": "Clinic",
+    "tourism_information": "Tourism information",
+    "emergencies": "Emergencies",
+    "spoken_languages": "Spoken languages",
+    "business_negotiation": "Business negotiation",
+    "shopping": "Shopping",
+}
 
 
 def _segments(assignment, prefix="text"):
@@ -137,6 +152,43 @@ def test_login_dashboard_desktop_and_mobile_chart(provenance_site):
         assert layout["overflow"] is False
         assert layout["conflictInLogin"] is True
 
+        filter_layout = page.evaluate(
+            """() => {
+              const title = document.querySelector('.dash-title').getBoundingClientRect();
+              const sub = document.querySelector('#dashSub').getBoundingClientRect();
+              const filter = document.querySelector('.scene-filter').getBoundingClientRect();
+              const lbTitle = document.querySelector('.lb-title').getBoundingClientRect();
+              const total = document.querySelector('.lb-total').getBoundingClientRect();
+              return {
+                filterRightOfTitle: filter.left >= Math.max(title.right, sub.right) - 1,
+                filterSameBand: filter.top < title.bottom + 40,
+                totalRightOfTitle: total.left >= lbTitle.right - 1,
+                totalSameRow: lbTitle.bottom > total.top && total.bottom > lbTitle.top,
+                options: [...document.querySelectorAll('#sceneSelect option')].map(
+                  item => ({value: item.value, text: item.textContent.trim()})
+                ),
+                subtitle: document.getElementById('dashSub').textContent,
+                totalText: document.getElementById('lbTotalValue').textContent,
+                totalTitle: document.getElementById('lbTotal').getAttribute('title'),
+                totalAria: document.getElementById('lbTotal').getAttribute('aria-label'),
+              };
+            }"""
+        )
+        assert filter_layout["filterRightOfTitle"] is True
+        assert filter_layout["filterSameBand"] is True
+        assert filter_layout["totalRightOfTitle"] is True
+        assert filter_layout["totalSameRow"] is True
+        assert filter_layout["options"][0] == {"value": "", "text": "All scenes"}
+        assert [item["value"] for item in filter_layout["options"][1:]] == list(SCENE_ORDER)
+        assert [item["text"] for item in filter_layout["options"][1:]] == [
+            SCENE_LABELS[code] for code in SCENE_ORDER
+        ]
+        assert filter_layout["subtitle"] == "All scenes · Last 28 days"
+        assert "h" in filter_layout["totalText"] and "min" in filter_layout["totalText"]
+        assert filter_layout["totalTitle"] == "Excludes audio marked abnormal"
+        assert "excluding audio marked abnormal" in filter_layout["totalAria"].lower()
+        assert "hours" in filter_layout["totalAria"].lower()
+
         chart = page.evaluate(
             """() => {
               const chart = window.LoginDashboard.getChart();
@@ -247,6 +299,34 @@ def test_login_dashboard_desktop_and_mobile_chart(provenance_site):
         )
         assert all(str(item["content"]).endswith("h") for item in labels)
         assert all("h/day" not in str(item["content"]) for item in labels)
+        mobile_filter = page.evaluate(
+            """() => {
+              const titleBlock = document.querySelector('.dash-head > div').getBoundingClientRect();
+              const head = document.querySelector('.dash-head').getBoundingClientRect();
+              const filter = document.querySelector('.scene-filter').getBoundingClientRect();
+              const lbTitle = document.querySelector('.lb-title').getBoundingClientRect();
+              const total = document.querySelector('.lb-total').getBoundingClientRect();
+              const long = document.querySelector('.lb-total-long');
+              return {
+                filterBelow: filter.top >= titleBlock.bottom - 1,
+                overflow: document.documentElement.scrollWidth > innerWidth + 1,
+                filterWidth: filter.width,
+                headWidth: head.width,
+                totalRight: total.left >= lbTitle.right - 1,
+                overlap: lbTitle.right > total.left + 1 && lbTitle.bottom > total.top + 1
+                  && total.bottom > lbTitle.top + 1,
+                longDisplay: getComputedStyle(long).display,
+                totalWraps: document.getElementById('lbTotalValue').getClientRects().length > 1,
+              };
+            }"""
+        )
+        assert mobile_filter["filterBelow"] is True
+        assert mobile_filter["overflow"] is False
+        assert mobile_filter["filterWidth"] >= mobile_filter["headWidth"] - 2
+        assert mobile_filter["totalRight"] is True
+        assert mobile_filter["overlap"] is False
+        assert mobile_filter["longDisplay"] == "none"
+        assert mobile_filter["totalWraps"] is False
         assert not failures, failures
         browser.close()
 
@@ -263,6 +343,7 @@ def test_empty_and_failure_states_do_not_block_login(provenance_site):
         expect(page.locator("#speedStatus")).to_contain_text(
             "No annotations in the last 28 days.", timeout=15000,
         )
+        expect(page.locator("#lbTotalValue")).to_have_text("0 h 00 min", timeout=15000)
         expect(page.locator("#username")).to_be_visible()
         expect(page.locator("#joinBtn")).to_be_enabled()
 
@@ -271,6 +352,7 @@ def test_empty_and_failure_states_do_not_block_login(provenance_site):
         expect(page.locator("#speedStatus")).to_contain_text(
             "Could not load annotation statistics.", timeout=15000,
         )
+        expect(page.locator("#lbTotalValue")).to_have_text("Unavailable", timeout=15000)
         page.unroute("**/api/leaderboard")
 
         _seed_chart_rows()
@@ -367,6 +449,8 @@ def test_stale_chart_survives_refresh_failure(provenance_site):
         assert still["visible"] is True
         assert still["bars"] == 28
         assert still["hidden"] is False
+        expect(page.locator("#lbTotalValue")).not_to_have_text("Unavailable")
+        expect(page.locator("#lbTotalValue")).not_to_have_text("—")
         browser.close()
 
 
@@ -377,4 +461,188 @@ def test_login_from_dashboard_still_reaches_workspace(provenance_site):
         page = browser.new_page()
         _login_annotator(page, url, "dashboard-login")
         expect(page.locator("#claimButton")).to_be_visible()
+        browser.close()
+
+
+def _current_scene(task_id):
+    with db.db_conn() as conn:
+        row = conn.execute(
+            """SELECT scene_code FROM task_sources
+               WHERE task_id = %s AND is_current
+               ORDER BY id LIMIT 1""",
+            (task_id,),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def _seed_distinct_scene_rows(seed_tasks, provenance_tasks):
+    with db.db_conn() as conn:
+        conn.execute(
+            "UPDATE annotation_tasks SET eligible = false WHERE id = ANY(%s)",
+            (list(provenance_tasks),),
+        )
+        conn.commit()
+    airport_id = seed_tasks(1, folder="dash-airport", duration=3600)[0]
+    shopping_id = seed_tasks(1, folder="dash-shopping", duration=1800)[0]
+    insert_source(
+        airport_id, scene="airport", confidence="high", batch="dash-air-only",
+    )
+    insert_source(
+        shopping_id, scene="shopping", confidence="high", batch="dash-shop-only",
+    )
+    user = repo.login("scene-dash", str(uuid.uuid4()), 1800)
+    now = datetime.now(timezone.utc)
+    today_id = _complete_and_date(user, now)
+    older_id = _complete_and_date(user, now - timedelta(days=3))
+    today_scene = _current_scene(today_id)
+    older_scene = _current_scene(older_id)
+    return {
+        "today_scene": today_scene,
+        "older_scene": older_scene,
+        "today_hours": 1.0 if today_scene == "airport" else 0.5,
+        "older_hours": 1.0 if older_scene == "airport" else 0.5,
+    }
+
+
+def test_scene_filter_updates_chart_without_refetch(provenance_site, seed_tasks):
+    url = provenance_site["url"]
+    seeded = _seed_distinct_scene_rows(seed_tasks, provenance_site["tasks"])
+    assert seeded["today_scene"] in {"airport", "shopping"}
+    assert seeded["older_scene"] in {"airport", "shopping"}
+    assert seeded["today_scene"] != seeded["older_scene"]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(
+            viewport={"width": 1366, "height": 768},
+            reduced_motion="reduce",
+        )
+        failures = _collect_page_errors(page)
+        page.goto(url + "/login.html")
+        page.wait_for_function(
+            """() => window.LoginDashboard && window.LoginDashboard.getChart()
+              && window.LoginDashboard.getChart().getDatasetMeta(0).data.length === 28""",
+            timeout=15000,
+        )
+        all_scenes = page.evaluate(
+            """() => {
+              const chart = window.LoginDashboard.getChart();
+              const anns = chart.options.plugins.annotation.annotations;
+              return {
+                data: chart.data.datasets[0].data.slice(),
+                week0: anns.weekAvg0.yMin,
+                week3: anns.weekAvg3.yMin,
+                subtitle: document.getElementById('dashSub').textContent,
+              };
+            }"""
+        )
+        assert all_scenes["data"][-1] == seeded["today_hours"]
+        assert all_scenes["data"][-4] == seeded["older_hours"]
+        assert all_scenes["subtitle"] == "All scenes · Last 28 days"
+
+        page.route("**/api/leaderboard", lambda route: route.abort("failed"))
+        page.locator("#sceneSelect").select_option("airport")
+        airport = page.evaluate(
+            """() => {
+              const chart = window.LoginDashboard.getChart();
+              const anns = chart.options.plugins.annotation.annotations;
+              const index = chart.data.labels.length - 1;
+              const meta = chart.getDatasetMeta(0).data[index];
+              chart.setActiveElements([]);
+              chart.tooltip.setActiveElements([], {x: 0, y: 0});
+              chart.update('none');
+              return {
+                data: chart.data.datasets[0].data.slice(),
+                week0: anns.weekAvg0.yMin,
+                week3: anns.weekAvg3.yMin,
+                subtitle: document.getElementById('dashSub').textContent,
+                selected: window.LoginDashboard.selectedScene(),
+                active: (chart.tooltip.getActiveElements
+                  ? chart.tooltip.getActiveElements()
+                  : []).length,
+              };
+            }"""
+        )
+        assert airport["selected"] == "airport"
+        assert airport["subtitle"] == "Airport · Last 28 days"
+        if seeded["today_scene"] == "airport":
+            assert airport["data"][-1] == 1
+            assert airport["data"][-4] == 0
+        else:
+            assert airport["data"][-1] == 0
+            assert airport["data"][-4] == 1
+        assert airport["data"] != all_scenes["data"]
+        assert airport["week3"] != all_scenes["week3"]
+        assert airport["active"] == 0
+
+        page.locator("#sceneSelect").select_option("clinic")
+        expect(page.locator("#speedStatus")).to_contain_text(
+            "No annotations for Clinic in the last 28 days.",
+        )
+        expect(page.locator("#chartFrame")).to_be_hidden()
+        expect(page.locator("#sceneSelect")).to_be_enabled()
+        assert page.evaluate("() => window.LoginDashboard.getChart()") is None
+        expect(page.locator("#dashSub")).to_have_text("Clinic · Last 28 days")
+
+        page.locator("#sceneSelect").select_option(label="All scenes")
+        page.wait_for_function(
+            """() => window.LoginDashboard.getChart()
+              && window.LoginDashboard.selectedScene() === ''""",
+            timeout=15000,
+        )
+        restored = page.evaluate(
+            """() => ({
+              data: window.LoginDashboard.getChart().data.datasets[0].data.slice(),
+              subtitle: document.getElementById('dashSub').textContent,
+              selected: window.LoginDashboard.selectedScene(),
+            })"""
+        )
+        assert restored["selected"] == ""
+        assert restored["subtitle"] == "All scenes · Last 28 days"
+        assert restored["data"][-1] == seeded["today_hours"]
+        assert restored["data"][-4] == seeded["older_hours"]
+        assert not failures, failures
+        browser.close()
+
+
+def test_scene_selection_survives_refresh(provenance_site, seed_tasks):
+    url = provenance_site["url"]
+    seeded = _seed_distinct_scene_rows(seed_tasks, provenance_site["tasks"])
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(
+            viewport={"width": 1366, "height": 768},
+            reduced_motion="reduce",
+        )
+        page.goto(url + "/login.html")
+        page.wait_for_function(
+            """() => window.LoginDashboard && window.LoginDashboard.getChart()
+              && window.LoginDashboard.getChart().getDatasetMeta(0).data.length === 28""",
+            timeout=15000,
+        )
+        page.locator("#sceneSelect").select_option("airport")
+        expected_today = 1 if seeded["today_scene"] == "airport" else 0
+        page.wait_for_function(
+            """(expected) => window.LoginDashboard.selectedScene() === 'airport'
+              && window.LoginDashboard.getChart()
+              && window.LoginDashboard.getChart().data.datasets[0].data.at(-1) === expected""",
+            arg=expected_today,
+            timeout=15000,
+        )
+        page.evaluate("() => window.LoginDashboard.load()")
+        page.wait_for_function(
+            """() => window.LoginDashboard.selectedScene() === 'airport'
+              && document.getElementById('sceneSelect').value === 'airport'
+              && document.getElementById('dashSub').textContent === 'Airport · Last 28 days'""",
+            timeout=15000,
+        )
+        still = page.evaluate(
+            """() => ({
+              selected: window.LoginDashboard.selectedScene(),
+              value: document.getElementById('sceneSelect').value,
+              today: window.LoginDashboard.getChart().data.datasets[0].data.at(-1),
+            })"""
+        )
+        assert still["selected"] == "airport"
+        assert still["value"] == "airport"
+        assert still["today"] == expected_today
         browser.close()

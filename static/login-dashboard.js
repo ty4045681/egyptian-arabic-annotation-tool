@@ -9,13 +9,18 @@
   var BAR_FILL = "rgb(129, 140, 248)";
   var BAR_FILL_TODAY = "rgba(129, 140, 248, 0.58)";
   var WEEK_LINE = "#fbbf24";
+  var ALL_SCENES_LABEL = "All scenes";
   var MONTHS = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
   var speedChart = null;
   var lastSpeed = null;
+  var lastPayload = null;
+  var selectedScene = "";
+  var totalLoaded = false;
   var inflight = null;
+  var sceneFilterBound = false;
 
   function $(id) {
     return document.getElementById(id);
@@ -54,6 +59,11 @@
   function formatHoursMinutes(seconds) {
     var total = Math.max(0, Math.round(Number(seconds || 0) / 60));
     return Math.floor(total / 60) + " h " + String(total % 60).padStart(2, "0") + " min";
+  }
+
+  function formatHoursMinutesSpoken(seconds) {
+    var total = Math.max(0, Math.round(Number(seconds || 0) / 60));
+    return Math.floor(total / 60) + " hours " + (total % 60) + " minutes";
   }
 
   function parseISODate(iso) {
@@ -145,6 +155,38 @@
 
   function chartAvailable() {
     return typeof window.Chart === "function";
+  }
+
+  function sceneLabel(code, options) {
+    if (!code) return ALL_SCENES_LABEL;
+    var i;
+    for (i = 0; i < (options || []).length; i += 1) {
+      if (options[i] && options[i].code === code) {
+        return options[i].label || code;
+      }
+    }
+    return code;
+  }
+
+  function knownScene(code, options) {
+    if (!code) return true;
+    var i;
+    for (i = 0; i < (options || []).length; i += 1) {
+      if (options[i] && options[i].code === code) return true;
+    }
+    return false;
+  }
+
+  function updateSubtitle(label) {
+    var sub = $("dashSub");
+    if (sub) sub.textContent = (label || ALL_SCENES_LABEL) + " · Last 28 days";
+  }
+
+  function emptyMessage(label) {
+    if (!label || label === ALL_SCENES_LABEL) {
+      return "No annotations in the last 28 days.";
+    }
+    return "No annotations for " + label + " in the last 28 days.";
   }
 
   function weekAnnotations(speed) {
@@ -282,17 +324,19 @@
     };
   }
 
-  function updateAria(speed) {
+  function updateAria(speed, label) {
     var canvas = $("speedChart");
     var table = $("speedTable");
     if (!speed || !speed.days) return;
     var peak = speed.days.reduce(function (best, day) {
       return day.duration_seconds > best.duration_seconds ? day : best;
     }, speed.days[0]);
+    var sceneText = label || ALL_SCENES_LABEL;
     if (canvas) {
       canvas.setAttribute(
         "aria-label",
-        "Bar chart of newly annotated audio hours from " +
+        "Bar chart of newly annotated audio hours for " + sceneText +
+        " from " +
         speed.from + " through " + speed.through +
         " in " + speed.timezone +
         ". Peak " + hoursFromSeconds(peak.duration_seconds).toFixed(1) +
@@ -311,12 +355,13 @@
         "</td><td>" + avg + "</td></tr>";
     }).join("");
     table.innerHTML =
-      "<table><caption>Daily added annotated audio hours and 7-day averages</caption>" +
+      "<table><caption>Daily added annotated audio hours and 7-day averages for " +
+      esc(sceneText) + "</caption>" +
       "<thead><tr><th>Date</th><th>Hours</th><th>7-day average hours per day</th></tr></thead>" +
       "<tbody>" + rows + "</tbody></table>";
   }
 
-  function renderSpeedChart(speed) {
+  function renderSpeedChart(speed, label) {
     var frame = $("chartFrame");
     var canvas = $("speedChart");
     if (!frame || !canvas) return;
@@ -347,7 +392,7 @@
     } else {
       speedChart = new Chart(canvas.getContext("2d"), config);
     }
-    updateAria(speed);
+    updateAria(speed, label);
   }
 
   function allDaysZero(speed) {
@@ -367,9 +412,9 @@
     );
   }
 
-  function renderSpeed(speed) {
+  function renderSpeed(speed, label) {
     if (!validSpeed(speed)) {
-      if (speedChart) return;
+      if (speedChart || lastSpeed) return;
       destroyChart();
       var frame = $("chartFrame");
       if (frame) frame.hidden = true;
@@ -377,6 +422,7 @@
       setSpeedStatus("Could not load annotation statistics.");
       return;
     }
+    updateSubtitle(label);
     lastSpeed = speed;
     if (allDaysZero(speed)) {
       destroyChart();
@@ -384,10 +430,10 @@
       if (emptyFrame) emptyFrame.hidden = true;
       showLegend(false);
       $("speedTable") && ($("speedTable").innerHTML = "");
-      setSpeedStatus("No annotations in the last 28 days.");
+      setSpeedStatus(emptyMessage(label));
       return;
     }
-    renderSpeedChart(speed);
+    renderSpeedChart(speed, label);
   }
 
   function renderSpeedFailure() {
@@ -431,6 +477,109 @@
     }
   }
 
+  function renderTotal(seconds) {
+    var valueEl = $("lbTotalValue");
+    var wrap = $("lbTotal");
+    if (!valueEl) return;
+    var n = Number(seconds);
+    if (!Number.isFinite(n)) n = 0;
+    valueEl.textContent = formatHoursMinutes(n);
+    totalLoaded = true;
+    if (wrap) {
+      wrap.setAttribute(
+        "aria-label",
+        "Total annotated time, excluding audio marked abnormal: " +
+        formatHoursMinutesSpoken(n)
+      );
+    }
+  }
+
+  function renderTotalFailure() {
+    if (totalLoaded) return;
+    var valueEl = $("lbTotalValue");
+    var wrap = $("lbTotal");
+    if (valueEl) valueEl.textContent = "Unavailable";
+    if (wrap) {
+      wrap.setAttribute(
+        "aria-label",
+        "Total annotated time, excluding audio marked abnormal: Unavailable"
+      );
+    }
+  }
+
+  function fillSceneOptions(options) {
+    var select = $("sceneSelect");
+    if (!select) return;
+    var html = '<option value="">' + ALL_SCENES_LABEL + "</option>";
+    (options || []).forEach(function (item) {
+      if (!item || !item.code) return;
+      html += '<option value="' + esc(item.code) + '">' +
+        esc(item.label || item.code) + "</option>";
+    });
+    select.innerHTML = html;
+    if (!knownScene(selectedScene, options)) selectedScene = "";
+    select.value = selectedScene;
+  }
+
+  function bindSceneFilter() {
+    var select = $("sceneSelect");
+    if (!select || sceneFilterBound) return;
+    sceneFilterBound = true;
+    select.addEventListener("change", function () {
+      selectedScene = select.value || "";
+      if (lastPayload) applyScene();
+    });
+  }
+
+  function seriesForScene(root, code) {
+    if (!root) return null;
+    var part = code
+      ? (root.by_scene && root.by_scene[code])
+      : { days: root.days, weeks: root.weeks };
+    if (!part) return null;
+    return {
+      timezone: root.timezone,
+      window_days: root.window_days,
+      from: root.from,
+      through: root.through,
+      generated_at: root.generated_at,
+      days: part.days,
+      weeks: part.weeks,
+    };
+  }
+
+  function applyScene() {
+    var payload = lastPayload;
+    if (!payload) return;
+    var options = payload.scene_options || [];
+    var select = $("sceneSelect");
+    if (!knownScene(selectedScene, options)) {
+      selectedScene = "";
+      if (select) select.value = "";
+    }
+    var label = sceneLabel(selectedScene, options);
+    var speed = seriesForScene(payload.annotation_speed, selectedScene);
+    if (selectedScene && !validSpeed(speed)) {
+      selectedScene = "";
+      if (select) select.value = "";
+      label = ALL_SCENES_LABEL;
+      speed = seriesForScene(payload.annotation_speed, "");
+    }
+    renderSpeed(speed, label);
+  }
+
+  function applyPayload(payload) {
+    renderLeaderboard(payload.leaderboard || []);
+    if (payload.total_annotated_duration_seconds != null) {
+      renderTotal(payload.total_annotated_duration_seconds);
+    }
+    var speedOk = validSpeed(payload.annotation_speed);
+    if (!speedOk && lastPayload) return;
+    lastPayload = payload;
+    fillSceneOptions(payload.scene_options || []);
+    applyScene();
+  }
+
   function loadDashboard() {
     if (inflight) return inflight;
     inflight = fetch("/api/leaderboard", { cache: "no-store" })
@@ -439,11 +588,11 @@
         return response.json();
       })
       .then(function (payload) {
-        renderLeaderboard(payload.leaderboard || []);
-        renderSpeed(payload.annotation_speed);
+        applyPayload(payload || {});
       })
       .catch(function () {
         renderLeaderboardFailure();
+        renderTotalFailure();
         renderSpeedFailure();
       })
       .then(function () {
@@ -463,6 +612,9 @@
     tooltipLines: tooltipLines,
     currentSpeed: currentSpeed,
     formatHoursMinutes: formatHoursMinutes,
+    selectedScene: function () {
+      return selectedScene;
+    },
     getChart: function () {
       if (speedChart) return speedChart;
       var canvas = $("speedChart");
@@ -473,8 +625,10 @@
     },
   };
 
+  bindSceneFilter();
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
+      bindSceneFilter();
       loadDashboard();
       startRefresh();
     });

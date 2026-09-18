@@ -1231,8 +1231,13 @@ def api_dashboard():
 
 
 def _leaderboard_payload_fresh() -> dict:
+    dash = repo.dashboard()
     return {
-        "leaderboard": repo.dashboard()["leaderboard"],
+        "leaderboard": dash["leaderboard"],
+        "total_annotated_duration_seconds": float(
+            (dash.get("stats") or {}).get("annotated_duration_seconds") or 0.0
+        ),
+        "scene_options": repo.public_scene_options(),
         "annotation_speed": repo.public_annotation_speed(
             app.config["PUBLIC_DASHBOARD_TIMEZONE"],
         ),

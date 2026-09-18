@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import annotation_repository as repo
+from annotation_metadata.taxonomy import SCENE_ORDER
 
 
 FROZEN_UTC = datetime(2026, 9, 17, 9, 30, tzinfo=timezone.utc)
@@ -74,7 +75,63 @@ def _set_duration(task_id, duration):
 
 
 def _day_map(speed):
-    return {item["date"]: item for item in speed["days"]}
+    days = speed["days"] if isinstance(speed, dict) and "days" in speed else speed
+    return {item["date"]: item for item in days}
+
+
+def _attach_source(task_id, scene_code, *, batch=None, is_current=True):
+    import db
+
+    batch = batch or f"speed-{uuid.uuid4().hex[:12]}"
+    with db.db_conn() as conn:
+        batch_id = conn.execute(
+            "INSERT INTO source_batches(batch_code, name) VALUES(%s, %s) "
+            "ON CONFLICT(batch_code) DO UPDATE SET name=EXCLUDED.name "
+            "RETURNING id",
+            (batch, batch),
+        ).fetchone()[0]
+        conn.execute(
+            """INSERT INTO task_sources(
+                   task_id, batch_id, record_key, scene_code, confidence,
+                   confidence_basis, content_digest, is_current
+               ) VALUES (%s, %s, %s, %s, 'high', 'speed fixture', %s, %s)""",
+            (
+                task_id, batch_id, f"{batch}:{task_id}:{scene_code}",
+                scene_code, "0" * 64, is_current,
+            ),
+        )
+        conn.commit()
+
+
+def _attach_prediction(task_id, scene_code, label="Airport"):
+    import db
+
+    with db.db_conn() as conn:
+        conn.execute(
+            """INSERT INTO task_scene_predictions(
+                   task_id, input_digest, model_name, predicted_label,
+                   predicted_scene_code
+               ) VALUES (%s, %s, %s, %s, %s)""",
+            (task_id, "speed-pred", "fixture-model", label, scene_code),
+        )
+        conn.commit()
+
+
+def _assert_full_scene_window(speed):
+    assert list(speed["by_scene"]) == list(SCENE_ORDER)
+    assert len(speed["by_scene"]) == 10
+    dates = [item["date"] for item in speed["days"]]
+    week_starts = [week["start_date"] for week in speed["weeks"]]
+    week_ends = [week["end_date"] for week in speed["weeks"]]
+    for code in SCENE_ORDER:
+        series = speed["by_scene"][code]
+        assert len(series["days"]) == 28
+        assert len(series["weeks"]) == 4
+        assert [item["date"] for item in series["days"]] == dates
+        assert [week["start_date"] for week in series["weeks"]] == week_starts
+        assert [week["end_date"] for week in series["weeks"]] == week_ends
+        assert series["days"][-1]["is_partial"] is True
+        assert all(not item["is_partial"] for item in series["days"][:-1])
 
 
 @pytest.fixture
@@ -108,6 +165,10 @@ def test_speed_returns_28_days_and_four_weeks(database, freeze_shanghai_afternoo
     assert [week["end_date"] for week in speed["weeks"]] == [
         "2026-08-27", "2026-09-03", "2026-09-10", "2026-09-17",
     ]
+    _assert_full_scene_window(speed)
+    for series in speed["by_scene"].values():
+        assert all(item["duration_seconds"] == 0.0 for item in series["days"])
+        assert all(week["average_daily_duration_seconds"] == 0.0 for week in series["weeks"])
 
 
 def test_missing_days_are_zero_filled(database, seed_tasks, freeze_shanghai_afternoon):
@@ -280,20 +341,223 @@ def test_invalid_timezone_is_rejected(database):
         repo.public_annotation_speed("Not/AZone")
 
 
-SPEED_EXPLAIN_SQL = """
-SELECT timezone(%s, v.submitted_at)::date AS day,
-       COALESCE(SUM(t.duration), 0) AS duration_seconds
-FROM annotation_versions v
-JOIN annotation_tasks t
-  ON t.current_published_version_id = v.id
- AND t.status = 'annotated'
-WHERE v.lifecycle = 'published'
-  AND v.target_status = 'annotated'
-  AND v.submitted_at IS NOT NULL
-  AND v.submitted_at >= %s
-  AND v.submitted_at < %s
-GROUP BY day
-"""
+def test_airport_duration_is_only_in_airport(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(1, duration=120)
+    user, _ = _make_user("alice")
+    completed = _complete_next(user)
+    _attach_source(completed["task_id"], "airport")
+    _set_submitted_at(
+        completed["task_id"],
+        datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    _assert_full_scene_window(speed)
+    assert _day_map(speed)["2026-09-10"]["duration_seconds"] == 120.0
+    assert _day_map(speed["by_scene"]["airport"])["2026-09-10"]["duration_seconds"] == 120.0
+    for code in SCENE_ORDER:
+        if code == "airport":
+            continue
+        assert _day_map(speed["by_scene"][code])["2026-09-10"]["duration_seconds"] == 0.0
+
+
+def test_missing_and_null_sources_map_to_spoken_languages(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(3, duration=50)
+    user, _ = _make_user("alice")
+    missing = _complete_next(user, prefix="missing")
+    null_src = _complete_next(user, prefix="null")
+    explicit = _complete_next(user, prefix="spoken")
+    _attach_source(null_src["task_id"], None, batch="speed-null")
+    _attach_source(explicit["task_id"], "spoken_languages", batch="speed-spoken")
+    when = datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc)
+    for task_id in (missing["task_id"], null_src["task_id"], explicit["task_id"]):
+        _set_submitted_at(task_id, when)
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    assert _day_map(speed)["2026-09-10"]["duration_seconds"] == 150.0
+    assert _day_map(speed["by_scene"]["spoken_languages"])[
+        "2026-09-10"
+    ]["duration_seconds"] == 150.0
+    assert _day_map(speed["by_scene"]["airport"])["2026-09-10"]["duration_seconds"] == 0.0
+
+
+def test_duplicate_same_scene_sources_count_once(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(1, duration=80)
+    user, _ = _make_user("alice")
+    completed = _complete_next(user)
+    _attach_source(completed["task_id"], "airport", batch="speed-air-a")
+    _attach_source(completed["task_id"], "airport", batch="speed-air-b")
+    _set_submitted_at(
+        completed["task_id"],
+        datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    assert _day_map(speed)["2026-09-10"]["duration_seconds"] == 80.0
+    assert _day_map(speed["by_scene"]["airport"])["2026-09-10"]["duration_seconds"] == 80.0
+
+
+def test_multi_scene_task_counts_once_in_all_scenes(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(1, duration=90)
+    user, _ = _make_user("alice")
+    completed = _complete_next(user)
+    _attach_source(completed["task_id"], "airport", batch="speed-multi-air")
+    _attach_source(completed["task_id"], "shopping", batch="speed-multi-shop")
+    _set_submitted_at(
+        completed["task_id"],
+        datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    assert _day_map(speed)["2026-09-10"]["duration_seconds"] == 90.0
+    assert _day_map(speed["by_scene"]["airport"])["2026-09-10"]["duration_seconds"] == 90.0
+    assert _day_map(speed["by_scene"]["shopping"])["2026-09-10"]["duration_seconds"] == 90.0
+    assert _day_map(speed["by_scene"]["hotel"])["2026-09-10"]["duration_seconds"] == 0.0
+
+
+def test_prediction_and_category_do_not_drive_scene_filter(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    import db
+
+    seed_tasks(1, duration=40)
+    user, _ = _make_user("alice")
+    completed = _complete_next(user)
+    _attach_prediction(completed["task_id"], "airport")
+    with db.db_conn() as conn:
+        conn.execute(
+            "UPDATE annotation_tasks SET category = %s WHERE id = %s",
+            ("Airport", completed["task_id"]),
+        )
+        conn.commit()
+    _set_submitted_at(
+        completed["task_id"],
+        datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    assert _day_map(speed)["2026-09-10"]["duration_seconds"] == 40.0
+    assert _day_map(speed["by_scene"]["spoken_languages"])[
+        "2026-09-10"
+    ]["duration_seconds"] == 40.0
+    assert _day_map(speed["by_scene"]["airport"])["2026-09-10"]["duration_seconds"] == 0.0
+
+
+def test_noncurrent_source_maps_to_spoken_languages(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(1, duration=25)
+    user, _ = _make_user("alice")
+    completed = _complete_next(user)
+    _attach_source(
+        completed["task_id"], "airport", batch="speed-old-air", is_current=False,
+    )
+    _set_submitted_at(
+        completed["task_id"],
+        datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    assert _day_map(speed["by_scene"]["spoken_languages"])[
+        "2026-09-10"
+    ]["duration_seconds"] == 25.0
+    assert _day_map(speed["by_scene"]["airport"])["2026-09-10"]["duration_seconds"] == 0.0
+
+
+def test_skipped_tasks_are_excluded_from_every_scene(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(1, duration=50)
+    user, _ = _make_user("alice")
+    skipped = _complete_next(user, status="skipped")
+    _attach_source(skipped["task_id"], "airport")
+    _set_submitted_at(
+        skipped["task_id"],
+        datetime(2026, 9, 12, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    assert sum(item["duration_seconds"] for item in speed["days"]) == 0.0
+    assert all(
+        _day_map(series)["2026-09-12"]["duration_seconds"] == 0.0
+        for series in speed["by_scene"].values()
+    )
+
+
+def test_scene_weekly_average_divides_by_seven_including_zeros(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(1, duration=7000)
+    user, _ = _make_user("alice")
+    completed = _complete_next(user)
+    _attach_source(completed["task_id"], "airport")
+    _set_submitted_at(
+        completed["task_id"],
+        datetime(2026, 8, 21, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    airport_weeks = speed["by_scene"]["airport"]["weeks"]
+    assert airport_weeks[0]["average_daily_duration_seconds"] == pytest.approx(1000.0)
+    assert airport_weeks[1]["average_daily_duration_seconds"] == 0.0
+    assert airport_weeks[2]["average_daily_duration_seconds"] == 0.0
+    assert airport_weeks[3]["average_daily_duration_seconds"] == 0.0
+    assert speed["by_scene"]["hotel"]["weeks"][0]["average_daily_duration_seconds"] == 0.0
+
+
+def test_revoked_and_superseded_versions_excluded_from_scenes(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(1, duration=40)
+    user, _ = _make_user("alice")
+    first = _complete_next(user, prefix="original")
+    _attach_source(first["task_id"], "airport")
+    _set_submitted_at(
+        first["task_id"],
+        datetime(2026, 8, 25, 4, 0, tzinfo=timezone.utc),
+    )
+    repo.reopen_completed(user["fence"], first["task_id"], str(uuid.uuid4()))
+    draft = repo.get_assignment(user["id"])
+    repo.complete(
+        user["fence"],
+        draft["lease_token"],
+        draft["revision"],
+        "annotated",
+        [],
+        _segments(draft, "corrected"),
+        str(uuid.uuid4()),
+        "reannotate",
+    )
+    _set_submitted_at(
+        first["task_id"],
+        datetime(2026, 9, 14, 4, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    airport_days = _day_map(speed["by_scene"]["airport"])
+    assert airport_days["2026-08-25"]["duration_seconds"] == 0.0
+    assert airport_days["2026-09-14"]["duration_seconds"] == 40.0
+    assert _day_map(speed)["2026-08-25"]["duration_seconds"] == 0.0
+    assert _day_map(speed)["2026-09-14"]["duration_seconds"] == 40.0
+
+
+def test_scene_midnight_boundary_matches_all_scenes(
+        database, seed_tasks, freeze_shanghai_afternoon):
+    seed_tasks(2, duration=10)
+    user, _ = _make_user("alice")
+    before = _complete_next(user, prefix="before")
+    after = _complete_next(user, prefix="after")
+    _attach_source(before["task_id"], "airport", batch="speed-mid-a")
+    _attach_source(after["task_id"], "airport", batch="speed-mid-b")
+    _set_duration(before["task_id"], 111)
+    _set_duration(after["task_id"], 222)
+    _set_submitted_at(
+        before["task_id"],
+        datetime(2026, 9, 16, 15, 59, 59, tzinfo=timezone.utc),
+    )
+    _set_submitted_at(
+        after["task_id"],
+        datetime(2026, 9, 16, 16, 0, 0, tzinfo=timezone.utc),
+    )
+    speed = repo.public_annotation_speed("Asia/Shanghai")
+    airport_days = _day_map(speed["by_scene"]["airport"])
+    assert airport_days["2026-09-16"]["duration_seconds"] == 111.0
+    assert airport_days["2026-09-17"]["duration_seconds"] == 222.0
+    assert _day_map(speed)["2026-09-16"]["duration_seconds"] == 111.0
+    assert _day_map(speed)["2026-09-17"]["duration_seconds"] == 222.0
+
+
+SPEED_EXPLAIN_SQL = repo.PUBLIC_ANNOTATION_SPEED_SQL
 SPEED_WINDOW_START_UTC = datetime(2026, 8, 20, 16, 0, tzinfo=timezone.utc)
 SPEED_WINDOW_END_UTC = datetime(2026, 9, 17, 16, 0, tzinfo=timezone.utc)
 

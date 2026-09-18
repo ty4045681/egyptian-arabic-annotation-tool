@@ -11,6 +11,7 @@ import pytest
 
 import annotation_repository as repo
 import server
+from annotation_metadata.taxonomy import SCENE_ORDER
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +51,21 @@ def test_leaderboard_is_public_and_keeps_legacy_field(client, database):
     assert "leaderboard" in response.json
     assert isinstance(response.json["leaderboard"], list)
     assert response.json["leaderboard"] == []
+    assert response.json["total_annotated_duration_seconds"] == 0.0
+    assert [item["code"] for item in response.json["scene_options"]] == list(SCENE_ORDER)
+    assert [item["label"] for item in response.json["scene_options"]] == [
+        "Restaurant", "Hotel", "Taxi", "Airport", "Clinic",
+        "Tourism information", "Emergencies", "Spoken languages",
+        "Business negotiation", "Shopping",
+    ]
+    assert all(set(item) == {"code", "label"} for item in response.json["scene_options"])
+    speed = response.json["annotation_speed"]
+    assert set(speed["by_scene"]) == set(SCENE_ORDER)
+    assert len(speed["days"]) == 28
+    assert len(speed["weeks"]) == 4
+    for series in speed["by_scene"].values():
+        assert len(series["days"]) == 28
+        assert len(series["weeks"]) == 4
 
 
 def test_leaderboard_includes_annotation_speed_shape(
@@ -96,6 +112,18 @@ def test_leaderboard_includes_annotation_speed_shape(
     assert all(isinstance(day["date"], str) and len(day["date"]) == 10 for day in speed["days"])
     assert speed["days"][-1]["is_partial"] is True
     assert isinstance(speed["weeks"][0]["average_daily_duration_seconds"], (int, float))
+    assert set(speed["by_scene"]) == set(SCENE_ORDER)
+    assert body["total_annotated_duration_seconds"] == pytest.approx(3600.0)
+    assert body["scene_options"][3] == {"code": "airport", "label": "Airport"}
+    filtered = client.get("/api/leaderboard?scene=airport")
+    assert filtered.status_code == 200
+    assert filtered.json["total_annotated_duration_seconds"] == body[
+        "total_annotated_duration_seconds"
+    ]
+    assert set(filtered.json["annotation_speed"]["by_scene"]) == set(SCENE_ORDER)
+    assert [day["date"] for day in filtered.json["annotation_speed"]["days"]] == [
+        day["date"] for day in speed["days"]
+    ]
 
 
 def test_leaderboard_cache_headers_and_no_private_ids(client, database):
@@ -127,23 +155,119 @@ def test_leaderboard_cache_headers_and_no_private_ids(client, database):
 
 
 def test_leaderboard_server_ttl_cache_skips_repeat_queries(client, monkeypatch):
-    calls = {"n": 0}
-    real = repo.public_annotation_speed
+    calls = {"speed": 0, "dash": 0}
+    real_speed = repo.public_annotation_speed
+    real_dash = repo.dashboard
 
-    def wrapped(*args, **kwargs):
-        calls["n"] += 1
-        return real(*args, **kwargs)
+    def wrapped_speed(*args, **kwargs):
+        calls["speed"] += 1
+        return real_speed(*args, **kwargs)
 
-    monkeypatch.setattr(repo, "public_annotation_speed", wrapped)
+    def wrapped_dash(*args, **kwargs):
+        calls["dash"] += 1
+        return real_dash(*args, **kwargs)
+
+    monkeypatch.setattr(repo, "public_annotation_speed", wrapped_speed)
+    monkeypatch.setattr(repo, "dashboard", wrapped_dash)
     monkeypatch.setitem(server.app.config, "TESTING", False)
     server.clear_leaderboard_cache()
     try:
         assert client.get("/api/leaderboard").status_code == 200
         assert client.get("/api/leaderboard").status_code == 200
-        assert calls["n"] == 1
+        assert calls["speed"] == 1
+        assert calls["dash"] == 1
     finally:
         server.clear_leaderboard_cache()
         monkeypatch.setitem(server.app.config, "TESTING", True)
+
+
+def _complete_named(name, duration, submitted_at, *, status="annotated"):
+    import db
+
+    user = repo.login(name, str(uuid.uuid4()), 1800)
+    assignment = repo.claim(user["fence"])
+    repo.complete(
+        user["fence"], assignment["lease_token"], assignment["revision"],
+        status,
+        ["noisy"] if status == "skipped" else [],
+        _segments(assignment, name) if status == "annotated" else [],
+        str(uuid.uuid4()), f"complete-{name}-{uuid.uuid4()}",
+    )
+    with db.db_conn() as conn:
+        conn.execute(
+            "UPDATE annotation_tasks SET duration = %s WHERE id = %s",
+            (duration, assignment["task_id"]),
+        )
+        conn.execute(
+            """UPDATE annotation_versions AS version
+                  SET submitted_at = %s
+                 FROM annotation_tasks AS task
+                WHERE task.id = %s
+                  AND version.id = task.current_published_version_id""",
+            (submitted_at, assignment["task_id"]),
+        )
+        conn.commit()
+    return assignment
+
+
+def test_total_annotated_duration_matches_leaderboard_and_excludes_invalid(
+        client, database, seed_tasks, monkeypatch):
+    import db
+
+    monkeypatch.setattr(
+        repo, "utcnow",
+        lambda: datetime(2026, 9, 17, 9, 30, tzinfo=timezone.utc),
+    )
+    seed_tasks(4, duration=10)
+    recent = _complete_named(
+        "Mariam", 3600, datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+    )
+    old = _complete_named(
+        "Ahmed", 1800, datetime(2026, 1, 2, 4, 0, tzinfo=timezone.utc),
+    )
+    skipped = _complete_named(
+        "Nour", 900, datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+        status="skipped",
+    )
+    revoked = _complete_named(
+        "Omar", 600, datetime(2026, 9, 10, 4, 0, tzinfo=timezone.utc),
+    )
+    with db.db_conn() as conn:
+        conn.execute(
+            """UPDATE annotation_versions
+                  SET lifecycle = 'revoked', revoked_at = now(),
+                      revoked_reason = 'quality failure'
+                WHERE id = %s""",
+            (revoked["version_id"],),
+        )
+        conn.execute(
+            """UPDATE annotation_tasks
+                  SET status = 'pending', current_published_version_id = NULL
+                WHERE id = %s""",
+            (revoked["task_id"],),
+        )
+        conn.commit()
+    response = client.get("/api/leaderboard")
+    body = response.json
+    users = {row["user"]: row for row in body["leaderboard"]}
+    assert users["Mariam"]["duration_seconds"] == pytest.approx(3600.0)
+    assert users["Ahmed"]["duration_seconds"] == pytest.approx(1800.0)
+    assert "Omar" not in users
+    assert users["Nour"]["duration_seconds"] == pytest.approx(0.0)
+    assert body["total_annotated_duration_seconds"] == pytest.approx(5400.0)
+    assert body["total_annotated_duration_seconds"] == pytest.approx(
+        sum(row["duration_seconds"] for row in body["leaderboard"])
+    )
+    assert "hours" in body["leaderboard"][0]
+    speed = body["annotation_speed"]
+    assert sum(day["duration_seconds"] for day in speed["days"]) == pytest.approx(3600.0)
+    assert skipped["task_id"]
+    assert old["task_id"]
+    assert recent["task_id"]
+    dumped = json.dumps(body)
+    assert "task_id" not in dumped
+    assert str(recent["task_id"]) not in dumped
+    assert str(recent["version_id"]) not in dumped
 
 
 def test_invalid_timezone_fails_at_startup(monkeypatch):
