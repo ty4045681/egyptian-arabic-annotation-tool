@@ -239,3 +239,105 @@ def create_cross_check_claim(
         "status": status,
         "task_id": task_id,
     }
+
+
+def freeze_cross_check_version(cur, *, version_id, user_id, target_status,
+                               skip_reasons) -> int:
+    """Freeze the secondary draft. Never publishes it."""
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'cross_check_submitted',
+               target_status = %s,
+               skip_reasons = %s,
+               revision = revision + 1,
+               human_modified = true,
+               modified_by_user_id = %s,
+               submitted_by_user_id = %s,
+               submitted_at = now(),
+               credited_annotator_id = %s,
+               updated_at = now()
+           WHERE id = %s
+             AND lifecycle = 'draft'
+             AND purpose = 'cross_check'""",
+        (target_status, skip_reasons, user_id, user_id, user_id, version_id),
+    )
+    return cur.rowcount
+
+
+def store_round_submission(
+    cur, *, round_id, state: str, comparison, original_input_revision: int,
+    secondary_input_revision: int, diff_ops, segment_map,
+) -> int:
+    """Persist worddiff_v1 evidence and the auto-pass / queue state."""
+    reason_codes = list(comparison.reason_codes)
+    resolved = state == "passed"
+    cur.execute(
+        """UPDATE cross_check_rounds
+           SET revision = revision + 1,
+               state = %s,
+               original_word_count = %s,
+               secondary_word_count = %s,
+               edit_distance = %s,
+               substitutions = %s,
+               insertions = %s,
+               deletions = %s,
+               original_normalized_summary = %s,
+               secondary_normalized_summary = %s,
+               original_input_revision = %s,
+               secondary_input_revision = %s,
+               diff_ops = %s,
+               segment_map = %s,
+               reason_codes = %s,
+               submitted_at = now(),
+               compared_at = now(),
+               resolved_at = CASE WHEN %s THEN now() ELSE resolved_at END,
+               updated_at = now()
+           WHERE id = %s AND state = 'in_progress'""",
+        (
+            state,
+            comparison.n_original,
+            comparison.n_secondary,
+            comparison.edit_distance,
+            comparison.substitutions,
+            comparison.insertions,
+            comparison.deletions,
+            comparison.original_normalized,
+            comparison.secondary_normalized,
+            original_input_revision,
+            secondary_input_revision,
+            Json(diff_ops),
+            Json(segment_map),
+            reason_codes,
+            resolved,
+            round_id,
+        ),
+    )
+    return cur.rowcount
+
+
+def record_cross_check_submitted(
+    cur, *, operation_id, user_id, task_id, version_id, from_status,
+    to_status, details: dict,
+) -> None:
+    cur.execute(
+        """INSERT INTO annotation_events
+               (operation_id, user_id, task_id, version_id, event_type,
+                from_status, to_status, details)
+           VALUES (%s, %s, %s, %s, 'cross_check_submitted', %s, %s, %s)""",
+        (operation_id, user_id, task_id, version_id, from_status, to_status,
+         Json(details)),
+    )
+
+
+def record_cross_check_passed(
+    cur, *, user_id, task_id, version_id, from_status, details: dict,
+) -> None:
+    # operation_id stays NULL: companion events cannot reuse the submitter's
+    # annotation_events.operation_id unique value (plan 10.3).
+    cur.execute(
+        """INSERT INTO annotation_events
+               (user_id, task_id, version_id, event_type,
+                from_status, to_status, details)
+           VALUES (%s, %s, %s, 'cross_check_passed', %s, %s, %s)""",
+        (user_id, task_id, version_id, from_status, from_status, Json(details)),
+    )

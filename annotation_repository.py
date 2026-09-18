@@ -64,6 +64,10 @@ class NotFoundError(RepositoryError):
 class ConflictError(RepositoryError):
     status = 409
 
+    def __init__(self, message, *, code=None):
+        super().__init__(message)
+        self.code = code
+
 
 class NoTaskAvailable(ConflictError):
     """No task currently satisfies the caller's claim conditions."""
@@ -1428,24 +1432,29 @@ def _load_waveform(cur, task_id) -> str | None:
     return base64.b64encode(bytes(row[0])).decode("ascii")
 
 
+def _parse_dirty_segment(seg: dict) -> tuple[int, float, float, float, str, bool]:
+    try:
+        sid = int(seg["id"])
+    except (KeyError, TypeError, ValueError):
+        raise ValidationError(f"segment entry missing valid id: {seg!r}")
+    start, end, duration = _seg_times(seg)
+    text = seg.get("text", "")
+    if not isinstance(text, str):
+        raise ValidationError(f"segment {sid}: text must be a string")
+    exclude = bool(seg.get("exclude_from_training", False))
+    return sid, start, end, duration, text, exclude
+
+
 def _apply_dirty_segments(cur, version_id, dirty: list[dict]) -> None:
     """Update existing segments only; clients may not invent segment IDs."""
     if not dirty:
         return
     seen: set[int] = set()
     for seg in dirty:
-        try:
-            sid = int(seg["id"])
-        except (KeyError, TypeError, ValueError):
-            raise ValidationError(f"segment entry missing valid id: {seg!r}")
+        sid, start, end, duration, text, exclude = _parse_dirty_segment(seg)
         if sid in seen:
             raise ValidationError(f"segment {sid} appears more than once")
         seen.add(sid)
-        start, end, duration = _seg_times(seg)
-        text = seg.get("text", "")
-        if not isinstance(text, str):
-            raise ValidationError(f"segment {sid}: text must be a string")
-        exclude = bool(seg.get("exclude_from_training", False))
         cur.execute(
             """UPDATE segments
                SET start_s = %s, end_s = %s, duration = %s,
@@ -1455,6 +1464,30 @@ def _apply_dirty_segments(cur, version_id, dirty: list[dict]) -> None:
         )
         if cur.rowcount != 1:
             raise ValidationError(f"segment {sid} does not exist in this task")
+
+
+def _merge_dirty_segments(segments: list[dict], dirty: list[dict]) -> list[dict]:
+    """Apply dirty fields in memory using the same rules as save."""
+    merged = {int(seg["id"]): dict(seg) for seg in segments}
+    if not dirty:
+        return [merged[int(seg["id"])] for seg in segments]
+    seen: set[int] = set()
+    for seg in dirty:
+        sid, start, end, duration, text, exclude = _parse_dirty_segment(seg)
+        if sid in seen:
+            raise ValidationError(f"segment {sid} appears more than once")
+        seen.add(sid)
+        if sid not in merged:
+            raise ValidationError(f"segment {sid} does not exist in this task")
+        merged[sid].update({
+            "id": sid,
+            "start": start,
+            "end": end,
+            "duration": duration,
+            "text": text,
+            "exclude_from_training": exclude,
+        })
+    return [merged[int(seg["id"])] for seg in segments]
 
 
 def _seg_times(seg: dict) -> tuple[float, float, float]:
@@ -1470,6 +1503,21 @@ def _seg_times(seg: dict) -> tuple[float, float, float]:
     return start, end, round(end - start, 3)
 
 
+def _validate_segment_timeline(segments: list[dict], duration: float) -> None:
+    previous_end = 0.0
+    ordered = sorted(
+        segments, key=lambda seg: (float(seg["start"]), int(seg["id"])),
+    )
+    for seg in ordered:
+        start, end = float(seg["start"]), float(seg["end"])
+        segment_id = seg["id"]
+        if start < previous_end - 0.001:
+            raise ValidationError(f"segment {segment_id} overlaps the previous segment")
+        if end > duration + 0.001:
+            raise ValidationError(f"segment {segment_id} ends after the audio duration")
+        previous_end = end
+
+
 def _validate_version_segments(cur, version_id, task_id) -> None:
     duration = float(cur.execute(
         "SELECT duration FROM annotation_tasks WHERE id = %s", (task_id,)
@@ -1478,14 +1526,10 @@ def _validate_version_segments(cur, version_id, task_id) -> None:
         "SELECT segment_id, start_s, end_s FROM segments WHERE version_id = %s ORDER BY start_s, segment_id",
         (version_id,),
     ).fetchall()
-    previous_end = 0.0
-    for segment_id, start, end in rows:
-        start, end = float(start), float(end)
-        if start < previous_end - 0.001:
-            raise ValidationError(f"segment {segment_id} overlaps the previous segment")
-        if end > duration + 0.001:
-            raise ValidationError(f"segment {segment_id} ends after the audio duration")
-        previous_end = end
+    _validate_segment_timeline(
+        [{"id": row[0], "start": row[1], "end": row[2]} for row in rows],
+        duration,
+    )
 
 
 # ============================================================
@@ -1576,95 +1620,112 @@ def complete(fence: SessionFence, lease_token: str, expected_revision: int,
                     "status_code": prior["status_code"], "response": prior["response"]}
 
         asg = _lock_assignment(cur, uid, lease_token)
-        if asg["mode"] == "cross_check":
-            raise ConflictError(
-                "Cross-check assignments cannot use the normal complete path"
+        if asg["mode"] != "cross_check":
+            return _complete_published_assignment(
+                cur, fence, uid, asg, expected_revision, target_status,
+                reasons, dirty_segments, op_uuid, request_hash, scene_review,
+                policy,
             )
-        cur.execute(
-            "SELECT id FROM annotation_tasks WHERE id = %s FOR UPDATE",
-            (asg["task_id"],),
-        )
-        row = cur.execute(
-            "SELECT revision FROM annotation_versions WHERE id = %s FOR UPDATE",
+        # Cross-check compare runs after this txn releases user/assignment
+        # write locks (plan 6.2).
+
+    from annotation_quality.service import submit_cross_check
+    return submit_cross_check(
+        fence, lease_token, expected_revision, target_status, reasons,
+        dirty_segments, op_uuid, request_hash, scene_review, policy,
+    )
+
+
+def _complete_published_assignment(
+    cur, fence: SessionFence, uid, asg: dict, expected_revision: int,
+    target_status: str, reasons: list[str], dirty_segments: list[dict],
+    op_uuid, request_hash: str, scene_review, policy: SessionPolicy | None,
+) -> dict:
+    cur.execute(
+        "SELECT id FROM annotation_tasks WHERE id = %s FOR UPDATE",
+        (asg["task_id"],),
+    )
+    row = cur.execute(
+        "SELECT revision FROM annotation_versions WHERE id = %s FOR UPDATE",
+        (asg["version_id"],),
+    ).fetchone()
+    if not row:
+        raise ConflictError("Working version no longer exists")
+    current = row[0]
+    if current != int(expected_revision):
+        raise RevisionConflict(current)
+
+    _apply_dirty_segments(cur, asg["version_id"], dirty_segments)
+    _validate_version_segments(cur, asg["version_id"], asg["task_id"])
+    from annotation_metadata.reviews import apply_optional_review
+    review, _review_changed = apply_optional_review(
+        cur, version_id=asg["version_id"], payload=scene_review,
+        actor_user_id=uid, operation_id=op_uuid,
+    )
+    if review is None:
+        from annotation_metadata.repository import latest_review
+        review = latest_review(cur, asg["version_id"])
+
+    if target_status == "annotated":
+        empty = cur.execute(
+            """SELECT segment_id FROM segments
+               WHERE version_id = %s AND exclude_from_training = false
+                 AND btrim(text) = '' ORDER BY segment_id""",
             (asg["version_id"],),
-        ).fetchone()
-        if not row:
-            raise ConflictError("Working version no longer exists")
-        current = row[0]
-        if current != int(expected_revision):
-            raise RevisionConflict(current)
+        ).fetchall()
+        if empty:
+            ids = [str(r[0]) for r in empty]
+            raise ValidationError(
+                "Segments without text must be annotated or marked Bad Quality: "
+                + ", ".join(ids)
+            )
 
-        _apply_dirty_segments(cur, asg["version_id"], dirty_segments)
-        _validate_version_segments(cur, asg["version_id"], asg["task_id"])
-        from annotation_metadata.reviews import apply_optional_review
-        review, _review_changed = apply_optional_review(
-            cur, version_id=asg["version_id"], payload=scene_review,
-            actor_user_id=uid, operation_id=op_uuid,
-        )
-        if review is None:
-            from annotation_metadata.repository import latest_review
-            review = latest_review(cur, asg["version_id"])
-
-        if target_status == "annotated":
-            empty = cur.execute(
-                """SELECT segment_id FROM segments
-                   WHERE version_id = %s AND exclude_from_training = false
-                     AND btrim(text) = '' ORDER BY segment_id""",
-                (asg["version_id"],),
-            ).fetchall()
-            if empty:
-                ids = [str(r[0]) for r in empty]
-                raise ValidationError(
-                    "Segments without text must be annotated or marked Bad Quality: "
-                    + ", ".join(ids)
-                )
-
-        # Publish: supersede any previous published version, flip task state.
-        cur.execute(
-            """UPDATE annotation_versions
-               SET lifecycle = 'superseded', updated_at = now()
-               WHERE task_id = %s AND lifecycle = 'published' AND id <> %s""",
-            (asg["task_id"], asg["version_id"]),
-        )
-        cur.execute(
-            """UPDATE annotation_versions
-               SET lifecycle = 'published', target_status = %s, skip_reasons = %s,
-                   revision = revision + 1,
-                   human_modified = true, modified_by_user_id = %s,
-                   submitted_by_user_id = %s, submitted_at = now(), updated_at = now()
-               WHERE id = %s""",
-            (target_status, reasons, uid, uid, asg["version_id"]),
-        )
-        cur.execute(
-            """UPDATE annotation_tasks
-               SET status = %s, current_published_version_id = %s,
-                   reserved_for_user_id = NULL, updated_at = now()
-               WHERE id = %s""",
-            (target_status, asg["version_id"], asg["task_id"]),
-        )
-        response = {
-            "success": True,
-            "task_id": str(asg["task_id"]),
-            "status": target_status,
-            "skip_reasons": reasons,
-            "scene_review": review,
-        }
-        _store_operation(cur, op_uuid, uid, "complete", request_hash, response)
-        cur.execute(
-            """INSERT INTO annotation_events
-                   (operation_id, user_id, task_id, version_id, event_type,
-                    from_status, to_status, details)
-               VALUES (%s, %s, %s, %s, 'completed', %s, %s, %s)""",
-            (op_uuid, uid, asg["task_id"], asg["version_id"],
-             asg["task_status"], target_status,
-             Json({
-                 "mode": asg["mode"], "skip_reasons": reasons,
-                 "scene_review_id": (review or {}).get("id"),
-             })),
-        )
-        cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
-        _touch_real_activity(cur, fence, policy=policy, assignment=False)
-        return response
+    # Publish: supersede any previous published version, flip task state.
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'superseded', updated_at = now()
+           WHERE task_id = %s AND lifecycle = 'published' AND id <> %s""",
+        (asg["task_id"], asg["version_id"]),
+    )
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'published', target_status = %s, skip_reasons = %s,
+               revision = revision + 1,
+               human_modified = true, modified_by_user_id = %s,
+               submitted_by_user_id = %s, submitted_at = now(), updated_at = now()
+           WHERE id = %s""",
+        (target_status, reasons, uid, uid, asg["version_id"]),
+    )
+    cur.execute(
+        """UPDATE annotation_tasks
+           SET status = %s, current_published_version_id = %s,
+               reserved_for_user_id = NULL, updated_at = now()
+           WHERE id = %s""",
+        (target_status, asg["version_id"], asg["task_id"]),
+    )
+    response = {
+        "success": True,
+        "task_id": str(asg["task_id"]),
+        "status": target_status,
+        "skip_reasons": reasons,
+        "scene_review": review,
+    }
+    _store_operation(cur, op_uuid, uid, "complete", request_hash, response)
+    cur.execute(
+        """INSERT INTO annotation_events
+               (operation_id, user_id, task_id, version_id, event_type,
+                from_status, to_status, details)
+           VALUES (%s, %s, %s, %s, 'completed', %s, %s, %s)""",
+        (op_uuid, uid, asg["task_id"], asg["version_id"],
+         asg["task_status"], target_status,
+         Json({
+             "mode": asg["mode"], "skip_reasons": reasons,
+             "scene_review_id": (review or {}).get("id"),
+         })),
+    )
+    cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
+    _touch_real_activity(cur, fence, policy=policy, assignment=False)
+    return response
 
 
 # ============================================================
@@ -1895,6 +1956,19 @@ def reopen_completed(fence: SessionFence, task_id: str, operation_id: str,
         submitter = published[0]
         if submitter != uid:
             raise ForbiddenError("You can only correct your own submissions")
+
+        open_round = cur.execute(
+            """SELECT state FROM cross_check_rounds
+               WHERE task_id = %s
+                 AND state IN ('in_progress', 'awaiting_review')
+               FOR UPDATE""",
+            (tid,),
+        ).fetchone()
+        if open_round:
+            raise ConflictError(
+                "This task has an open cross-check and cannot be reopened",
+                code="cross_check_active",
+            )
 
         open_draft = cur.execute(
             "SELECT id FROM annotation_versions WHERE task_id = %s AND lifecycle = 'draft' FOR UPDATE",
