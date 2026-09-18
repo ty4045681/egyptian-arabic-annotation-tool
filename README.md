@@ -253,7 +253,7 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python \
 
 速度图统计的是**当前仍然有效**的 `annotated` 任务音频时长（`annotation_tasks.duration`），按当前 published 版本的 `submitted_at` 在 `public_dashboard_timezone`（IANA 名称，默认 `Asia/Shanghai`）下的日历日分桶。`skipped`、已撤销、以及已被新版本取代的记录不计入；重新标注只计入新的当前版本及其提交日期。后端完成分桶，浏览器不得再用本地时区换算。没有标注的日期补零；今天标记为 `is_partial`。28 天按数组顺序分成四组，每组七日平均值是七天时长之和除以 7（零值日也参与分母）。非法时区会在进程启动时失败，不会静默回退。
 
-图表由仓库内固定版本的 Chart.js 4.5.1 与 chartjs-plugin-annotation 3.1.0 绘制（见 `static/vendor/README.md` 的来源、MIT License 和 SHA-256）。运行时不访问 CDN。选择性窗口上的 `EXPLAIN` 必须使用 `007_annotation_speed_indexes.sql` 的两个部分索引；健康检查 schema 版本为 `[1, 2, 3, 4, 5, 6, 7]`。
+图表由仓库内固定版本的 Chart.js 4.5.1 与 chartjs-plugin-annotation 3.1.0 绘制（见 `static/vendor/README.md` 的来源、MIT License 和 SHA-256）。运行时不访问 CDN。选择性窗口上的 `EXPLAIN` 必须使用 `007_annotation_speed_indexes.sql` 的两个部分索引；健康检查 schema 版本为 `[1, 2, 3, 4, 5, 6, 7, 8]`。
 
 ## 标注员会话
 
