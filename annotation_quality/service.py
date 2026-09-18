@@ -41,8 +41,6 @@ class _SubmitSnapshot:
     secondary_revision: int
     original_status: str
     threshold_bps: int
-    task_status: str
-    duration: float
     original_digest: str
     secondary_digest: str
     original_segments: list[dict]
@@ -73,15 +71,14 @@ def submit_cross_check(
 
     prior = _peek_complete_replay(uid, op_uuid, request_hash)
     if prior:
-        return {
-            "idempotent_replay": True,
-            "status_code": prior["status_code"],
-            "response": prior["response"],
-        }
+        return _replay_payload(prior)
 
     snapshot = _load_submit_snapshot(
         fence, lease_token, expected_revision, dirty_segments, scene_review,
+        operation_id=op_uuid, request_hash=request_hash,
     )
+    if isinstance(snapshot, dict):
+        return snapshot
     comparison = _run_comparison(
         snapshot, secondary_status=target_status,
     )
@@ -101,6 +98,14 @@ def submit_cross_check(
     )
 
 
+def _replay_payload(prior: dict) -> dict:
+    return {
+        "idempotent_replay": True,
+        "status_code": prior["status_code"],
+        "response": prior["response"],
+    }
+
+
 def _peek_complete_replay(uid, operation_id, request_hash: str) -> dict | None:
     with db_tx() as conn, conn.cursor() as cur:
         return repo._operation_replay(
@@ -114,11 +119,19 @@ def _load_submit_snapshot(
     expected_revision: int,
     dirty_segments: list[dict],
     scene_review,
-) -> _SubmitSnapshot:
+    *,
+    operation_id,
+    request_hash: str,
+) -> _SubmitSnapshot | dict:
     uid = fence.user_id
     with db_tx() as conn, conn.cursor() as cur:
         repo._lock_active_annotator(cur, uid)
         repo._require_session_fence(cur, fence)
+        prior = repo._operation_replay(
+            cur, operation_id, uid, "complete", request_hash,
+        )
+        if prior:
+            return _replay_payload(prior)
         asg = repo._lock_assignment(cur, uid, lease_token)
         if asg["mode"] != "cross_check":
             raise repo.ConflictError(
@@ -141,7 +154,7 @@ def _load_submit_snapshot(
                 "Cross-check assignment does not match the round"
             )
         task = cur.execute(
-            """SELECT duration, current_published_version_id, status
+            """SELECT duration, current_published_version_id
                FROM annotation_tasks WHERE id = %s""",
             (asg["task_id"],),
         ).fetchone()
@@ -179,10 +192,10 @@ def _load_submit_snapshot(
         duration = float(task[0])
         repo._validate_segment_timeline(merged, duration)
 
-        original_digest = comparison_input_digest(
+        original_digest = _comparison_input_digest(
             original_segments, original[1], rnd[0], original[0],
         )
-        secondary_digest = comparison_input_digest(
+        secondary_digest = _comparison_input_digest(
             merged, "pending", asg["version_id"], working[0],
         )
         return _SubmitSnapshot(
@@ -194,8 +207,6 @@ def _load_submit_snapshot(
             secondary_revision=int(working[0]),
             original_status=original[1],
             threshold_bps=int(rnd[3]),
-            task_status=asg["task_status"],
-            duration=duration,
             original_digest=original_digest,
             secondary_digest=secondary_digest,
             original_segments=original_segments,
@@ -226,8 +237,6 @@ def _run_comparison(snapshot: _SubmitSnapshot, *, secondary_status: str):
             secondary_status=secondary_status,
             threshold_bps=snapshot.threshold_bps,
         )
-    except repo.RepositoryError:
-        raise
     except Exception:
         return _unavailable_result(snapshot.threshold_bps)
 
@@ -236,8 +245,8 @@ def _unavailable_result(threshold_bps: int) -> ComparisonResult:
     return ComparisonResult(
         comparison_version=COMPARISON_VERSION,
         threshold_bps=int(threshold_bps),
-        n_original=0,
-        n_secondary=0,
+        n_original=None,
+        n_secondary=None,
         edit_distance=None,
         substitutions=None,
         insertions=None,
@@ -249,8 +258,8 @@ def _unavailable_result(threshold_bps: int) -> ComparisonResult:
         ops=(),
         original_bad_quality=(),
         secondary_bad_quality=(),
-        original_normalized="",
-        secondary_normalized="",
+        original_normalized=None,
+        secondary_normalized=None,
         comparison_unavailable=UNAVAILABLE_COMPUTE_FAILURE,
     )
 
@@ -278,11 +287,7 @@ def _commit_cross_check_submit(
             cur, operation_id, uid, "complete", request_hash,
         )
         if prior:
-            return {
-                "idempotent_replay": True,
-                "status_code": prior["status_code"],
-                "response": prior["response"],
-            }
+            return _replay_payload(prior)
 
         asg = repo._lock_assignment(cur, uid, lease_token)
         if asg["mode"] != "cross_check":
@@ -348,11 +353,11 @@ def _commit_cross_check_submit(
         merged = repo._merge_dirty_segments(
             repo._load_segments(cur, snapshot.version_id), dirty_segments,
         )
-        original_digest = comparison_input_digest(
+        original_digest = _comparison_input_digest(
             original_segments, original_row[4], snapshot.original_version_id,
             original_row[1],
         )
-        secondary_digest = comparison_input_digest(
+        secondary_digest = _comparison_input_digest(
             merged, "pending", snapshot.version_id, working[1],
         )
         if (
@@ -377,7 +382,7 @@ def _commit_cross_check_submit(
         if frozen != 1:
             raise repo.ConflictError("Cross-check draft is no longer editable")
 
-        state = _round_state_for(comparison)
+        state = "awaiting_review" if comparison.needs_review else "passed"
         stored = store_round_submission(
             cur,
             round_id=snapshot.round_id,
@@ -442,19 +447,6 @@ def _commit_cross_check_submit(
         return response
 
 
-def _round_state_for(comparison: ComparisonResult) -> str:
-    if (
-        comparison.needs_review
-        or comparison.needs_word_review
-        or comparison.edit_distance is None
-        or comparison.n_original <= 0
-        or comparison.n_secondary <= 0
-        or comparison.reason_codes
-    ):
-        return "awaiting_review"
-    return "passed"
-
-
 def _submit_response(*, task_id, target_status, skip_reasons, round_id, state) -> dict:
     return {
         "success": True,
@@ -470,7 +462,7 @@ def _submit_response(*, task_id, target_status, skip_reasons, round_id, state) -
     }
 
 
-def comparison_input_digest(
+def _comparison_input_digest(
     segments: list[dict], status: str, version_id, revision: int,
 ) -> str:
     payload = {

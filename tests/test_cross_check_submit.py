@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import uuid
 
 import annotation_quality.service as quality_service
+import annotation_repository as repo
 import db
 from annotation_quality.comparison import compare_transcripts as real_compare
 from tests.test_api import login, segment_payload
@@ -378,6 +380,53 @@ def test_complete_merges_dirty_segments_before_compare(client, seed_tasks):
     assert row[2] == 0
 
 
+def test_snapshot_replays_before_locking_assignment():
+    src = inspect.getsource(quality_service._load_submit_snapshot)
+    assert src.index("_operation_replay") < src.index("_lock_assignment")
+
+
+def test_snapshot_replays_if_winner_released_assignment(
+    client, seed_tasks, monkeypatch,
+):
+    seed_annotated(client, seed_tasks, 1)
+    enable_cross_check(enabled=True, sampling_rate_bps=10000)
+    login(client, "bob")
+    assignment = bob_claim(client)
+    stored = {
+        "success": True,
+        "task_id": assignment["task_id"],
+        "status": "annotated",
+        "published": False,
+        "skip_reasons": [],
+        "cross_check": {
+            "round_id": assignment["cross_check"]["round_id"],
+            "state": "passed",
+            "training_export_blocked": False,
+        },
+    }
+    real_peek = quality_service._peek_complete_replay
+
+    def peek_then_winner(uid, operation_id, request_hash):
+        prior = real_peek(uid, operation_id, request_hash)
+        assert prior is None
+        with db.db_tx() as conn, conn.cursor() as cur:
+            repo._store_operation(
+                cur, operation_id, uid, "complete", request_hash, stored,
+            )
+            cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
+        return None
+
+    monkeypatch.setattr(
+        quality_service, "_peek_complete_replay", peek_then_winner,
+    )
+    response, _ = complete(
+        client, assignment, segments=text_segments(assignment, IDENTICAL),
+    )
+    assert response.status_code == 200, response.json
+    assert response.json == stored
+    assert client.get("/api/assignment").json["assigned"] is False
+
+
 def test_over_budget_queues_without_zero_distance(client, seed_tasks, monkeypatch):
     seed_annotated(client, seed_tasks, 1, text=words(20))
     enable_cross_check(enabled=True, sampling_rate_bps=10000)
@@ -399,6 +448,42 @@ def test_over_budget_queues_without_zero_distance(client, seed_tasks, monkeypatc
     assert secondary[0] == "cross_check_submitted"
     after = task_published(assignment["task_id"])
     assert after[3] == "published"
+
+
+def test_compare_exception_stores_null_word_counts(
+    client, seed_tasks, monkeypatch,
+):
+    seed_annotated(client, seed_tasks, 1)
+    enable_cross_check(enabled=True, sampling_rate_bps=10000)
+    login(client, "bob")
+    assignment = bob_claim(client)
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("worddiff failed")
+
+    monkeypatch.setattr(quality_service, "compare_transcripts", explode)
+    response, _ = complete(
+        client, assignment, segments=text_segments(assignment, IDENTICAL),
+    )
+    assert response.status_code == 200, response.json
+    assert response.json["cross_check"]["state"] == "awaiting_review"
+    assert response.json["cross_check"]["training_export_blocked"] is True
+    row = round_row(response.json["cross_check"]["round_id"])
+    assert row[0] == "awaiting_review"
+    assert "comparison_unavailable" in list(row[1] or [])
+    assert row[2] is None
+    assert row[3] is None
+    assert row[4] is None
+    with db.db_conn() as conn:
+        summaries = conn.execute(
+            """SELECT original_normalized_summary, secondary_normalized_summary
+               FROM cross_check_rounds WHERE id = %s""",
+            (response.json["cross_check"]["round_id"],),
+        ).fetchone()
+    assert summaries[0] is None
+    assert summaries[1] is None
+    secondary = version_row(assignment["version_id"])
+    assert secondary[0] == "cross_check_submitted"
 
 
 def test_assignment_released_but_audio_stays_blocked(client, seed_tasks):

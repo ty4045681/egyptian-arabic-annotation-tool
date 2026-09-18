@@ -93,8 +93,8 @@ class EditOp:
 class ComparisonResult:
     comparison_version: str
     threshold_bps: int
-    n_original: int
-    n_secondary: int
+    n_original: int | None
+    n_secondary: int | None
     edit_distance: int | None
     substitutions: int | None
     insertions: int | None
@@ -106,8 +106,8 @@ class ComparisonResult:
     ops: tuple[EditOp, ...]
     original_bad_quality: tuple[TimeInterval, ...]
     secondary_bad_quality: tuple[TimeInterval, ...]
-    original_normalized: str
-    secondary_normalized: str
+    original_normalized: str | None
+    secondary_normalized: str | None
     comparison_unavailable: str | None = None
 
 
