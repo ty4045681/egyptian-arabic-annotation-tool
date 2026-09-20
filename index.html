@@ -339,7 +339,11 @@ function setBusy(busy){
   for(const node of document.querySelectorAll("#tablePanel [data-text],#tablePanel [data-time],#tablePanel [data-quality]"))node.disabled=locked;
   for(const node of document.querySelectorAll("#sceneReviewPanel button,#sceneReviewPanel input,#sceneReviewPanel textarea,#sceneReviewPanel select"))node.disabled=locked||!reviewWriteEnabled();
 }
-function stateView(title,description,actions="",kind=""){$("taskbar").classList.remove("show");$("wavePanel").classList.remove("show");$("tablePanel").innerHTML='<div class="state '+kind+'"><div class="state-inner"><h1>'+escapeHtml(title)+'</h1><p>'+escapeHtml(description)+'</p>'+actions+'</div></div>'}
+function stateView(title,description,actions="",kind=""){
+  $("taskbar").classList.remove("show");$("wavePanel").classList.remove("show");
+  $("sceneReviewPanel").hidden=true;$("sceneReviewPanel").replaceChildren();
+  $("tablePanel").innerHTML='<div class="state '+kind+'"><div class="state-inner"><h1>'+escapeHtml(title)+'</h1><p>'+escapeHtml(description)+'</p>'+actions+'</div></div>'
+}
 function clampFontSize(value){const n=Number(value);return Number.isFinite(n)?Math.min(FONT_MAX,Math.max(FONT_MIN,Math.round(n))):FONT_DEFAULT}
 function applyTranscriptFont(size,persist){
   state.transcriptSize=clampFontSize(size);
