@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import expect, sync_playwright
 
@@ -56,6 +57,48 @@ def _console_failures(console, *, allow_substrings=()):
 
 def _accept_dialogs(page):
     page.on("dialog", lambda dialog: dialog.accept())
+
+
+@pytest.mark.parametrize("action", ["abandon", "complete", "skip"])
+def test_scene_review_cleared_when_returning_to_claim_page(provenance_site, action):
+    url = provenance_site["url"]
+    errors = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1366, "height": 1000})
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        _accept_dialogs(page)
+        try:
+            _login_annotator(page, url, f"browser-idle-review-{action}")
+            panel = page.locator("#sceneReviewPanel")
+            expect(panel).to_be_hidden()
+            _select_airport_and_claim(page)
+            expect(panel).to_be_visible()
+            expect(panel.get_by_role("button", name="Confirm", exact=True)).to_be_enabled()
+
+            if action == "complete":
+                _fill_transcripts(page, "completed task")
+            elif action == "skip":
+                page.locator('[data-reason="noisy"]').click()
+            endpoint = "abandon" if action == "abandon" else "complete"
+            with page.expect_response(
+                lambda response: response.request.method == "POST"
+                and response.url.endswith(f"/api/assignment/current/{endpoint}"),
+                timeout=10000,
+            ) as released:
+                page.locator(f"#{action}Button").click()
+            assert released.value.status == 200, released.value.text()
+            expect(page.locator("#claimButton")).to_be_visible(timeout=10000)
+            expect(panel).to_be_hidden()
+            expect(panel.locator("button, input, textarea, select")).to_have_count(0)
+
+            page.locator("#claimButton").click()
+            expect(page.locator("textarea[data-text='0']")).to_be_visible(timeout=10000)
+            expect(panel).to_be_visible()
+            expect(panel.get_by_role("button", name="Confirm", exact=True)).to_be_enabled()
+            assert not errors, errors
+        finally:
+            browser.close()
 
 
 def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
@@ -159,6 +202,7 @@ def test_annotator_admin_scene_provenance_workflow(provenance_site, tmp_path):
             expect(abandon).to_be_enabled(timeout=10000)
             abandon.click()
             expect(page.locator("#claimButton")).to_be_visible(timeout=10000)
+            expect(page.locator("#sceneReviewPanel")).to_be_hidden()
 
             page.goto(url + "/admin")
             expect(page.locator("#adminKey")).to_be_visible(timeout=10000)
