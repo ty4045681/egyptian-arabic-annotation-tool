@@ -1,0 +1,59 @@
+{
+  "source_commit": "ef7696d508608725069bcfca099e498fc8fc6885",
+  "recorded_at": "2026-09-21T11:57:56.340927+00:00",
+  "exit_status": 0,
+  "database": {
+    "kind": "pgserver",
+    "version": "postgres (PostgreSQL) 16.2"
+  },
+  "seconds": 86.12,
+  "counts": {
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0
+  },
+  "reports": [
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_login_workspace_history",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 15.8609
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_login_loading_and_error",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.0701
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_offline_conflict_and_takeover",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.6666
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_admin",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 20.8953
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_segment_scale[100]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.1338
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_segment_scale[500]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 11.1306
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_segment_scale[1000]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 14.42
+    }
+  ]
+}

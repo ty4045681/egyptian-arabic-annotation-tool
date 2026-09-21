@@ -1,0 +1,237 @@
+{
+  "browser": "151.0.7922.34",
+  "locale": "en-US",
+  "timezone": "Asia/Shanghai",
+  "device_scale_factor": 1,
+  "synthetic_data": true,
+  "page_errors": [],
+  "console_messages": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    }
+  ],
+  "failed_requests": [
+    {
+      "method": "GET",
+      "path": "/api/leaderboard",
+      "failure": "net::ERR_FAILED"
+    }
+  ],
+  "document_headers": [
+    {
+      "path": "/login.html",
+      "status": 200,
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "text/html; charset=utf-8"
+      }
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "screenshots/login-statistics-loading-1440x900.png",
+      "url": "/login.html",
+      "note": "Leaderboard response intentionally held",
+      "full_page": false,
+      "geometry": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "document": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".app-header": null,
+          ".taskbar": null,
+          "#taskName": null,
+          "#saveState": null,
+          "#saveButton": null,
+          "#completeButton": null,
+          "#sceneReviewPanel": null,
+          "#wavePanel": null,
+          "#tablePanel": null,
+          "textarea[data-text=\"0\"]": null,
+          "aside": null,
+          ".date-toolbar": null,
+          ".table-toolbar": null,
+          "#ccQueuePanel": null,
+          "#ccListBody": null,
+          "#sceneScopeForm": null,
+          "#loginView": null,
+          ".layout": {
+            "x": 230,
+            "y": 229.765625,
+            "width": 980,
+            "height": 440.453125,
+            "right": 1210,
+            "bottom": 670.21875,
+            "visible": true,
+            "fontSize": "14px",
+            "lineHeight": "21.7px",
+            "direction": "ltr",
+            "color": "rgb(226, 228, 236)",
+            "background": "rgba(0, 0, 0, 0)"
+          }
+        },
+        "controls": [
+          {
+            "id": "username",
+            "label": "",
+            "x": 259,
+            "y": 419.234375,
+            "width": 282,
+            "height": 43,
+            "right": 541,
+            "bottom": 462.234375,
+            "visible": true,
+            "fontSize": "15px",
+            "lineHeight": "normal",
+            "direction": "ltr",
+            "color": "rgb(226, 228, 236)",
+            "background": "rgb(37, 37, 54)"
+          },
+          {
+            "id": "joinBtn",
+            "label": "Join",
+            "x": 259,
+            "y": 476.234375,
+            "width": 282,
+            "height": 41,
+            "right": 541,
+            "bottom": 517.234375,
+            "visible": true,
+            "fontSize": "15px",
+            "lineHeight": "normal",
+            "direction": "ltr",
+            "color": "rgb(255, 255, 255)",
+            "background": "rgb(129, 140, 248)"
+          },
+          {
+            "id": "sceneSelect",
+            "label": "All scenes",
+            "x": 995,
+            "y": 279.359375,
+            "width": 190,
+            "height": 38,
+            "right": 1185,
+            "bottom": 317.359375,
+            "visible": true,
+            "fontSize": "14px",
+            "lineHeight": "normal",
+            "direction": "ltr",
+            "color": "rgb(226, 228, 236)",
+            "background": "rgb(37, 37, 54)"
+          }
+        ],
+        "scrollContainers": [],
+        "transcriptCount": 0,
+        "bodyFont": "Inter, \"Segoe UI\", \"Helvetica Neue\", sans-serif"
+      }
+    },
+    {
+      "file": "screenshots/login-statistics-error-1440x900.png",
+      "url": "/login.html",
+      "note": "Injected network failure; login remains enabled",
+      "full_page": false,
+      "geometry": {
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "document": {
+          "width": 1440,
+          "height": 900
+        },
+        "boxes": {
+          ".app-header": null,
+          ".taskbar": null,
+          "#taskName": null,
+          "#saveState": null,
+          "#saveButton": null,
+          "#completeButton": null,
+          "#sceneReviewPanel": null,
+          "#wavePanel": null,
+          "#tablePanel": null,
+          "textarea[data-text=\"0\"]": null,
+          "aside": null,
+          ".date-toolbar": null,
+          ".table-toolbar": null,
+          "#ccQueuePanel": null,
+          "#ccListBody": null,
+          "#sceneScopeForm": null,
+          "#loginView": null,
+          ".layout": {
+            "x": 230,
+            "y": 229.765625,
+            "width": 980,
+            "height": 440.453125,
+            "right": 1210,
+            "bottom": 670.21875,
+            "visible": true,
+            "fontSize": "14px",
+            "lineHeight": "21.7px",
+            "direction": "ltr",
+            "color": "rgb(226, 228, 236)",
+            "background": "rgba(0, 0, 0, 0)"
+          }
+        },
+        "controls": [
+          {
+            "id": "username",
+            "label": "",
+            "x": 259,
+            "y": 419.234375,
+            "width": 282,
+            "height": 43,
+            "right": 541,
+            "bottom": 462.234375,
+            "visible": true,
+            "fontSize": "15px",
+            "lineHeight": "normal",
+            "direction": "ltr",
+            "color": "rgb(226, 228, 236)",
+            "background": "rgb(37, 37, 54)"
+          },
+          {
+            "id": "joinBtn",
+            "label": "Join",
+            "x": 259,
+            "y": 476.234375,
+            "width": 282,
+            "height": 41,
+            "right": 541,
+            "bottom": 517.234375,
+            "visible": true,
+            "fontSize": "15px",
+            "lineHeight": "normal",
+            "direction": "ltr",
+            "color": "rgb(255, 255, 255)",
+            "background": "rgb(129, 140, 248)"
+          },
+          {
+            "id": "sceneSelect",
+            "label": "All scenes",
+            "x": 995,
+            "y": 279.359375,
+            "width": 190,
+            "height": 38,
+            "right": 1185,
+            "bottom": 317.359375,
+            "visible": true,
+            "fontSize": "14px",
+            "lineHeight": "normal",
+            "direction": "ltr",
+            "color": "rgb(226, 228, 236)",
+            "background": "rgb(37, 37, 54)"
+          }
+        ],
+        "scrollContainers": [],
+        "transcriptCount": 0,
+        "bodyFont": "Inter, \"Segoe UI\", \"Helvetica Neue\", sans-serif"
+      }
+    }
+  ]
+}

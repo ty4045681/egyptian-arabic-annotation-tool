@@ -1,0 +1,9 @@
+[
+  "scripts/frontend_p0_capture.py::test_capture_login_workspace_history",
+  "scripts/frontend_p0_capture.py::test_capture_login_loading_and_error",
+  "scripts/frontend_p0_capture.py::test_capture_offline_conflict_and_takeover",
+  "scripts/frontend_p0_capture.py::test_capture_admin",
+  "scripts/frontend_p0_capture.py::test_capture_segment_scale[100]",
+  "scripts/frontend_p0_capture.py::test_capture_segment_scale[500]",
+  "scripts/frontend_p0_capture.py::test_capture_segment_scale[1000]"
+]

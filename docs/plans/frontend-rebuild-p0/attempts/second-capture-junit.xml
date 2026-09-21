@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="7" time="100.962" timestamp="2026-09-21T19:54:22.541511+08:00" hostname="VM-0-3-ubuntu"><testcase classname="scripts.frontend_p0_capture" name="test_capture_login_workspace_history" time="32.077"><failure message="AssertionError: Locator expected to be visible&#10;Actual value: None&#10;Error: element(s) not found &#10;Call log:&#10;  - Expect &quot;to_be_visible&quot; with timeout 15000ms&#10;  - waiting for locator(&quot;textarea[data-text=\&quot;0\&quot;]&quot;)&#10;&#10;Aria snapshot:&#10;- link &quot;Skip to completed records&quot;:&#10;  - /url: &quot;#main&quot;&#10;- banner:&#10;  - text: ◈ Egyptian Arabic Annotation Tool Completed data p0-long-username-abcdefghijklmnop&#10;  - link &quot;Annotation workspace&quot;:&#10;    - /url: /&#10;  - button &quot;Log out&quot;&#10;- main:&#10;  - heading &quot;Your completed data&quot; [level=1]&#10;  - paragraph: Review tasks you submitted. Corrections are available only when you have no unfinished task.&#10;  - region &quot;Your annotation summary&quot;:&#10;    - strong: &quot;1&quot;&#10;    - text: Completed tasks&#10;    - strong: &quot;0&quot;&#10;    - text: Skipped tasks&#10;    - strong: 0 h 00 min&#10;    - text: Completed audio time&#10;  - region &quot;Completed records&quot;:&#10;    - heading &quot;Completed records&quot; [level=2]&#10;    - text: Search file or folder&#10;    - searchbox &quot;Search file or folder&quot;&#10;    - text: Status&#10;    - button &quot;All&quot; [pressed]&#10;    - button &quot;Completed&quot;&#10;    - button &quot;Skipped&quot;&#10;    - status: 1 shown&#10;    - table:&#10;      - rowgroup:&#10;        - row &quot;File Status Segments Duration Submitted Actions&quot;:&#10;          - columnheader &quot;File&quot;&#10;          - columnheader &quot;Status&quot;&#10;          - columnheader &quot;Segments&quot;&#10;          - columnheader &quot;Duration&quot;&#10;          - columnheader &quot;Submitted&quot;&#10;          - columnheader &quot;Actions&quot;&#10;      - rowgroup:&#10;        - row &quot;airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav p0-pending Completed 12 10.0 s Sep 21, 2026, 7:54 PM View Correct&quot;:&#10;          - cell &quot;airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav p0-pending&quot;&#10;          - cell &quot;Completed&quot;&#10;          - cell &quot;12&quot;&#10;          - cell &quot;10.0 s&quot;&#10;          - cell &quot;Sep 21, 2026, 7:54 PM&quot;&#10;          - cell &quot;View Correct&quot;:&#10;            - button &quot;View&quot;&#10;            - button &quot;Correct&quot;&#10;- dialog &quot;airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav&quot;:&#10;  - heading &quot;airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav&quot; [level=2]&#10;  - button &quot;Close&quot;&#10;  - text: Airport · Source confidence High · Scene confirmed (Airport)&#10;  - group: Source, basis, and review details&#10;  - text: Completed 10.0 s 12 segments Sep 21, 2026, 7:54 PM&#10;  - table:&#10;    - rowgroup:&#10;      - row &quot;# Time ASR Submitted text Quality&quot;:&#10;        - columnheader &quot;#&quot;&#10;        - columnheader &quot;Time&quot;&#10;        - columnheader &quot;ASR&quot;&#10;        - columnheader &quot;Submitted text&quot;&#10;        - columnheader &quot;Quality&quot;&#10;    - rowgroup:&#10;      - row &quot;1 00:00.000–00:00.833 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;1&quot;&#10;        - cell &quot;00:00.000–00:00.833&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;2 00:00.833–00:01.667 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;2&quot;&#10;        - cell &quot;00:00.833–00:01.667&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;3 00:01.667–00:02.500 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;3&quot;&#10;        - cell &quot;00:01.667–00:02.500&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;4 00:02.500–00:03.333 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;4&quot;&#10;        - cell &quot;00:02.500–00:03.333&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;5 00:03.333–00:04.167 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;5&quot;&#10;        - cell &quot;00:03.333–00:04.167&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;6 00:04.167–00:05.000 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;6&quot;&#10;        - cell &quot;00:04.167–00:05.000&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;7 00:05.000–00:05.833 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;7&quot;&#10;        - cell &quot;00:05.000–00:05.833&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;8 00:05.833–00:06.667 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;8&quot;&#10;        - cell &quot;00:05.833–00:06.667&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;9 00:06.667–00:07.500 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;9&quot;&#10;        - cell &quot;00:06.667–00:07.500&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;10 00:07.500–00:08.333 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;10&quot;&#10;        - cell &quot;00:07.500–00:08.333&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;11 00:08.333–00:09.167 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;11&quot;&#10;        - cell &quot;00:08.333–00:09.167&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;      - row &quot;12 00:09.167–00:10.000 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included&quot;:&#10;        - cell &quot;12&quot;&#10;        - cell &quot;00:09.167–00:10.000&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋&quot;&#10;        - cell &quot;Included&quot;&#10;  - button &quot;Close&quot;&#10;  - button &quot;Correct this task&quot;&#10;- status">scripts/frontend_p0_capture.py:189: in test_capture_login_workspace_history
+    expect(p.locator('textarea[data-text="0"]')).to_be_visible(timeout=15000)
+E   AssertionError: Locator expected to be visible
+E   Actual value: None
+E   Error: element(s) not found
+E   Call log:
+E     - Expect "to_be_visible" with timeout 15000ms
+E     - waiting for locator("textarea[data-text=\"0\"]")
+E
+E   Aria snapshot:
+E   - link "Skip to completed records":
+E     - /url: "#main"
+E   - banner:
+E     - text: ◈ Egyptian Arabic Annotation Tool Completed data p0-long-username-abcdefghijklmnop
+E     - link "Annotation workspace":
+E       - /url: /
+E     - button "Log out"
+E   - main:
+E     - heading "Your completed data" [level=1]
+E     - paragraph: Review tasks you submitted. Corrections are available only when you have no unfinished task.
+E     - region "Your annotation summary":
+E       - strong: "1"
+E       - text: Completed tasks
+E       - strong: "0"
+E       - text: Skipped tasks
+E       - strong: 0 h 00 min
+E       - text: Completed audio time
+E     - region "Completed records":
+E       - heading "Completed records" [level=2]
+E       - text: Search file or folder
+E       - searchbox "Search file or folder"
+E       - text: Status
+E       - button "All" [pressed]
+E       - button "Completed"
+E       - button "Skipped"
+E       - status: 1 shown
+E       - table:
+E         - rowgroup:
+E           - row "File Status Segments Duration Submitted Actions":
+E             - columnheader "File"
+E             - columnheader "Status"
+E             - columnheader "Segments"
+E             - columnheader "Duration"
+E             - columnheader "Submitted"
+E             - columnheader "Actions"
+E         - rowgroup:
+E           - row "airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav p0-pending Completed 12 10.0 s Sep 21, 2026, 7:54 PM View Correct":
+E             - cell "airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav p0-pending"
+E             - cell "Completed"
+E             - cell "12"
+E             - cell "10.0 s"
+E             - cell "Sep 21, 2026, 7:54 PM"
+E             - cell "View Correct":
+E               - button "View"
+E               - button "Correct"
+E   - dialog "airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav":
+E     - heading "airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_airport_recording_long_filename_العربية.wav" [level=2]
+E     - button "Close"
+E     - text: Airport · Source confidence High · Scene confirmed (Airport)
+E     - group: Source, basis, and review details
+E     - text: Completed 10.0 s 12 segments Sep 21, 2026, 7:54 PM
+E     - table:
+E       - rowgroup:
+E         - row "# Time ASR Submitted text Quality":
+E           - columnheader "#"
+E           - columnheader "Time"
+E           - columnheader "ASR"
+E           - columnheader "Submitted text"
+E           - columnheader "Quality"
+E       - rowgroup:
+E         - row "1 00:00.000–00:00.833 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "1"
+E           - cell "00:00.000–00:00.833"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "2 00:00.833–00:01.667 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "2"
+E           - cell "00:00.833–00:01.667"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "3 00:01.667–00:02.500 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "3"
+E           - cell "00:01.667–00:02.500"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "4 00:02.500–00:03.333 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "4"
+E           - cell "00:02.500–00:03.333"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "5 00:03.333–00:04.167 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "5"
+E           - cell "00:03.333–00:04.167"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "6 00:04.167–00:05.000 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "6"
+E           - cell "00:04.167–00:05.000"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "7 00:05.000–00:05.833 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "7"
+E           - cell "00:05.000–00:05.833"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "8 00:05.833–00:06.667 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "8"
+E           - cell "00:05.833–00:06.667"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "9 00:06.667–00:07.500 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "9"
+E           - cell "00:06.667–00:07.500"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "10 00:07.500–00:08.333 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "10"
+E           - cell "00:07.500–00:08.333"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "11 00:08.333–00:09.167 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "11"
+E           - cell "00:08.333–00:09.167"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E         - row "12 00:09.167–00:10.000 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋 Included":
+E           - cell "12"
+E           - cell "00:09.167–00:10.000"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+E           - cell "Included"
+E     - button "Close"
+E     - button "Correct this task"
+E   - status</failure></testcase><testcase classname="scripts.frontend_p0_capture" name="test_capture_login_loading_and_error" time="4.125" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_offline_conflict_and_takeover" time="6.731" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_admin" time="21.148" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_segment_scale[100]" time="7.743" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_segment_scale[500]" time="11.369" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_segment_scale[1000]" time="17.431" /></testsuite></testsuites>

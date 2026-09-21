@@ -1,0 +1,3042 @@
+{
+  "source_commit": "ef7696d508608725069bcfca099e498fc8fc6885",
+  "recorded_at": "2026-09-21T11:53:52.158953+00:00",
+  "exit_status": 0,
+  "database": {
+    "kind": "pgserver",
+    "version": "postgres (PostgreSQL) 16.2"
+  },
+  "seconds": 708.97,
+  "counts": {
+    "passed": 503,
+    "failed": 0,
+    "skipped": 1
+  },
+  "reports": [
+    {
+      "nodeid": "tests/browser/test_cross_check_admin.py::test_overview_opens_all_time_awaiting_queue",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.9706
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_admin.py::test_sampling_settings_percent_to_bps",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.3246
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_admin.py::test_use_cross_check_decision",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.8166
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_admin.py::test_edit_and_publish_sends_full_segments",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.9266
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_admin.py::test_cancel_in_progress_and_not_awaiting",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.8769
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_admin.py::test_decision_conflict_keeps_local_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.0782
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_diff.py::test_unicode_and_emoji_marks_use_code_point_spans",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.3687
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_diff.py::test_xss_sample_is_plain_text",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.0033
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_diff.py::test_large_detail_and_difference_navigation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 15.0689
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_diff.py::test_sampling_percent_parser_in_browser",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.9269
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_history.py::test_own_submissions_use_ordinary_history_and_detail[w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15 w16 w17 w18 w19]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.9456
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_history.py::test_own_submissions_use_ordinary_history_and_detail[Different submitted text]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.9588
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_history.py::test_adjudicated_history_does_not_show_decision_direction",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.216
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_history.py::test_completed_correct_blocked_while_cross_check_open",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.2444
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_uncertain_decision_locks_form_and_retries_same_body[request-lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.7188
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_uncertain_decision_locks_form_and_retries_same_body[response-lost]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.7621
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_rejected_decision_can_be_corrected_as_new_operation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.3778
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_conflicting_edited_draft_remains_copyable[latest-result]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.1599
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_conflicting_edited_draft_remains_copyable[reload-fails]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.409
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_declining_refresh_discard_keeps_editable_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.6985
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_settings_conflict_preserves_inputs_until_explicit_resave[latest-settings]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.2397
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_settings_conflict_preserves_inputs_until_explicit_resave[reload-fails]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.592
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_regressions.py::test_history_filter_switch_allows_reload_and_ignores_old_response",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.8683
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_cross_check_claim_is_blind_and_submits_awaiting_review",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.0714
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_identical_cross_check_is_submitted_passed",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.9529
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_task_abandon_uses_standard_copy[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.12
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_task_abandon_uses_standard_copy[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.2204
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_refresh_restores_nonempty_cross_check_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.6112
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_complete_response_loss_replays_same_operation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.9173
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_old_submission_flash_has_only_standard_feedback[annotated]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.2524
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_old_submission_flash_has_only_standard_feedback[skipped]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.434
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_save_error_and_exported_draft_do_not_reveal_task_mode[400]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.3523
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_save_error_and_exported_draft_do_not_reveal_task_mode[409]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.8641
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_skipping_uses_standard_feedback_and_history[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.7474
+    },
+    {
+      "nodeid": "tests/browser/test_cross_check_workspace.py::test_skipping_uses_standard_feedback_and_history[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.9617
+    },
+    {
+      "nodeid": "tests/browser/test_english_platform_acceptance.py::test_english_ui_and_spoken_fallback_across_annotation_admin",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 8.4641
+    },
+    {
+      "nodeid": "tests/browser/test_login_dashboard.py::test_login_dashboard_desktop_and_mobile_chart",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.2421
+    },
+    {
+      "nodeid": "tests/browser/test_login_dashboard.py::test_empty_and_failure_states_do_not_block_login",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.8188
+    },
+    {
+      "nodeid": "tests/browser/test_login_dashboard.py::test_tooltip_follows_successful_refresh",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.9186
+    },
+    {
+      "nodeid": "tests/browser/test_login_dashboard.py::test_stale_chart_survives_refresh_failure",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.5922
+    },
+    {
+      "nodeid": "tests/browser/test_login_dashboard.py::test_login_from_dashboard_still_reaches_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.8899
+    },
+    {
+      "nodeid": "tests/browser/test_login_dashboard.py::test_scene_filter_updates_chart_without_refetch",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.7172
+    },
+    {
+      "nodeid": "tests/browser/test_login_dashboard.py::test_scene_selection_survives_refresh",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.4018
+    },
+    {
+      "nodeid": "tests/browser/test_regression_corpus_date_stats.py::test_empty_date_filtered_corpus_does_not_show_unfiltered_stock_count",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.0293
+    },
+    {
+      "nodeid": "tests/browser/test_regression_corpus_date_stats.py::test_partial_date_filtered_total_uses_same_predicate_as_list",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.7999
+    },
+    {
+      "nodeid": "tests/browser/test_regression_corpus_date_stats.py::test_corpus_match_total_is_not_capped_at_first_page",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.6398
+    },
+    {
+      "nodeid": "tests/browser/test_regression_english_reopen_display.py::test_reopened_known_source_keeps_english_source_banner",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.6099
+    },
+    {
+      "nodeid": "tests/browser/test_regression_offline_retry_backoff.py::test_persistent_offline_save_uses_bounded_retry_backoff",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.5745
+    },
+    {
+      "nodeid": "tests/browser/test_regression_review_only_save.py::test_review_only_manual_save_survives_reload",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.2585
+    },
+    {
+      "nodeid": "tests/browser/test_regression_review_save_queue.py::test_review_write_disabled_still_saves_transcription",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.7391
+    },
+    {
+      "nodeid": "tests/browser/test_regression_review_save_queue.py::test_claim_scope_does_not_restrict_truthful_review_labels",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.7093
+    },
+    {
+      "nodeid": "tests/browser/test_regression_review_save_queue.py::test_lost_save_response_retries_identical_body_then_saves_new_review",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.499
+    },
+    {
+      "nodeid": "tests/browser/test_regression_scope_catalog_loading.py::test_scope_editor_waits_for_catalog_and_preserves_existing_access",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.8005
+    },
+    {
+      "nodeid": "tests/browser/test_regression_scope_editor_loading.py::test_delayed_annotator_detail_blocks_scope_edit_then_saves_restricted_payload",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.7389
+    },
+    {
+      "nodeid": "tests/browser/test_regression_scope_editor_loading.py::test_stale_annotator_detail_does_not_enable_or_overwrite_the_current_editor",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 8.8462
+    },
+    {
+      "nodeid": "tests/browser/test_regression_scope_editor_loading.py::test_failed_annotator_detail_keeps_scope_editor_disabled",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.9467
+    },
+    {
+      "nodeid": "tests/browser/test_regression_scope_save_navigation.py::test_late_scope_save_preserves_new_person_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.7727
+    },
+    {
+      "nodeid": "tests/browser/test_regression_source_history_display.py::test_historical_claim_still_displays_all_current_source_scenes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.244
+    },
+    {
+      "nodeid": "tests/browser/test_scene_workflow.py::test_scene_review_cleared_when_returning_to_claim_page[abandon]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.8594
+    },
+    {
+      "nodeid": "tests/browser/test_scene_workflow.py::test_scene_review_cleared_when_returning_to_claim_page[complete]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.4655
+    },
+    {
+      "nodeid": "tests/browser/test_scene_workflow.py::test_scene_review_cleared_when_returning_to_claim_page[skip]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.873
+    },
+    {
+      "nodeid": "tests/browser/test_scene_workflow.py::test_annotator_admin_scene_provenance_workflow",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 15.1738
+    },
+    {
+      "nodeid": "tests/browser/test_scene_workflow.py::test_same_evidence_historical_and_layout",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.7293
+    },
+    {
+      "nodeid": "tests/browser/test_scene_workflow.py::test_metadata_ui_off_still_saves_transcript",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.2849
+    },
+    {
+      "nodeid": "tests/browser/test_scene_workflow.py::test_revision_conflict_blocks_further_edits",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.4294
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_live_session_requires_takeover_and_freezes_old_page",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.0882
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_stale_presence_allows_automatic_login",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.1044
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_offline_draft_restores_in_same_context_not_other_device",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.3286
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_heartbeat_only_still_idle_timeouts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.0836
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_activity_does_not_slide_absolute_deadline",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.6927
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_unauthorized_does_not_navigate_before_local_persist",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.108
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_failed_heartbeat_keeps_unreported_activity_and_export_hook",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.9438
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_account_deactivated_403_freezes_dirty_workspace",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 3.7537
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_online_event_replays_save_and_preserves_newer_offline_edit",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.8209
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_response_lost_then_reload_does_not_ack_newer_local_edit",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.7692
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_revision_mismatch_requires_copy_or_explicit_discard",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 5.2494
+    },
+    {
+      "nodeid": "tests/browser/test_session_takeover.py::test_online_event_replays_pending_completion",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.6992
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_auth_fails_closed_rejects_wrong_key_and_sets_safe_cookie",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0317
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_session_logout_expiry_and_csrf",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6851
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_and_annotator_sessions_are_separate",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1562
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_overview_annotator_detail_and_keyset_pagination",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.494
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_quality_api_combines_queue_filters",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3333
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_naive_shanghai_dates_are_interpreted_as_local_midnight",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0495
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_all_admin_cursors_reject_malformed_and_semantically_invalid_values",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2034
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_revoke_preview_execute_replay_and_expected_version_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3622
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_batch_revoke_is_atomic_via_api",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3816
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_batch_revoke_requires_step_up_key_but_single_revoke_does_not",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.7445
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_wrong_batch_revoke_step_up_key_is_rate_limited_and_audited",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2786
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_deactivate_requires_key_reauthentication_and_recycles_work",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4177
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_audit_api_records_revoke",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2601
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_facets_are_vocabulary_not_counts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0958
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_overview_http_includes_batch_and_review_groups",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1301
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_scene_scope_requires_csrf_and_replays",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0993
+    },
+    {
+      "nodeid": "tests/test_admin_api.py::test_admin_tasks_stale_cursor_is_invalid",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0907
+    },
+    {
+      "nodeid": "tests/test_admin_migration.py::test_admin_migration_schema_and_indexes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0725
+    },
+    {
+      "nodeid": "tests/test_admin_migration.py::test_002_backfills_exact_and_reconstructed_baselines",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2615
+    },
+    {
+      "nodeid": "tests/test_admin_migration.py::test_new_preprocessed_task_has_separate_exact_immutable_baseline",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0978
+    },
+    {
+      "nodeid": "tests/test_admin_migration.py::test_database_rejects_duplicate_baseline_and_plaintext_admin_token",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0567
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_admin_session_digest_expiry_and_revocation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0755
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_admin_overview_and_annotator_keyset_pagination",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3212
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_admin_quality_filters_search_annotator_and_signal",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4327
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_revoke_preview_is_read_only_and_reports_conflicts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2252
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_single_revoke_is_idempotent_audited_and_clones_clean_baseline",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2273
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_batch_revoke_conflict_rolls_back_every_item",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3116
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_batch_revoke_success_replays_without_duplicate_items",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3804
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_revoked_task_blocks_submitter_but_is_claimable_by_another_user",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3746
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_deactivate_revokes_current_work_releases_session_and_is_audited",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4935
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_deactivate_does_not_revoke_a_later_submitters_current_version",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3428
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_admin_audit_and_regular_export_exclude_revoked",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2166
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_concurrent_revoke_replay_creates_one_action",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.252
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_complete_revision_racing_revoke_never_loses_the_new_submission",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2283
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_restore_rejects_deactivate_source_and_inactive_revoke_submitter",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5191
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_release_assignment_racing_complete_has_one_consistent_winner",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2467
+    },
+    {
+      "nodeid": "tests/test_admin_repository.py::test_restore_racing_deactivate_same_submitter_has_consistent_final_state",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2346
+    },
+    {
+      "nodeid": "tests/test_admin_scope.py::test_scene_scope_is_idempotent_revisioned_and_audited",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1376
+    },
+    {
+      "nodeid": "tests/test_admin_scope.py::test_existing_assignment_resumes_after_scope_none",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1829
+    },
+    {
+      "nodeid": "tests/test_admin_scope.py::test_scope_and_deactivate_same_admin_session_do_not_deadlock",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2948
+    },
+    {
+      "nodeid": "tests/test_admin_scope.py::test_scope_and_revoke_same_admin_session_do_not_deadlock",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1617
+    },
+    {
+      "nodeid": "tests/test_admin_scope.py::test_scope_and_claim_do_not_deadlock_and_resume_if_assigned",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2224
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_speed_returns_28_days_and_four_weeks",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0247
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_missing_days_are_zero_filled",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.212
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_shanghai_midnight_boundary",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2624
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_sums_multiple_tasks_on_the_same_day",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3102
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_skipped_tasks_are_excluded",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2025
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_revoked_versions_are_excluded",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2237
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_reannotation_counts_only_the_current_version",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1929
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_weekly_average_divides_by_seven_including_zeros",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2097
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_today_is_marked_partial",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0512
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_timezones_do_not_duplicate_or_drop_days",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0358
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_invalid_timezone_is_rejected",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0008
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_airport_duration_is_only_in_airport",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1625
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_missing_and_null_sources_map_to_spoken_languages",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4764
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_duplicate_same_scene_sources_count_once",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1616
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_multi_scene_task_counts_once_in_all_scenes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1914
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_prediction_and_category_do_not_drive_scene_filter",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2444
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_noncurrent_source_maps_to_spoken_languages",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2259
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_skipped_tasks_are_excluded_from_every_scene",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1124
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_scene_weekly_average_divides_by_seven_including_zeros",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1463
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_revoked_and_superseded_versions_excluded_from_scenes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2556
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_scene_midnight_boundary_matches_all_scenes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3913
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_speed_query_uses_partial_indexes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.3551
+    },
+    {
+      "nodeid": "tests/test_annotation_speed.py::test_speed_query_plan_on_100k_current_versions",
+      "phase": "setup",
+      "outcome": "skipped",
+      "seconds": 0.0002,
+      "reason": "('/home/ubuntu/annotation-scene-provenance/tests/test_annotation_speed.py', 645, 'Skipped: 100k EXPLAIN ANALYZE is opt-in (ANNOTATION_SPEED_EXPLAIN=1)')"
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_first_login_generation_and_deadlines",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0363
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_resume_same_sid_does_not_bump_generation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0185
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_fresh_presence_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0376
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_stale_presence_auto_takeover_increments_generation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0629
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_idle_and_absolute_expiry_allow_new_login_with_distinct_reasons",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0614
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_forced_takeover_requires_observed_generation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0278
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_forced_takeover_params_cannot_be_replayed",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0447
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_takeover_token_bound_to_sid_fingerprint_after_logout_relogin",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0738
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_concurrent_stale_takeover_has_one_winner",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.054
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_concurrent_forced_takeover_has_one_winner",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0619
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_old_sid_logout_does_not_delete_new_sid",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0592
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_presence_heartbeat_does_not_extend_idle",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0935
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_activity_heartbeat_extends_idle_but_not_absolute",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0708
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_absolute_expiry_cannot_be_resurrected_by_heartbeat",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0272
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_deactivated_annotator_cannot_login_or_takeover",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1229
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_assignment_survives_logout_idle_stale_and_forced_takeover",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.36
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_inspect_session_status_order",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1005
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_legacy_cookie_without_generation_is_accepted_when_sid_matches",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0483
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_save_then_takeover_linearization",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4668
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_takeover_then_old_save_is_rejected_before_mutation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1188
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_takeover_rejects_all_five_write_paths",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2078
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_fence_runs_before_operation_replay",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2131
+    },
+    {
+      "nodeid": "tests/test_annotator_sessions.py::test_write_methods_require_session_fence",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1528
+    },
+    {
+      "nodeid": "tests/test_annotator_submission_history.py::test_submission_history_hides_outcomes_and_counts_adopted_version_once[None]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4477
+    },
+    {
+      "nodeid": "tests/test_annotator_submission_history.py::test_submission_history_hides_outcomes_and_counts_adopted_version_once[original]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5377
+    },
+    {
+      "nodeid": "tests/test_annotator_submission_history.py::test_submission_history_hides_outcomes_and_counts_adopted_version_once[secondary]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4357
+    },
+    {
+      "nodeid": "tests/test_annotator_submission_history.py::test_mixed_history_filters_pages_and_preserves_published_summary",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.4685
+    },
+    {
+      "nodeid": "tests/test_api.py::test_assignment_is_explicit_and_survives_logout",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3274
+    },
+    {
+      "nodeid": "tests/test_api.py::test_assignment_pool_is_scoped_to_current_user",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2391
+    },
+    {
+      "nodeid": "tests/test_api.py::test_claim_reports_temporarily_locked_pool",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1661
+    },
+    {
+      "nodeid": "tests/test_api.py::test_save_complete_history_and_completed_api",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2738
+    },
+    {
+      "nodeid": "tests/test_api.py::test_completed_privacy_and_reopen_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5445
+    },
+    {
+      "nodeid": "tests/test_api.py::test_same_name_login_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.092
+    },
+    {
+      "nodeid": "tests/test_api.py::test_audio_range_and_object_authorization",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0767
+    },
+    {
+      "nodeid": "tests/test_api.py::test_health_fails_closed_when_schema_is_stale",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0304
+    },
+    {
+      "nodeid": "tests/test_api.py::test_pages_require_login_and_completed_route",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0902
+    },
+    {
+      "nodeid": "tests/test_api.py::test_login_resume_and_stale_takeover_contract",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0954
+    },
+    {
+      "nodeid": "tests/test_api.py::test_forced_takeover_api_and_old_client_replaced",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1983
+    },
+    {
+      "nodeid": "tests/test_api.py::test_takeover_token_tamper_user_mismatch_and_expiry",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.2392
+    },
+    {
+      "nodeid": "tests/test_api.py::test_idle_and_absolute_api_codes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0876
+    },
+    {
+      "nodeid": "tests/test_api.py::test_get_heartbeat_is_presence_only_and_post_can_extend_idle",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0967
+    },
+    {
+      "nodeid": "tests/test_api.py::test_current_user_is_client_config_source",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.08
+    },
+    {
+      "nodeid": "tests/test_api.py::test_query_validation_and_abandon_returns_pool",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3432
+    },
+    {
+      "nodeid": "tests/test_api.py::test_scenes_api_exposes_review_taxonomy_separately_from_claim_scenes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0816
+    },
+    {
+      "nodeid": "tests/test_api.py::test_scenes_api_requires_login",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0022
+    },
+    {
+      "nodeid": "tests/test_compatibility_flags.py::test_flags_off_fifo_reads_old_and_new_and_refuses_writes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2503
+    },
+    {
+      "nodeid": "tests/test_compatibility_flags.py::test_old_client_omitting_review_preserves_history",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.216
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_settings_get_put_stale_revision_and_idempotent_put",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0407
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_disable_claims_does_not_cancel_open_rounds",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4701
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_list_default_filters_cursor_and_no_full_text",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.1395
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_detail_includes_both_texts_and_ops",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4923
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_decision_original_keeps_published_text",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6748
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_decision_secondary_publishes_frozen_b",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.596
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_decision_edited_annotated_creates_adjudication_version",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5965
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_decision_edited_skipped",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4149
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_two_admins_race_one_decision_succeeds",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5502
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_decision_replay_and_finished_round_rejects_new_operation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5655
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_cancel_in_progress_and_reject_awaiting_review",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.7546
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_annotator_cannot_get_admin_detail_and_csrf_required",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3269
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_mine_and_submission_visibility",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.516
+    },
+    {
+      "nodeid": "tests/test_cross_check_admin.py::test_quality_cross_check_counts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.3808
+    },
+    {
+      "nodeid": "tests/test_cross_check_blind.py::test_claim_get_assignment_and_relogin_are_blind",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4528
+    },
+    {
+      "nodeid": "tests/test_cross_check_blind.py::test_extra_implant_does_not_leak_through_copy_or_response",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3956
+    },
+    {
+      "nodeid": "tests/test_cross_check_blind.py::test_second_user_cannot_save_original_version",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3552
+    },
+    {
+      "nodeid": "tests/test_cross_check_blind.py::test_original_author_and_third_user_cannot_read_second_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4965
+    },
+    {
+      "nodeid": "tests/test_cross_check_blind.py::test_annotator_cannot_hit_admin_routes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0444
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_disabled_and_rate_zero_never_create_rounds",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4797
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_ten_percent_and_hundred_percent_hit_and_miss",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4785
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_historical_and_new_annotated_are_claimable",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.64
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_existing_assignment_resumes_without_rng_or_new_filters",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.446
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_empty_pool_fallback_both_directions",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5685
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_both_empty_and_lock_busy_are_distinct",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6482
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_airport_filter_cannot_claim_hotel_only_audio",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2492
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_scene_scope_batch_confidence_and_unknown",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.8782
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_batch_and_confidence_combo_does_not_mix_evidence",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5307
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_multi_source_does_not_increase_weight",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2025
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_offsets_select_head_middle_and_tail",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6318
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_reserved_migration_draft_keeps_priority",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1406
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_covered_original_and_final_versions_are_not_redrawn",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.585
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_missing_baseline_is_skipped_without_500",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3272
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_original_author_cannot_claim_own_work",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2739
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_cancelled_round_save_is_rejected",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3052
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_abandon_cancels_in_progress_cross_check_round",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5106
+    },
+    {
+      "nodeid": "tests/test_cross_check_claim.py::test_admin_release_cancels_in_progress_cross_check_round",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1855
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_identical_texts_have_zero_distance_and_do_not_need_review",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0004
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_single_word_replace_insert_and_delete",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0018
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_repeated_words_and_stable_equal_cost_priority",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0006
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_rate_zero_exactly_ten_percent_and_slightly_over",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0341
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_integer_threshold_matches_unrounded_rate_examples",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0008
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_case_punctuation_apostrophe_hyphen_whitespace_and_combining",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0017
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_digits_senses_and_arabic_letters_are_not_over_normalized",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.001
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_diff_spans_reference_raw_text_after_unicode_normalization[e\\u0301]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_diff_spans_reference_raw_text_after_unicode_normalization[\\u0627\\u0654]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_diff_spans_reference_raw_text_after_unicode_normalization[\\u1100\\u1161\\u11a8]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_diff_spans_reference_raw_text_after_unicode_normalization[A\\u0301\\u0327]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0027
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_diff_spans_reference_raw_text_after_unicode_normalization[\\u0344]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0003
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_diff_spans_reference_raw_text_after_unicode_normalization[\\u0301\\u0327]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0003
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_diff_spans_reference_raw_text_after_unicode_normalization[Stra\\xdfe]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_different_segmentation_same_text_keeps_per_side_mappings",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0003
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_field_aliases_and_inputs_are_not_mutated",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0003
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_one_side_empty_both_empty_and_all_bad_quality",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0004
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_secondary_skipped_is_submission_status_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0003
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_bad_quality_same_coverage_different_cuts_is_not_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_ordinary_cut_points_without_bad_quality_are_not_conflicts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_different_excluded_ranges_queue_bad_quality_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_bad_quality_one_millisecond_endpoint_tolerance",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_over_budget_does_not_invent_zero_distance",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0006
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_cell_budget_boundary_still_returns_exact_distance",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_punctuation_span_excludes_terminal_mark_and_keeps_joiner",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0003
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_usable_punctuation_only_segment_counts_as_empty_text",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0002
+    },
+    {
+      "nodeid": "tests/test_cross_check_comparison.py::test_comparison_kernel_source_stays_pure",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0015
+    },
+    {
+      "nodeid": "tests/test_cross_check_concurrency.py::test_same_user_double_claim_resumes_one_assignment",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5813
+    },
+    {
+      "nodeid": "tests/test_cross_check_concurrency.py::test_two_users_cannot_both_get_in_progress_on_same_task",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.385
+    },
+    {
+      "nodeid": "tests/test_cross_check_concurrency.py::test_twenty_users_claim_distinct_cross_check_tasks",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.913
+    },
+    {
+      "nodeid": "tests/test_cross_check_concurrency.py::test_reciprocal_claims_do_not_deadlock",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.462
+    },
+    {
+      "nodeid": "tests/test_cross_check_concurrency.py::test_claim_skips_original_author_locked_by_admin",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6278
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_open_rounds_excluded_from_training_snapshot",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6899
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_passed_export_only_final_version",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4838
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_adjudicated_export_only_final_version",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.7634
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_correction_does_not_inherit_old_quality_result[passed]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.9535
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_correction_does_not_inherit_old_quality_result[original]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.8291
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_correction_does_not_inherit_old_quality_result[secondary]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.0729
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_admin_edited_null_submitter_is_exported",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6432
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_excel_one_row_per_task_including_blocked",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5359
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_export_json_keeps_pending_review_and_adds_eligibility",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4792
+    },
+    {
+      "nodeid": "tests/test_cross_check_export.py::test_backup_checklist_includes_quality_tables",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0767
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_reopen_409_while_in_progress_and_awaiting_review",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.9117
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_revoke_original_invalidates_open_round_and_unblocks",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6797
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_revoke_in_progress_with_release_conflicts_and_cli_release",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4484
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_cli_assignment_release_cancels_in_progress_round",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3496
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_admin_edited_revoke_restore_and_null_annotator_guard",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.0098
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_deactivate_does_not_revoke_admin_edited_credited_result",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3997
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_deactivate_secondary_cancels_in_progress_keeps_awaiting_review",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5286
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_deactivate_original_invalidates_awaiting_review_409s_in_progress",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.544
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_awaiting_review_not_unlocked_by_cancel_disable_logout",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4959
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_scene_review_correction_blocked_while_round_open",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4345
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_preprocess_cannot_wipe_cross_check_submitted",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6542
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_media_after_submit_and_completed_does_not_leak_original",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5935
+    },
+    {
+      "nodeid": "tests/test_cross_check_lifecycle.py::test_complete_racing_revoke_and_reopen_racing_claim",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5015
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_008_upgrades_historical_rows_without_changing_content",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0983
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_008_backfills_participants_without_inventing_credited_or_system",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0797
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_008_backfills_credited_annotator_from_submitter",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1224
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_008_inserts_disabled_settings_row",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1005
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_fresh_database_includes_version_8",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0362
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_database_rejects_invalid_cross_check_rows_and_rolls_back",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3896
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_state_checks_reject_illegal_passed_and_review_rows",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1738
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_settings_singleton_and_sampling_bounds",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0616
+    },
+    {
+      "nodeid": "tests/test_cross_check_migration.py::test_contracts_reject_unknown_fields_and_bool_integers",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0005
+    },
+    {
+      "nodeid": "tests/test_cross_check_stats.py::test_one_60s_audio_stays_60_while_b_workload_is_independent",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4848
+    },
+    {
+      "nodeid": "tests/test_cross_check_stats.py::test_two_60s_audios_sum_to_120_not_distinct_duration",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.825
+    },
+    {
+      "nodeid": "tests/test_cross_check_stats.py::test_awaiting_review_keeps_corpus_duration_and_adds_workload",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4543
+    },
+    {
+      "nodeid": "tests/test_cross_check_stats.py::test_pool_splits_normal_and_cross_check_available",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2122
+    },
+    {
+      "nodeid": "tests/test_cross_check_stats.py::test_cross_check_by_scene_matches_claim_source_row",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.189
+    },
+    {
+      "nodeid": "tests/test_cross_check_stats.py::test_auto_pass_does_not_move_speed_bucket",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4178
+    },
+    {
+      "nodeid": "tests/test_cross_check_stats.py::test_adopting_secondary_reattributes_speed_to_b_submit_time",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4759
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_identical_texts_auto_pass_keeps_original_and_duration",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6526
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_word_diff_exactly_ten_percent_passes_eleven_queues",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.7495
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_skipped_empty_all_bq_and_bq_conflict_queue",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.3369
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_complete_merges_dirty_segments_before_compare",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4605
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_snapshot_replays_before_locking_assignment",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0039
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_snapshot_replays_if_winner_released_assignment",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5614
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_over_budget_queues_without_zero_distance",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4114
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_compare_exception_stores_null_word_counts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.466
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_assignment_released_but_audio_stays_blocked",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.9312
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_complete_idempotent_replay_and_operation_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4513
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_stale_revision_and_original_pointer_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.8553
+    },
+    {
+      "nodeid": "tests/test_cross_check_submit.py::test_normal_complete_still_rejects_empty_non_bq",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1184
+    },
+    {
+      "nodeid": "tests/test_export_excel_and_training.py::test_excel_includes_source_and_human_columns",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.786
+    },
+    {
+      "nodeid": "tests/test_export_excel_and_training.py::test_training_exporter_cli_writes_audio_level_sidecar",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.9931
+    },
+    {
+      "nodeid": "tests/test_export_top_annotators_tar.py::test_tar_contains_source_path_mapping",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0046
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_leaderboard_is_public_and_keeps_legacy_field",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0533
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_leaderboard_includes_annotation_speed_shape",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1167
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_leaderboard_cache_headers_and_no_private_ids",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0463
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_leaderboard_server_ttl_cache_skips_repeat_queries",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.049
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_total_annotated_duration_matches_leaderboard_and_excludes_invalid",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6126
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_invalid_timezone_fails_at_startup",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0026
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_static_vendor_whitelist_and_checksums",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0053
+    },
+    {
+      "nodeid": "tests/test_leaderboard_api.py::test_login_page_has_no_cdn_and_loads_vendor_scripts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0024
+    },
+    {
+      "nodeid": "tests/test_load_harness_concurrency.py::test_new_claim_latency_scenario_starts_twenty_requests_concurrently",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0886
+    },
+    {
+      "nodeid": "tests/test_metadata_export_import.py::test_export_metadata_help_documents_identity_rules",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.6552
+    },
+    {
+      "nodeid": "tests/test_metadata_export_import.py::test_metadata_round_trip_exact_ids_and_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.0153
+    },
+    {
+      "nodeid": "tests/test_metadata_export_import.py::test_metadata_restore_into_cloned_dataset",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.7886
+    },
+    {
+      "nodeid": "tests/test_metadata_export_import.py::test_explicit_mapping_and_conflict_rollback",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.755
+    },
+    {
+      "nodeid": "tests/test_metadata_export_import.py::test_unknown_format_and_filter_context",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.5823
+    },
+    {
+      "nodeid": "tests/test_metadata_export_import.py::test_cli_export_import_round_trip",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 4.3656
+    },
+    {
+      "nodeid": "tests/test_metadata_export_import.py::test_legacy_export_json_still_round_trips",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2657
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_003_seeds_scenes_and_keeps_legacy_tasks_unknown",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0582
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_feature_flags_keep_scope_when_fifo",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1207
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_metadata_export_round_trip",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1053
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_003_file_does_not_include_spoken_languages",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0005
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_005_is_idempotent_and_preserves_null_source_rows",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1016
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_005_applies_after_004_without_rewriting_prior_migrations",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2968
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_006_adds_session_columns_and_old_insert_shape_still_works",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0688
+    },
+    {
+      "nodeid": "tests/test_metadata_migrations.py::test_007_adds_annotation_speed_indexes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0219
+    },
+    {
+      "nodeid": "tests/test_metadata_queries.py::test_compound_filters_use_same_evidence_and_unique_counts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1457
+    },
+    {
+      "nodeid": "tests/test_metadata_queries.py::test_unknown_scene_includes_legacy_and_null_scene_rows",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1674
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_manifest_migrate_verify_export_and_excel",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1462
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_manifest_blocks_corrupt_json_and_key_collision",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0064
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_source_change_after_manifest_aborts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0022
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_new_file_after_manifest_aborts",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0024
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_import_failure_rolls_back_entire_manifest",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.065
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_legacy_waveform_array_round_trip",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1233
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_non_finite_unknown_json_is_blocked",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0014
+    },
+    {
+      "nodeid": "tests/test_migration.py::test_post_migration_completion_exports_current_audit",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1794
+    },
+    {
+      "nodeid": "tests/test_postgres_dump_restore.py::test_pg_dump_restore_preserves_provenance_graph",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.828
+    },
+    {
+      "nodeid": "tests/test_postgres_dump_restore.py::test_dump_preserves_non_password_libpq_options",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0027
+    },
+    {
+      "nodeid": "tests/test_postgres_dump_restore.py::test_restore_refuses_existing_user_schema",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0295
+    },
+    {
+      "nodeid": "tests/test_postgres_dump_restore.py::test_dump_refuses_major_version_mismatch",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0003
+    },
+    {
+      "nodeid": "tests/test_prediction_snapshot.py::test_draft_prediction_fresh_then_same_version_edit_stale",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1961
+    },
+    {
+      "nodeid": "tests/test_prediction_snapshot.py::test_published_prediction_fresh_then_edit_stale",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1963
+    },
+    {
+      "nodeid": "tests/test_prediction_snapshot.py::test_join_inference_text_matches_digest_contract",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0007
+    },
+    {
+      "nodeid": "tests/test_preprocess_worklist.py::test_collect_pending_audio_collapses_alias_and_inode",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0016
+    },
+    {
+      "nodeid": "tests/test_preprocess_worklist.py::test_process_audio_exception_releases_lease",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0961
+    },
+    {
+      "nodeid": "tests/test_preprocess_worklist.py::test_begin_processing_blocks_second_worker",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0895
+    },
+    {
+      "nodeid": "tests/test_processing_lease.py::test_legacy_no_token_cannot_bypass_active_lease",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.098
+    },
+    {
+      "nodeid": "tests/test_processing_lease.py::test_expired_holder_cannot_finalize_after_takeover",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0818
+    },
+    {
+      "nodeid": "tests/test_processing_lease.py::test_no_token_store_cannot_bypass_active_lease",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0587
+    },
+    {
+      "nodeid": "tests/test_processing_lease.py::test_expired_holder_cannot_store_after_takeover",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1374
+    },
+    {
+      "nodeid": "tests/test_processing_lease.py::test_exception_release_allows_successor_acquire",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0914
+    },
+    {
+      "nodeid": "tests/test_processing_lease.py::test_heartbeat_keeps_lease_alive",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 2.4748
+    },
+    {
+      "nodeid": "tests/test_production_backup.py::ProductionBackupSafetyTests::test_failed_restore_does_not_publish_or_prune",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0129
+    },
+    {
+      "nodeid": "tests/test_production_backup.py::ProductionBackupSafetyTests::test_retention_preserves_other_databases_manual_unverified_and_linked_backups",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0499
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_filtered_task_summary_keeps_scene_confidence_association",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1193
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_overview_source_groups_apply_same_evidence_filters",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_unknown_scene_group_counts_legacy_and_explicit_unknown_once",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.223
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_corpus_cursor_cannot_cross_search_filter_context",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.113
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_claim_headline_uses_selected_evidence_not_first_same_scene",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1648
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_repeated_sources_do_not_double_count_task_or_duration",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1807
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_equal_durations_are_summed_not_collapsed",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1507
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_overview_batch_groups_overlap_and_definitions_are_explicit",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1363
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_draft_review_is_not_published_verification",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2327
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_published_review_groups_include_duration",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.187
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_corpus_cursor_continues_same_search_and_rejects_status_change",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.168
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_applied_filters_include_search_and_source",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1408
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_task_detail_keeps_full_source_provenance",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1475
+    },
+    {
+      "nodeid": "tests/test_regression_admin_metadata.py::test_claim_headline_keeps_historical_evidence_after_revision",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1757
+    },
+    {
+      "nodeid": "tests/test_regression_backup_runtime.py::test_backup_module_does_not_require_dev_only_pgserver",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0009
+    },
+    {
+      "nodeid": "tests/test_regression_backup_runtime.py::test_backup_password_is_not_in_process_args_or_report[dump-process]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.001
+    },
+    {
+      "nodeid": "tests/test_regression_backup_runtime.py::test_backup_password_is_not_in_process_args_or_report[restore-process]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0108
+    },
+    {
+      "nodeid": "tests/test_regression_backup_runtime.py::test_backup_password_is_not_in_process_args_or_report[restore-report]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0008
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_public_catalog_is_ten_english_scenes_in_requested_order",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0664
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_source_fallback_uses_same_evidence_and_unique_groups[spoken_languages]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.7799
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_source_fallback_uses_same_evidence_and_unique_groups[unknown]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.7317
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_spoken_scope_includes_fallback_and_can_be_revoked[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2559
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_spoken_scope_includes_fallback_and_can_be_revoked[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.4991
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_legacy_unknown_permission_remains_accepted_for_nonrestricted_modes[all]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0805
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_legacy_unknown_permission_remains_accepted_for_nonrestricted_modes[none]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0584
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_existing_explicit_spoken_prediction_is_filterable_without_rewriting_history",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2376
+    },
+    {
+      "nodeid": "tests/test_regression_english_acceptance.py::test_unknown_is_source_compat_only_and_invalid_elsewhere",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0005
+    },
+    {
+      "nodeid": "tests/test_regression_import_checkpoint.py::test_metadata_restore_keeps_import_run_checkpoint",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0732
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_domain_validation.py::test_dry_run_rejects_invalid_new_source_confidence",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0422
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_domain_validation.py::test_dry_run_rejects_invalid_new_review_contract[invalid_status-labels0]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0097
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_domain_validation.py::test_dry_run_rejects_invalid_new_review_contract[confirmed-labels1]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0109
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_domain_validation.py::test_dry_run_rejects_invalid_new_review_contract[mixed-labels2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0181
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_source_id_cannot_hide_changed_evidence[source_url-https://example.com/changed-source]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.102
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_source_id_cannot_hide_changed_evidence[video_id-changed-video]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0412
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_source_id_cannot_hide_changed_evidence[raw_record-value2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0678
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_source_id_cannot_hide_changed_evidence[is_current-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1037
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_prediction_id_cannot_hide_changed_input_or_semantics[input_revision-1]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0307
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_prediction_id_cannot_hide_changed_input_or_semantics[prompt_version-changed-prompt-v2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0477
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_prediction_id_cannot_hide_changed_input_or_semantics[score_meaning-a different score definition]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0537
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_history_conflicts.py::test_same_review_id_cannot_hide_changed_history_timestamp",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0421
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_malformed_history_timestamps[prediction]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0011
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_malformed_history_timestamps[review]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0011
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_malformed_history_timestamps[version]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0046
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_malformed_history_timestamps[user]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0048
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_malformed_history_timestamps[event]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.001
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_malformed_history_timestamps[document]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.002
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_nan_prediction_score",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0009
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_declared_cross_task_prediction_input",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0008
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_offline_contract.py::test_offline_validation_rejects_declared_cross_task_review_version",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0018
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_unchanged_export_can_be_imported_repeatedly",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1155
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_same_review_id_with_different_labels_is_a_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0332
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_same_prediction_id_with_different_score_is_a_conflict",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0289
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_prediction_input_version_cannot_cross_task",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0027
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_dry_run_validates_new_prediction_fields[score-1.2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0029
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_dry_run_validates_new_prediction_fields[input_revision-invalid-integer]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.003
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_dry_run_validates_new_prediction_fields[predicted_scene_code-unrecognized_scene]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0021
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_unknown_contract_version_is_rejected",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0027
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_source_basis_change_is_not_hidden_by_reused_digest",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0762
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_restore_integrity.py::test_explicit_review_mapping_replays_without_duplicate_publication_events",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0595
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_transaction_boundary.py::test_metadata_helper_does_not_commit_enclosing_work[export]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1124
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_transaction_boundary.py::test_metadata_helper_does_not_commit_enclosing_work[dry_run]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.108
+    },
+    {
+      "nodeid": "tests/test_regression_metadata_transaction_boundary.py::test_metadata_helper_does_not_commit_enclosing_work[invalid_import]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1388
+    },
+    {
+      "nodeid": "tests/test_regression_pg_runner_args.py::test_explicit_pg_runner_keeps_first_test_selection[selection0-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0044
+    },
+    {
+      "nodeid": "tests/test_regression_pg_runner_args.py::test_explicit_pg_runner_keeps_first_test_selection[selection0-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.001
+    },
+    {
+      "nodeid": "tests/test_regression_pg_runner_args.py::test_explicit_pg_runner_keeps_first_test_selection[selection1-False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0011
+    },
+    {
+      "nodeid": "tests/test_regression_pg_runner_args.py::test_explicit_pg_runner_keeps_first_test_selection[selection1-True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0009
+    },
+    {
+      "nodeid": "tests/test_regression_prediction_inputs.py::test_cli_prediction_records_requested_model_and_pre_call_revision",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1015
+    },
+    {
+      "nodeid": "tests/test_regression_prediction_inputs.py::test_changed_input_produces_changed_input_digest",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0663
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_explicit_rejection_delete_makes_existing_task_ineligible",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.116
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_rejected_audio_delete_respects_changed_ownership[processing_successor]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1201
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_rejected_audio_delete_respects_changed_ownership[human_assignment]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1963
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_content_rejection_delete_makes_existing_task_ineligible",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1029
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_content_rejection_delete_respects_changed_ownership[processing_successor]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1104
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_content_rejection_delete_respects_changed_ownership[human_assignment]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2445
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_delete_rejected_default_keeps_file_and_records_rejection",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1898
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_rejection_delete_preserves_sources",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1658
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_deletion.py::test_rejected_delete_fs_failure_rolls_back_eligibility",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1326
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_identity.py::test_cross_scene_same_video_is_preprocessed_once",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1937
+    },
+    {
+      "nodeid": "tests/test_regression_preprocess_identity.py::test_second_scan_of_source_aliases_does_not_recreate",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3027
+    },
+    {
+      "nodeid": "tests/test_regression_processing_races.py::test_prediction_snapshot_revision_and_text_are_atomic",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3501
+    },
+    {
+      "nodeid": "tests/test_regression_processing_races.py::test_processing_rechecks_human_protection_before_vad",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1505
+    },
+    {
+      "nodeid": "tests/test_regression_rejection_rollback.py::test_rejection_database_rollback_restores_audio",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0837
+    },
+    {
+      "nodeid": "tests/test_regression_reopen_source_headline.py::test_reopened_task_keeps_known_source_information[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1859
+    },
+    {
+      "nodeid": "tests/test_regression_reopen_source_headline.py::test_reopened_task_keeps_known_source_information[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2531
+    },
+    {
+      "nodeid": "tests/test_regression_repeated_publication_export.py::test_multiple_reopen_cycles_export_replays_without_false_audit_conflicts[False]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2966
+    },
+    {
+      "nodeid": "tests/test_regression_repeated_publication_export.py::test_multiple_reopen_cycles_export_replays_without_false_audit_conflicts[True]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.6124
+    },
+    {
+      "nodeid": "tests/test_regression_reserved_claim_filters.py::test_nonmatching_reserved_task_does_not_block_matching_unreserved_task[scene]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2165
+    },
+    {
+      "nodeid": "tests/test_regression_reserved_claim_filters.py::test_nonmatching_reserved_task_does_not_block_matching_unreserved_task[confidence]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1906
+    },
+    {
+      "nodeid": "tests/test_regression_reserved_claim_filters.py::test_nonmatching_reserved_task_does_not_block_matching_unreserved_task[scope]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1592
+    },
+    {
+      "nodeid": "tests/test_regression_restore_empty_target.py::test_restore_refuses_existing_user_objects_outside_public",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0966
+    },
+    {
+      "nodeid": "tests/test_regression_scope_locking.py::test_scope_change_and_deactivation_same_admin_session_do_not_deadlock",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0965
+    },
+    {
+      "nodeid": "tests/test_regression_unknown_confidence_scope.py::test_unknown_confidence_does_not_bypass_restricted_scene_scope[False-claim]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.176
+    },
+    {
+      "nodeid": "tests/test_regression_unknown_confidence_scope.py::test_unknown_confidence_does_not_bypass_restricted_scene_scope[False-pool]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0784
+    },
+    {
+      "nodeid": "tests/test_regression_unknown_confidence_scope.py::test_unknown_confidence_does_not_bypass_restricted_scene_scope[True-claim]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2022
+    },
+    {
+      "nodeid": "tests/test_regression_unknown_confidence_scope.py::test_unknown_confidence_does_not_bypass_restricted_scene_scope[True-pool]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1226
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_claim_save_complete_and_resume",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3724
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_revision_conflict_and_segment_validation",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.178
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_complete_requires_text_or_bad_quality",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1456
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_skip_requires_valid_reason",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1466
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_completed_privacy_and_revision_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3003
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_concurrent_claims_are_unique",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 1.0435
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_same_user_concurrent_claim_is_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1815
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_pool_state_distinguishes_unprocessed",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.073
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_pool_state_respects_user_reservations",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1568
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_pool_state_reports_all_tasks_assigned_for_another_user",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.255
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_pool_state_excludes_pending_task_without_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1936
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_claim_distinguishes_temporarily_locked_pool",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1034
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_abandon_and_reopen_are_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3259
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_concurrent_reopen_same_operation_is_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0587
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_nan_time_is_rejected",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0922
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_admin_release_abandons_revision_draft",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1967
+    },
+    {
+      "nodeid": "tests/test_repository.py::test_login_same_name_is_atomic",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0492
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_batch_only_claim_excludes_unrelated_high_confidence",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1566
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_airport_priority_uses_airport_evidence",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2355
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_unknown_confidence_excludes_known_high_sources",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1546
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_assigned_scene_is_temporary_empty_not_nonexistent",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1989
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_scope_uses_allowed_evidence_and_existing_work_resumes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1781
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_same_confidence_preserves_allocation_order",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2376
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_twenty_users_claim_distinct_tasks",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.8881
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_scene_counts_match_per_scene_pool",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2495
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_restricted_scope_counts_do_not_leak_other_scenes",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.1228
+    },
+    {
+      "nodeid": "tests/test_scene_claims.py::test_unauthorized_selected_scene_is_forbidden",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.088
+    },
+    {
+      "nodeid": "tests/test_scene_reviews.py::test_legacy_complete_does_not_clear_review",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.199
+    },
+    {
+      "nodeid": "tests/test_scene_reviews.py::test_review_saves_with_complete_and_ignores_label_order",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2895
+    },
+    {
+      "nodeid": "tests/test_scene_reviews.py::test_unpublished_confirmed_headline_uses_human_labels_not_published_wording",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2396
+    },
+    {
+      "nodeid": "tests/test_scene_reviews.py::test_correction_draft_review_is_pending_not_published",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.2756
+    },
+    {
+      "nodeid": "tests/test_scene_reviews.py::test_admin_review_correction_and_replay",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.3227
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_jsonl_two_complete_records_and_unterminated_first_line",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0015
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_crawler_relative_path_keeps_three_level_depth",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0015
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_malformed_checksum_is_rejected",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0006
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_missing_status_is_not_ready",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0001
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_actual_shape_import_is_idempotent",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.12
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_malformed_sidecar_is_reported",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0191
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_manifest_pcm_must_match_actual_audio",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.029
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_same_size_different_destination_is_not_silently_accepted",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0205
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_cross_batch_same_video_concurrent_import_has_one_task[0]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0904
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_cross_batch_same_video_concurrent_import_has_one_task[1]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0852
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_cross_batch_same_video_concurrent_import_has_one_task[2]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0406
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_cross_batch_same_video_concurrent_import_has_one_task[3]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0574
+    },
+    {
+      "nodeid": "tests/test_source_import.py::test_source_record_cannot_move_between_tasks",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 0.0696
+    }
+  ]
+}

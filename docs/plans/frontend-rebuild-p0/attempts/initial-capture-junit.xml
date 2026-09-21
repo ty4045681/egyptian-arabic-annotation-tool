@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="6" time="92.998" timestamp="2026-09-21T19:51:03.448172+08:00" hostname="VM-0-3-ubuntu"><testcase classname="scripts.frontend_p0_capture" name="test_capture_login_workspace_history" time="29.992"><failure message="AssertionError: Locator expected to be visible&#10;Actual value: None&#10;Error: element(s) not found &#10;Call log:&#10;  - Expect &quot;to_be_visible&quot; with timeout 15000ms&#10;  - waiting for locator(&quot;#claimButton&quot;)&#10;&#10;Aria snapshot:&#10;- link &quot;Skip to annotation workspace&quot;:&#10;  - /url: &quot;#main&quot;&#10;- banner:&#10;  - text: ◈ Egyptian Arabic Annotation Tool There are no pending tasks in the current dataset.&#10;  - link &quot;Completed data&quot;:&#10;    - /url: /completed.html&#10;  - group &quot;Arabic transcript font size&quot;:&#10;    - text: Arabic&#10;    - button &quot;Decrease Arabic font size&quot;: A−&#10;    - text: &quot;18&quot;&#10;    - button &quot;Increase Arabic font size&quot;: A+&#10;  - text: p0-long-username-abcdefghijklmnop&#10;  - button &quot;Log out&quot;&#10;  - strong: &quot;1&quot;&#10;  - text: Confirmed&#10;  - strong: &quot;0&quot;&#10;  - text: Skipped&#10;  - strong: &quot;0&quot;&#10;  - text: Pending&#10;  - strong: &quot;1&quot;&#10;  - text: Total&#10;- main:&#10;  - region &quot;Annotation segments&quot;:&#10;    - heading &quot;Task completed&quot; [level=1]&#10;    - paragraph: There are no pending tasks in the current dataset.&#10;    - link &quot;View completed data&quot;:&#10;      - /url: /completed.html&#10;- complementary &quot;Annotation dashboard&quot;:&#10;  - heading &quot;Annotation dashboard&quot; [level=2]&#10;  - table:&#10;    - rowgroup:&#10;      - row &quot;# User Done Time&quot;:&#10;        - columnheader &quot;#&quot;&#10;        - columnheader &quot;User&quot;&#10;        - columnheader &quot;Done&quot;&#10;        - columnheader &quot;Time&quot;&#10;    - rowgroup:&#10;      - row &quot;1 p0-long-username-abcdefghijklmnop 1 0 h 00 min&quot;:&#10;        - cell &quot;1&quot;&#10;        - cell &quot;p0-long-username-abcdefghijklmnop&quot;&#10;        - cell &quot;1&quot;&#10;        - cell &quot;0 h 00 min&quot;&#10;- status: Task completed">scripts/frontend_p0_capture.py:178: in test_capture_login_workspace_history
+    expect(p.locator("#claimButton")).to_be_visible(timeout=15000)
+E   AssertionError: Locator expected to be visible
+E   Actual value: None
+E   Error: element(s) not found
+E   Call log:
+E     - Expect "to_be_visible" with timeout 15000ms
+E     - waiting for locator("#claimButton")
+E
+E   Aria snapshot:
+E   - link "Skip to annotation workspace":
+E     - /url: "#main"
+E   - banner:
+E     - text: ◈ Egyptian Arabic Annotation Tool There are no pending tasks in the current dataset.
+E     - link "Completed data":
+E       - /url: /completed.html
+E     - group "Arabic transcript font size":
+E       - text: Arabic
+E       - button "Decrease Arabic font size": A−
+E       - text: "18"
+E       - button "Increase Arabic font size": A+
+E     - text: p0-long-username-abcdefghijklmnop
+E     - button "Log out"
+E     - strong: "1"
+E     - text: Confirmed
+E     - strong: "0"
+E     - text: Skipped
+E     - strong: "0"
+E     - text: Pending
+E     - strong: "1"
+E     - text: Total
+E   - main:
+E     - region "Annotation segments":
+E       - heading "Task completed" [level=1]
+E       - paragraph: There are no pending tasks in the current dataset.
+E       - link "View completed data":
+E         - /url: /completed.html
+E   - complementary "Annotation dashboard":
+E     - heading "Annotation dashboard" [level=2]
+E     - table:
+E       - rowgroup:
+E         - row "# User Done Time":
+E           - columnheader "#"
+E           - columnheader "User"
+E           - columnheader "Done"
+E           - columnheader "Time"
+E       - rowgroup:
+E         - row "1 p0-long-username-abcdefghijklmnop 1 0 h 00 min":
+E           - cell "1"
+E           - cell "p0-long-username-abcdefghijklmnop"
+E           - cell "1"
+E           - cell "0 h 00 min"
+E   - status: Task completed</failure></testcase><testcase classname="scripts.frontend_p0_capture" name="test_capture_offline_conflict_and_takeover" time="7.683" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_admin" time="18.501" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_segment_scale[100]" time="8.000" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_segment_scale[500]" time="10.065" /><testcase classname="scripts.frontend_p0_capture" name="test_capture_segment_scale[1000]" time="18.534" /></testsuite></testsuites>

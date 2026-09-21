@@ -1,0 +1,782 @@
+[
+  {
+    "file": "screenshots/login-populated-statistics-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-login-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-overview-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-overview-1366x768.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-overview-1920x1080.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1920,
+      "height": 1080
+    },
+    "document_width": 1920,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-overview-1024x768.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1024,
+      "height": 768
+    },
+    "document_width": 1024,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-overview-390x844.png",
+    "group": "admin",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": 390,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-annotators-unselected-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-annotator-scope-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-deactivate-preview-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-task-detail-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-revoke-preview-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-corpus-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-quality-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-activity-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-cross-check-queue-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 2114,
+    "horizontal_overflow_px": 674,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-cross-check-queue-1366x768.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 2114,
+    "horizontal_overflow_px": 748,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-cross-check-queue-390x844.png",
+    "group": "admin",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": 390,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-sampling-settings-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 2114,
+    "horizontal_overflow_px": 674,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-cross-check-review-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-cross-check-review-390x844.png",
+    "group": "admin",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": 390,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/admin-corpus-empty-date-range-1440x900.png",
+    "group": "admin",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/login-empty-statistics-1440x900.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/login-empty-statistics-390x844.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": 390,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/workspace-idle-1366x768.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/workspace-long-arabic-1440x900.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 658.4375,
+      "y": 928.375,
+      "width": 355.328125,
+      "height": 84.59375,
+      "right": 1013.765625,
+      "bottom": 1012.96875,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/workspace-long-arabic-1366x768.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 623.828125,
+      "y": 928.375,
+      "width": 327.234375,
+      "height": 84.59375,
+      "right": 951.0625,
+      "bottom": 1012.96875,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/workspace-long-arabic-1920x1080.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1920,
+      "height": 1080
+    },
+    "document_width": 1920,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 882.9375,
+      "y": 915.0625,
+      "width": 537.578125,
+      "height": 84.59375,
+      "right": 1420.515625,
+      "bottom": 999.65625,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": true,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/workspace-long-arabic-1024x768.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1024,
+      "height": 768
+    },
+    "document_width": 1024,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 581.703125,
+      "y": 964.0625,
+      "width": 293.0625,
+      "height": 84.59375,
+      "right": 874.765625,
+      "bottom": 1048.65625,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/workspace-long-arabic-390x844.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": 390,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 505.765625,
+      "y": 713.6875,
+      "width": 220,
+      "height": 84.59375,
+      "right": 725.765625,
+      "bottom": 798.28125,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/workspace-long-arabic-full-1366x768.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 625.765625,
+      "y": 928.375,
+      "width": 325.828125,
+      "height": 84.59375,
+      "right": 951.59375,
+      "bottom": 1012.96875,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/workspace-review-validation-1366x768.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 625.765625,
+      "y": 1111.515625,
+      "width": 325.828125,
+      "height": 84.59375,
+      "right": 951.59375,
+      "bottom": 1196.109375,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/workspace-pool-empty-1366x768.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/history-list-1440x900.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/history-detail-1440x900.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/history-detail-390x844.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": 390,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/workspace-correction-draft-1366x768.png",
+    "group": "annotator",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 623.828125,
+      "y": 994.375,
+      "width": 327.234375,
+      "height": 84.59375,
+      "right": 951.0625,
+      "bottom": 1078.96875,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(163, 166, 184)",
+      "background": "rgb(26, 26, 39)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 12
+  },
+  {
+    "file": "screenshots/login-statistics-loading-1440x900.png",
+    "group": "login-states",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/login-statistics-error-1440x900.png",
+    "group": "login-states",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/workspace-offline-save-error-1366x768.png",
+    "group": "persistence",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 600.71875,
+      "y": 911.5625,
+      "width": 354.9375,
+      "height": 92,
+      "right": 955.65625,
+      "bottom": 1003.5625,
+      "visible": true,
+      "fontSize": "20px",
+      "lineHeight": "37px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 2
+  },
+  {
+    "file": "screenshots/workspace-revision-conflict-1366x768.png",
+    "group": "persistence",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 600.71875,
+      "y": 869.875,
+      "width": 354.9375,
+      "height": 92,
+      "right": 955.65625,
+      "bottom": 961.875,
+      "visible": true,
+      "fontSize": "20px",
+      "lineHeight": "37px",
+      "direction": "rtl",
+      "color": "rgb(163, 166, 184)",
+      "background": "rgb(26, 26, 39)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 2
+  },
+  {
+    "file": "screenshots/workspace-revision-conflict-390x844.png",
+    "group": "persistence",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "document_width": 390,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 498.765625,
+      "y": 655.1875,
+      "width": 220,
+      "height": 92,
+      "right": 718.765625,
+      "bottom": 747.1875,
+      "visible": true,
+      "fontSize": "20px",
+      "lineHeight": "37px",
+      "direction": "rtl",
+      "color": "rgb(163, 166, 184)",
+      "background": "rgb(26, 26, 39)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 2
+  },
+  {
+    "file": "screenshots/login-session-takeover-1440x900.png",
+    "group": "persistence",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "document_width": 1440,
+    "horizontal_overflow_px": 0,
+    "first_transcript": null,
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 0
+  },
+  {
+    "file": "screenshots/workspace-100-segments-1366x768.png",
+    "group": "scale-100",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 628.65625,
+      "y": 869.875,
+      "width": 323.78125,
+      "height": 84.59375,
+      "right": 952.4375,
+      "bottom": 954.46875,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 100
+  },
+  {
+    "file": "screenshots/workspace-1000-segments-1366x768.png",
+    "group": "scale-1000",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 633.390625,
+      "y": 869.875,
+      "width": 320.40625,
+      "height": 84.59375,
+      "right": 953.796875,
+      "bottom": 954.46875,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 1000
+  },
+  {
+    "file": "screenshots/workspace-500-segments-1366x768.png",
+    "group": "scale-500",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "document_width": 1366,
+    "horizontal_overflow_px": 0,
+    "first_transcript": {
+      "x": 628.65625,
+      "y": 869.875,
+      "width": 323.78125,
+      "height": 84.59375,
+      "right": 952.4375,
+      "bottom": 954.46875,
+      "visible": true,
+      "fontSize": "18px",
+      "lineHeight": "33.3px",
+      "direction": "rtl",
+      "color": "rgb(231, 232, 239)",
+      "background": "rgb(37, 37, 54)"
+    },
+    "first_transcript_in_initial_viewport": false,
+    "rendered_transcripts": 500
+  }
+]

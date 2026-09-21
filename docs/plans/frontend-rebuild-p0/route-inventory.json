@@ -1,0 +1,579 @@
+[
+  {
+    "path": "/",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_index",
+    "source": "server.py",
+    "line": 595
+  },
+  {
+    "path": "/admin",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_admin",
+    "source": "server.py",
+    "line": 629
+  },
+  {
+    "path": "/admin.css",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_admin_css",
+    "source": "server.py",
+    "line": 636
+  },
+  {
+    "path": "/admin.js",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_admin_js",
+    "source": "server.py",
+    "line": 641
+  },
+  {
+    "path": "/admin/",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_admin",
+    "source": "server.py",
+    "line": 629
+  },
+  {
+    "path": "/admin/login",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_admin",
+    "source": "server.py",
+    "line": 629
+  },
+  {
+    "path": "/api/admin/annotations",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_annotations",
+    "source": "server.py",
+    "line": 1353
+  },
+  {
+    "path": "/api/admin/annotations/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_annotation_detail",
+    "source": "server.py",
+    "line": 1382
+  },
+  {
+    "path": "/api/admin/annotations/<task_id>/scene-review",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "metadata.api_admin_scene_review",
+    "source": "annotation_metadata/routes.py",
+    "line": 62
+  },
+  {
+    "path": "/api/admin/annotations/restore",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_restore",
+    "source": "server.py",
+    "line": 1434
+  },
+  {
+    "path": "/api/admin/annotations/revoke",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_revoke",
+    "source": "server.py",
+    "line": 1412
+  },
+  {
+    "path": "/api/admin/annotations/revoke/preview",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_revoke_preview",
+    "source": "server.py",
+    "line": 1398
+  },
+  {
+    "path": "/api/admin/annotators",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_annotators",
+    "source": "server.py",
+    "line": 1317
+  },
+  {
+    "path": "/api/admin/annotators/<annotator_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_annotator_detail",
+    "source": "server.py",
+    "line": 1330
+  },
+  {
+    "path": "/api/admin/annotators/<annotator_id>/annotations",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_annotator_annotations",
+    "source": "server.py",
+    "line": 1342
+  },
+  {
+    "path": "/api/admin/annotators/<annotator_id>/deactivate",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_deactivate",
+    "source": "server.py",
+    "line": 1476
+  },
+  {
+    "path": "/api/admin/annotators/<annotator_id>/deactivate/preview",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_deactivate_preview",
+    "source": "server.py",
+    "line": 1470
+  },
+  {
+    "path": "/api/admin/annotators/<annotator_id>/scene-scope",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "metadata.api_admin_scene_scope",
+    "source": "annotation_metadata/routes.py",
+    "line": 74
+  },
+  {
+    "path": "/api/admin/assignments/<task_id>/release",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_release_assignment",
+    "source": "server.py",
+    "line": 1456
+  },
+  {
+    "path": "/api/admin/audio/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_admin_audio",
+    "source": "server.py",
+    "line": 1538
+  },
+  {
+    "path": "/api/admin/audit",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_audit",
+    "source": "server.py",
+    "line": 1388
+  },
+  {
+    "path": "/api/admin/cross-check-settings",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "cross_check.api_admin_cross_check_settings_get",
+    "source": "annotation_quality/routes.py",
+    "line": 36
+  },
+  {
+    "path": "/api/admin/cross-check-settings",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "cross_check.api_admin_cross_check_settings_put",
+    "source": "annotation_quality/routes.py",
+    "line": 41
+  },
+  {
+    "path": "/api/admin/cross-checks",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "cross_check.api_admin_cross_checks_list",
+    "source": "annotation_quality/routes.py",
+    "line": 50
+  },
+  {
+    "path": "/api/admin/cross-checks/<round_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "cross_check.api_admin_cross_check_detail",
+    "source": "annotation_quality/routes.py",
+    "line": 57
+  },
+  {
+    "path": "/api/admin/cross-checks/<round_id>/cancel",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "cross_check.api_admin_cross_check_cancel",
+    "source": "annotation_quality/routes.py",
+    "line": 71
+  },
+  {
+    "path": "/api/admin/cross-checks/<round_id>/decision",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "cross_check.api_admin_cross_check_decision",
+    "source": "annotation_quality/routes.py",
+    "line": 62
+  },
+  {
+    "path": "/api/admin/login",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_login",
+    "source": "server.py",
+    "line": 836
+  },
+  {
+    "path": "/api/admin/logout",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_admin_logout",
+    "source": "server.py",
+    "line": 956
+  },
+  {
+    "path": "/api/admin/metadata/facets",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "metadata.api_admin_facets",
+    "source": "annotation_metadata/routes.py",
+    "line": 57
+  },
+  {
+    "path": "/api/admin/overview",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_overview",
+    "source": "server.py",
+    "line": 1305
+  },
+  {
+    "path": "/api/admin/quality",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_quality",
+    "source": "server.py",
+    "line": 1373
+  },
+  {
+    "path": "/api/admin/session",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_session",
+    "source": "server.py",
+    "line": 940
+  },
+  {
+    "path": "/api/admin/tasks",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_tasks",
+    "source": "server.py",
+    "line": 1363
+  },
+  {
+    "path": "/api/admin/timeseries",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_timeseries",
+    "source": "server.py",
+    "line": 1311
+  },
+  {
+    "path": "/api/admin/waveform/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_admin_waveform",
+    "source": "server.py",
+    "line": 1562
+  },
+  {
+    "path": "/api/assignment",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_get_assignment",
+    "source": "server.py",
+    "line": 1085
+  },
+  {
+    "path": "/api/assignment/claim",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_claim",
+    "source": "server.py",
+    "line": 1097
+  },
+  {
+    "path": "/api/assignment/current",
+    "methods": [
+      "PATCH",
+      "POST"
+    ],
+    "endpoint": "api_save_draft",
+    "source": "server.py",
+    "line": 1141
+  },
+  {
+    "path": "/api/assignment/current/abandon",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_abandon",
+    "source": "server.py",
+    "line": 1123
+  },
+  {
+    "path": "/api/assignment/current/complete",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_complete",
+    "source": "server.py",
+    "line": 1163
+  },
+  {
+    "path": "/api/audio/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_audio",
+    "source": "server.py",
+    "line": 1507
+  },
+  {
+    "path": "/api/clientlog",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_clientlog",
+    "source": "server.py",
+    "line": 1044
+  },
+  {
+    "path": "/api/completed",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_completed",
+    "source": "server.py",
+    "line": 1209
+  },
+  {
+    "path": "/api/completed/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_completed_detail",
+    "source": "server.py",
+    "line": 1222
+  },
+  {
+    "path": "/api/completed/<task_id>/reopen",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_completed_reopen",
+    "source": "server.py",
+    "line": 1230
+  },
+  {
+    "path": "/api/cross-checks/<round_id>/submission",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "cross_check.api_cross_check_submission",
+    "source": "annotation_quality/routes.py",
+    "line": 86
+  },
+  {
+    "path": "/api/cross-checks/mine",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "cross_check.api_cross_checks_mine",
+    "source": "annotation_quality/routes.py",
+    "line": 80
+  },
+  {
+    "path": "/api/current-user",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_current_user",
+    "source": "server.py",
+    "line": 793
+  },
+  {
+    "path": "/api/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_dashboard",
+    "source": "server.py",
+    "line": 1242
+  },
+  {
+    "path": "/api/health",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_health",
+    "source": "server.py",
+    "line": 1033
+  },
+  {
+    "path": "/api/heartbeat",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_heartbeat",
+    "source": "server.py",
+    "line": 995
+  },
+  {
+    "path": "/api/history/recent",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_history",
+    "source": "server.py",
+    "line": 1192
+  },
+  {
+    "path": "/api/leaderboard",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_leaderboard",
+    "source": "server.py",
+    "line": 1289
+  },
+  {
+    "path": "/api/login",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_login",
+    "source": "server.py",
+    "line": 676
+  },
+  {
+    "path": "/api/login/takeover",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_login_takeover",
+    "source": "server.py",
+    "line": 727
+  },
+  {
+    "path": "/api/logout",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_logout",
+    "source": "server.py",
+    "line": 781
+  },
+  {
+    "path": "/api/scenes",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "metadata.api_scenes",
+    "source": "annotation_metadata/routes.py",
+    "line": 37
+  },
+  {
+    "path": "/api/session/heartbeat",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api_session_heartbeat",
+    "source": "server.py",
+    "line": 1012
+  },
+  {
+    "path": "/api/waveform/<task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api_waveform",
+    "source": "server.py",
+    "line": 1529
+  },
+  {
+    "path": "/completed.html",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_completed",
+    "source": "server.py",
+    "line": 616
+  },
+  {
+    "path": "/index.html",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_index",
+    "source": "server.py",
+    "line": 595
+  },
+  {
+    "path": "/login.html",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "serve_login",
+    "source": "server.py",
+    "line": 609
+  },
+  {
+    "path": "/static/<path:filename>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "metadata.serve_metadata_static",
+    "source": "annotation_metadata/routes.py",
+    "line": 31
+  }
+]

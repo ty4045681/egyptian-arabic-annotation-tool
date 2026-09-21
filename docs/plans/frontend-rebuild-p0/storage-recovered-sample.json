@@ -1,0 +1,69 @@
+{
+  "name": "annotation-offline-v1",
+  "version": 1,
+  "stores": {
+    "outbox": {
+      "keyPath": null,
+      "autoIncrement": false,
+      "indexes": [],
+      "keys": [],
+      "records": []
+    },
+    "working_drafts": {
+      "keyPath": null,
+      "autoIncrement": false,
+      "indexes": [],
+      "keys": [
+        "p0-offline:9ffe6621-f8f3-4db7-9be3-b798e8456757"
+      ],
+      "records": [
+        {
+          "schema_version": 1,
+          "updated_at": "2026-09-21T11:56:57.336Z",
+          "status": "clean",
+          "username": "p0-offline",
+          "task_id": "9ffe6621-f8f3-4db7-9be3-b798e8456757",
+          "version_id": "999923fa-29e9-4037-a6e5-eeb48fff97e1",
+          "lease_token": "7e6bb7b6-d467-46a3-be4d-787ddb79a67b",
+          "server_revision": 1,
+          "segments": [
+            {
+              "asr_text": "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋",
+              "duration": 5,
+              "end": 5,
+              "exclude_from_training": false,
+              "id": 1,
+              "start": 0,
+              "text": "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+            },
+            {
+              "asr_text": "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋",
+              "duration": 5,
+              "end": 10,
+              "exclude_from_training": false,
+              "id": 2,
+              "start": 5,
+              "text": ""
+            }
+          ],
+          "scene_review": {
+            "actor_kind": null,
+            "id": null,
+            "note": "",
+            "scene_codes": [],
+            "status": "pending",
+            "submitted": false
+          },
+          "dirty_segment_ids": [],
+          "review_dirty": false,
+          "mode": "annotation",
+          "round_id": ""
+        }
+      ]
+    }
+  },
+  "localStorage": {
+    "annotator.transcriptFontSize": "20"
+  },
+  "sessionStorageKeys": []
+}

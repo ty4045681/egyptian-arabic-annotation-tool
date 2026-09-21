@@ -1,0 +1,54 @@
+{
+  "source_commit": "ef7696d508608725069bcfca099e498fc8fc6885",
+  "recorded_at": "2026-09-21T11:52:36.460564+00:00",
+  "exit_status": 1,
+  "database": {
+    "kind": "pgserver",
+    "version": "postgres (PostgreSQL) 16.2"
+  },
+  "seconds": 93.59,
+  "counts": {
+    "passed": 5,
+    "failed": 1,
+    "skipped": 0
+  },
+  "reports": [
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_login_workspace_history",
+      "phase": "call",
+      "outcome": "failed",
+      "seconds": 27.8944,
+      "failure": "scripts/frontend_p0_capture.py:178: in test_capture_login_workspace_history\n    expect(p.locator(\"#claimButton\")).to_be_visible(timeout=15000)\nE   AssertionError: Locator expected to be visible\nE   Actual value: None\nE   Error: element(s) not found \nE   Call log:\nE     - Expect \"to_be_visible\" with timeout 15000ms\nE     - waiting for locator(\"#claimButton\")\nE   \nE   Aria snapshot:\nE   - link \"Skip to annotation workspace\":\nE     - /url: \"#main\"\nE   - banner:\nE     - text: ◈ Egyptian Arabic Annotation Tool There are no pending tasks in the current dataset.\nE     - link \"Completed data\":\nE       - /url: /completed.html\nE     - group \"Arabic transcript font size\":\nE       - text: Arabic\nE       - button \"Decrease Arabic font size\": A−\nE       - text: \"18\"\nE       - button \"Increase Arabic font size\": A+\nE     - text: p0-long-username-abcdefghijklmnop\nE     - button \"Log out\"\nE     - strong: \"1\"\nE     - text: Confirmed\nE     - strong: \"0\"\nE     - text: Skipped\nE     - strong: \"0\"\nE     - text: Pending\nE     - strong: \"1\"\nE     - text: Total\nE   - main:\nE     - region \"Annotation segments\":\nE       - heading \"Task completed\" [level=1]\nE       - paragraph: There are no pending tasks in the current dataset.\nE       - link \"View completed data\":\nE         - /url: /completed.html\nE   - complementary \"Annotation dashboard\":\nE     - heading \"Annotation dashboard\" [level=2]\nE     - table:\nE       - rowgroup:\nE         - row \"# User Done Time\":\nE           - columnheader \"#\"\nE           - columnheader \"User\"\nE           - columnheader \"Done\"\nE           - columnheader \"Time\"\nE       - rowgroup:\nE         - row \"1 p0-long-username-abcdefghijklmnop 1 0 h 00 min\":\nE           - cell \"1\"\nE           - cell \"p0-long-username-abcdefghijklmnop\"\nE           - cell \"1\"\nE           - cell \"0 h 00 min\"\nE   - status: Task completed"
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_offline_conflict_and_takeover",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 6.8618
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_admin",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 17.9925
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_segment_scale[100]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 7.4334
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_segment_scale[500]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 9.2776
+    },
+    {
+      "nodeid": "scripts/frontend_p0_capture.py::test_capture_segment_scale[1000]",
+      "phase": "call",
+      "outcome": "passed",
+      "seconds": 17.6893
+    }
+  ]
+}

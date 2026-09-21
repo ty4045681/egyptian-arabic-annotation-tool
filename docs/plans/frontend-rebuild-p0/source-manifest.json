@@ -1,0 +1,83 @@
+{
+  "commit": "ef7696d508608725069bcfca099e498fc8fc6885",
+  "python": "3.12.14",
+  "packages": {
+    "pytest": "9.1.1",
+    "pytest-playwright": "0.9.0",
+    "playwright": "1.62.0",
+    "pgserver": "0.1.4",
+    "flask": "3.1.3",
+    "psycopg": "3.3.4"
+  },
+  "database_policy": "disposable pgserver; inherited DSNs removed",
+  "files": {
+    "index.html": {
+      "sha256": "13b3b2eda23b163cc3cbc44289f96a006d970000453a72e8397da22d63322e5c",
+      "lines": 918
+    },
+    "login.html": {
+      "sha256": "7b78094c5373b17ccee2fb59afa9b4036b77ec0cc343eb957dcf86cdc8bda0e6",
+      "lines": 338
+    },
+    "completed.html": {
+      "sha256": "f1862aecc856a889273448a9a76ee3c76bf0461f38d58b7c6733a08b3ff949a2",
+      "lines": 157
+    },
+    "admin.html": {
+      "sha256": "2497e5145f2e484d7566ce59a3b9b2c0c728a9b0561871c20bc8475bfa7a0831",
+      "lines": 575
+    },
+    "admin.js": {
+      "sha256": "bae700afa736292eceaad50ffdf7927c5ce5dbfe70ffe480d63c194e77870f69",
+      "lines": 2321
+    },
+    "admin.css": {
+      "sha256": "d3496133a5bd02eb2241e8f1135d32276f629ba516c4739adc1b854ea112857b",
+      "lines": 1252
+    },
+    "server.py": {
+      "sha256": "2461756eece0c240c9430ce90724b7da763b8b597f2c164cf89659a69ddcce5f",
+      "lines": 1759
+    },
+    "annotation_metadata/routes.py": {
+      "sha256": "97696a378177afdf6e484f45724228f798d69027fd1b5563b714137bfcf671e0",
+      "lines": 83
+    },
+    "annotation_quality/routes.py": {
+      "sha256": "9011accaabca04001a5e0484b5f2f39b5caa65023b5fcab1e2de057292a0f761",
+      "lines": 147
+    },
+    "static/admin-cross-check.js": {
+      "sha256": "c5450f10a04f3e03b20b1ea196e3a7fa3e9109a8354c4d59780d5054130f0d82",
+      "lines": 1479
+    },
+    "static/annotator-feedback.js": {
+      "sha256": "655517599630d94200b75779d9e692bb8aff77f3ff1a41d26943bb9abe98db67",
+      "lines": 47
+    },
+    "static/annotator-session.js": {
+      "sha256": "6be61e4f5236b5465f7fb0909bd9c7f270b874822bc823384dbd73f1100d4dfb",
+      "lines": 254
+    },
+    "static/cross-check.js": {
+      "sha256": "ee12fc24110f031f15066b264b968ed0ea55f352f18984dd0b9e2cf6acbed6df",
+      "lines": 316
+    },
+    "static/login-dashboard.js": {
+      "sha256": "2408c47b04288977ce4f99627330d32273f4b71615703b449dfe3aea0dc304bb",
+      "lines": 639
+    },
+    "static/metadata.js": {
+      "sha256": "87045f80629c176b0484149822f6f66888de8465cfb180ebafde2d899c13e684",
+      "lines": 509
+    },
+    "static/offline-drafts.js": {
+      "sha256": "d712abaf902d4ccf6a1ed91b54aaf1731c5d301a0c66953e8424558bd1f8b1c1",
+      "lines": 277
+    },
+    "static/metadata.css": {
+      "sha256": "a93a97d687718d34cf3b7d19e7d576e96519d97b68600cf4f9ecb120b61bc941",
+      "lines": 90
+    }
+  }
+}

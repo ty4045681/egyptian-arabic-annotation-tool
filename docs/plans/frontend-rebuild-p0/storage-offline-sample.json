@@ -1,0 +1,98 @@
+{
+  "name": "annotation-offline-v1",
+  "version": 1,
+  "stores": {
+    "outbox": {
+      "keyPath": null,
+      "autoIncrement": false,
+      "indexes": [],
+      "keys": [
+        "0aec6695-bc2f-428f-8749-aaaced7541c5"
+      ],
+      "records": [
+        {
+          "operation_id": "0aec6695-bc2f-428f-8749-aaaced7541c5",
+          "username": "p0-offline",
+          "task_id": "9ffe6621-f8f3-4db7-9be3-b798e8456757",
+          "route": "/api/assignment/current",
+          "method": "PATCH",
+          "body": {
+            "lease_token": "7e6bb7b6-d467-46a3-be4d-787ddb79a67b",
+            "expected_revision": 0,
+            "operation_id": "0aec6695-bc2f-428f-8749-aaaced7541c5",
+            "segments": [
+              {
+                "id": 1,
+                "start": 0,
+                "end": 5,
+                "duration": 5,
+                "text": "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋",
+                "exclude_from_training": false
+              }
+            ]
+          },
+          "created_at": "2026-09-21T11:56:56.526Z",
+          "attempts": 0
+        }
+      ]
+    },
+    "working_drafts": {
+      "keyPath": null,
+      "autoIncrement": false,
+      "indexes": [],
+      "keys": [
+        "p0-offline:9ffe6621-f8f3-4db7-9be3-b798e8456757"
+      ],
+      "records": [
+        {
+          "schema_version": 1,
+          "updated_at": "2026-09-21T11:56:56.764Z",
+          "status": "dirty",
+          "username": "p0-offline",
+          "task_id": "9ffe6621-f8f3-4db7-9be3-b798e8456757",
+          "version_id": "999923fa-29e9-4037-a6e5-eeb48fff97e1",
+          "lease_token": "7e6bb7b6-d467-46a3-be4d-787ddb79a67b",
+          "server_revision": 0,
+          "segments": [
+            {
+              "asr_text": "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋",
+              "duration": 5,
+              "end": 5,
+              "exclude_from_training": false,
+              "id": 1,
+              "start": 0,
+              "text": "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋"
+            },
+            {
+              "asr_text": "أنا عايز أروح المطار، الرحلة رقم 123 الساعة 10:30. ممكن تساعدني؟ English / العربية — أهلاً 👋",
+              "duration": 5,
+              "end": 10,
+              "exclude_from_training": false,
+              "id": 2,
+              "start": 5,
+              "text": ""
+            }
+          ],
+          "scene_review": {
+            "actor_kind": null,
+            "id": null,
+            "note": "",
+            "scene_codes": [],
+            "status": "pending",
+            "submitted": false
+          },
+          "dirty_segment_ids": [
+            1
+          ],
+          "review_dirty": false,
+          "mode": "annotation",
+          "round_id": ""
+        }
+      ]
+    }
+  },
+  "localStorage": {
+    "annotator.transcriptFontSize": "20"
+  },
+  "sessionStorageKeys": []
+}

@@ -1,0 +1,324 @@
+{
+  "screenshots": 46,
+  "all_screenshots_exist": true,
+  "application_source_unchanged": true,
+  "source_checks": [
+    {
+      "file": "index.html",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "login.html",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "completed.html",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "admin.html",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "admin.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "admin.css",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "server.py",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "annotation_metadata/routes.py",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "annotation_quality/routes.py",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/admin-cross-check.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/annotator-feedback.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/annotator-session.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/cross-check.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/login-dashboard.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/metadata.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/offline-drafts.js",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    },
+    {
+      "file": "static/metadata.css",
+      "matches_baseline_commit": true,
+      "matches_recorded_sha256": true
+    }
+  ],
+  "screenshot_assets": [
+    {
+      "file": "screenshots/login-populated-statistics-1440x900.png",
+      "sha256": "d2c28376b4c2ed6b9de6e6933428366214b16dc82374b4ec14d290ccd4d2b3fa",
+      "bytes": 94726
+    },
+    {
+      "file": "screenshots/admin-login-1440x900.png",
+      "sha256": "f5b0d4c2136c214328cafb24fa77ba284112a1dbd40e1512fcb3a316c192b9dd",
+      "bytes": 127214
+    },
+    {
+      "file": "screenshots/admin-overview-1440x900.png",
+      "sha256": "c412c9e7c6d199a30f6d6d71361b368dc4e76434e30a17c982d09cd71e7df65d",
+      "bytes": 95726
+    },
+    {
+      "file": "screenshots/admin-overview-1366x768.png",
+      "sha256": "b6fd31ad1f0fe21eeeae2032ee1042c4e11e05277a2b95411bfa56a55af3ec5e",
+      "bytes": 89619
+    },
+    {
+      "file": "screenshots/admin-overview-1920x1080.png",
+      "sha256": "8a0f5a3e648284595d53e0a8e87576251bb102409342176ef43a483684836ca6",
+      "bytes": 109475
+    },
+    {
+      "file": "screenshots/admin-overview-1024x768.png",
+      "sha256": "62d7b8b03a32fa211c2433d6f0316a956b14808dabc6f5235f20d7c277a5af81",
+      "bytes": 83853
+    },
+    {
+      "file": "screenshots/admin-overview-390x844.png",
+      "sha256": "3737d75454a69046a352f0853c85d9c6c46e55276bb5f276602b16ba4c3b9a35",
+      "bytes": 45378
+    },
+    {
+      "file": "screenshots/admin-annotators-unselected-1440x900.png",
+      "sha256": "452aebb59f58db1dd5768c5be558fa662bab2a8f529eb47a297a117c3d04152b",
+      "bytes": 55673
+    },
+    {
+      "file": "screenshots/admin-annotator-scope-1440x900.png",
+      "sha256": "7a49063684fcecba455990d75d8aad3ca58d15dbe01325488fed12b6d3b5c94b",
+      "bytes": 108340
+    },
+    {
+      "file": "screenshots/admin-deactivate-preview-1440x900.png",
+      "sha256": "391c7c381cb6c01ddd81dfd26fb8d6afe46b7983dc6e7001338c1c73114d21e8",
+      "bytes": 153443
+    },
+    {
+      "file": "screenshots/admin-task-detail-1440x900.png",
+      "sha256": "f18e11fb3909d9b97092c520c53e4a99b5d57be0b9109566261798ea6528f92d",
+      "bytes": 153480
+    },
+    {
+      "file": "screenshots/admin-revoke-preview-1440x900.png",
+      "sha256": "f5e53d8fc6174c5c804a9a4b1158e1f23939ed3bee64587d8b6806542b4fbbd5",
+      "bytes": 147431
+    },
+    {
+      "file": "screenshots/admin-corpus-1440x900.png",
+      "sha256": "b8a5e7e300ad003a981d22039a9e20040947339f01bb420e5af8990d52a9ad47",
+      "bytes": 90695
+    },
+    {
+      "file": "screenshots/admin-quality-1440x900.png",
+      "sha256": "ddd241c8cfe79d5887b6a70e698c22b4b479a9943cf69601ede64bfe53184d06",
+      "bytes": 87243
+    },
+    {
+      "file": "screenshots/admin-activity-1440x900.png",
+      "sha256": "c5e0d19d4816a78fd7c0e7901ce3f83dd20eb0676e4d021f24e1ff928de1b3dc",
+      "bytes": 60522
+    },
+    {
+      "file": "screenshots/admin-cross-check-queue-1440x900.png",
+      "sha256": "859ae373b5761d1930de512d3c74e05c440747e434ba8f525a2468c51ce46a10",
+      "bytes": 101770
+    },
+    {
+      "file": "screenshots/admin-cross-check-queue-1366x768.png",
+      "sha256": "28a3355749ad67d617399702a917125d067e321e531227b487e84fae75d022ec",
+      "bytes": 101014
+    },
+    {
+      "file": "screenshots/admin-cross-check-queue-390x844.png",
+      "sha256": "ced699ca17ecb40e294bc8f099a8da5d914f7ab78c24e637100d1f46bbd8c259",
+      "bytes": 56619
+    },
+    {
+      "file": "screenshots/admin-sampling-settings-1440x900.png",
+      "sha256": "966a5def3820d7100b8183e5fc4175b93e202595180a8383153b58629139bbbb",
+      "bytes": 146395
+    },
+    {
+      "file": "screenshots/admin-cross-check-review-1440x900.png",
+      "sha256": "5efaacf215202264420260b17f37d47d4e6165a1bc6d514c35321d7717668d87",
+      "bytes": 102216
+    },
+    {
+      "file": "screenshots/admin-cross-check-review-390x844.png",
+      "sha256": "2815ca9499bb663ab758cb53e6a8b4ee9c008a0048037b23976388cadbaab3dc",
+      "bytes": 153027
+    },
+    {
+      "file": "screenshots/admin-corpus-empty-date-range-1440x900.png",
+      "sha256": "85c5b6919f74ef2e9ccf380d18989ee07ba68c160389085f2949b40ac0165830",
+      "bytes": 77852
+    },
+    {
+      "file": "screenshots/login-empty-statistics-1440x900.png",
+      "sha256": "dc6aa9f19035f7397cffafbd1bc3d7441d39a361c895105ebb5d692a09a8a17a",
+      "bytes": 76592
+    },
+    {
+      "file": "screenshots/login-empty-statistics-390x844.png",
+      "sha256": "0d4e7e7f5f001e4792e2aed8bfe0be10ef057ec3939b0927d682847fe0911ca4",
+      "bytes": 68351
+    },
+    {
+      "file": "screenshots/workspace-idle-1366x768.png",
+      "sha256": "072facd9e9e7dbb8e0d98aaee81c77802615f9c14a0c5f82377375f644beb75f",
+      "bytes": 67958
+    },
+    {
+      "file": "screenshots/workspace-long-arabic-1440x900.png",
+      "sha256": "8dae2924bf3fdcd06fa33dcbf020a3a756322ee5d385db794997cb2f35ca9922",
+      "bytes": 178169
+    },
+    {
+      "file": "screenshots/workspace-long-arabic-1366x768.png",
+      "sha256": "0a3dc2e19f3204a626bd379e7acb44873d358f139df5083b8b055c97c1516846",
+      "bytes": 171614
+    },
+    {
+      "file": "screenshots/workspace-long-arabic-1920x1080.png",
+      "sha256": "ed24354902aad577e8d08e7c46b4c163858d2c582ee652c641cd1ce6ce8f4069",
+      "bytes": 245318
+    },
+    {
+      "file": "screenshots/workspace-long-arabic-1024x768.png",
+      "sha256": "c4bd0ceed00c1111ea8b60878a14d13fcb4e13a777de6a6a35fe4aeaeec5e41c",
+      "bytes": 152075
+    },
+    {
+      "file": "screenshots/workspace-long-arabic-390x844.png",
+      "sha256": "98d29d7fb3e348bf9d564cb41bb056ec091210e6873b79d197896e89519a7902",
+      "bytes": 61015
+    },
+    {
+      "file": "screenshots/workspace-long-arabic-full-1366x768.png",
+      "sha256": "7bb652297717c534b2ecbfa9b37f46138ab3d517ea6adb0f490337913186f79c",
+      "bytes": 377753
+    },
+    {
+      "file": "screenshots/workspace-review-validation-1366x768.png",
+      "sha256": "d4b0684ca9f7472904d4d74850fbb6df224ac450ea0ed8ead162f57ae5b5f325",
+      "bytes": 215326
+    },
+    {
+      "file": "screenshots/workspace-pool-empty-1366x768.png",
+      "sha256": "d44fb3ef62229ce31db30374b668f1f31a85d4390bf127bf337b869abc27e134",
+      "bytes": 46288
+    },
+    {
+      "file": "screenshots/history-list-1440x900.png",
+      "sha256": "63153e3ff5e437922972c18c2020f93d729f8c936eb95808938e5e957f02963f",
+      "bytes": 60195
+    },
+    {
+      "file": "screenshots/history-detail-1440x900.png",
+      "sha256": "4a8f30a3a6954d28da7e97273e9718b0a423818ff8b0ac6912fae4279640beae",
+      "bytes": 160461
+    },
+    {
+      "file": "screenshots/history-detail-390x844.png",
+      "sha256": "3c5ac8cfa38df104236224403be5019cf2ac65e3d2d136ab06ed114203eff69b",
+      "bytes": 59597
+    },
+    {
+      "file": "screenshots/workspace-correction-draft-1366x768.png",
+      "sha256": "176dcab836378f8284cbe60a198c51ebf4490b3fbe34dcb7b462451f0a061e14",
+      "bytes": 140148
+    },
+    {
+      "file": "screenshots/login-statistics-loading-1440x900.png",
+      "sha256": "90316b9df94edd762c421d3ff43ea7b3b06805171fea54bfe6496ef77c513266",
+      "bytes": 74748
+    },
+    {
+      "file": "screenshots/login-statistics-error-1440x900.png",
+      "sha256": "c48a8936691117f37882c608d213a7b52f13c1578a133df8bd444a74bf76fc34",
+      "bytes": 76327
+    },
+    {
+      "file": "screenshots/workspace-offline-save-error-1366x768.png",
+      "sha256": "c9eee5c7962c5b1145e9c30a8c987ab32db2b05ad9bc6b7dc0e0b5ea05688a12",
+      "bytes": 162994
+    },
+    {
+      "file": "screenshots/workspace-revision-conflict-1366x768.png",
+      "sha256": "8e4fd15293f87f67f787bb0d7de9102e2bf15abfc13266da2f53f4ecce777c6c",
+      "bytes": 120433
+    },
+    {
+      "file": "screenshots/workspace-revision-conflict-390x844.png",
+      "sha256": "56be95630b7cf4805e1e9c51a8ff2ebc6d862a25819565106357ab4b0ebb0c02",
+      "bytes": 55416
+    },
+    {
+      "file": "screenshots/login-session-takeover-1440x900.png",
+      "sha256": "7619d830bacf82107b3d41697823f72a7b3175c5477c69cf1610ba08da34aa1c",
+      "bytes": 102289
+    },
+    {
+      "file": "screenshots/workspace-100-segments-1366x768.png",
+      "sha256": "00a4a5ea5a5c0927563cea6e7dd1b923449e879b2f2936cd6b6b89c6c6baef1c",
+      "bytes": 156629
+    },
+    {
+      "file": "screenshots/workspace-1000-segments-1366x768.png",
+      "sha256": "4838f8b1a13694e7d2c2ad882f2f2a2af417a2314263d47af13c58cb4d7f74c0",
+      "bytes": 161922
+    },
+    {
+      "file": "screenshots/workspace-500-segments-1366x768.png",
+      "sha256": "fb002b5686adde52d55709ef4ff4259dca3d395ebb5e7a1866900ce010bd9b3e",
+      "bytes": 162925
+    }
+  ]
+}

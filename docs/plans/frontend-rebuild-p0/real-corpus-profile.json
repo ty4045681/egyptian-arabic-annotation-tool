@@ -1,0 +1,7 @@
+{
+  "recorded_at": "2026-09-21T11:46:21.699829+00:00",
+  "scope": "draft versions and current published versions, reported separately; no historical superseded versions",
+  "sql": "WITH active AS (\n  SELECT v.id, v.lifecycle\n  FROM annotation_versions v\n  JOIN annotation_tasks t ON t.id = v.task_id\n  WHERE v.lifecycle = 'draft' OR v.id = t.current_published_version_id\n), per_version AS (\n  SELECT a.id, a.lifecycle, count(s.segment_id) AS segments,\n         coalesce(max(length(s.text)), 0) AS longest_transcript_chars\n  FROM active a LEFT JOIN segments s ON s.version_id = a.id\n  GROUP BY a.id, a.lifecycle\n)\nSELECT lifecycle, count(*) AS versions, min(segments) AS min_segments,\n       percentile_disc(0.5) WITHIN GROUP (ORDER BY segments) AS p50_segments,\n       percentile_disc(0.95) WITHIN GROUP (ORDER BY segments) AS p95_segments,\n       percentile_disc(0.99) WITHIN GROUP (ORDER BY segments) AS p99_segments,\n       max(segments) AS max_segments,\n       count(*) FILTER (WHERE segments > 100) AS versions_over_100,\n       count(*) FILTER (WHERE segments > 500) AS versions_over_500,\n       count(*) FILTER (WHERE segments > 1000) AS versions_over_1000,\n       max(longest_transcript_chars) AS max_transcript_chars\nFROM per_version GROUP BY lifecycle ORDER BY lifecycle",
+  "status": "unavailable",
+  "reason": "ANNOTATION_DB_DSN is not configured; no production distribution inferred"
+}
