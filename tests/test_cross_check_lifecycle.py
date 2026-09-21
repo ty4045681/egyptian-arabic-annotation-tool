@@ -13,6 +13,7 @@ import pytest
 import annotation_repository as repo
 import db
 import server
+from annotation_quality.claiming import MAX_LOCK_ATTEMPTS
 from preprocess_store import TaskProtectedError, store_preprocessed_task
 from tests.test_admin_api import ADMIN_KEY_DIGEST, _admin_login
 from tests.test_admin_repository import _admin_session
@@ -930,7 +931,9 @@ def test_complete_racing_revoke_and_reopen_racing_claim(database, seed_tasks):
         try:
             return "ok", repo.claim(
                 fence_of(carol), source_scene="airport",
-                rng=ScriptedRng(0, 0),
+                # Reopen can hold the task or original author lock. Supply an
+                # offset for every permitted retry; the type draw stays unique.
+                rng=ScriptedRng(0, *([0] * MAX_LOCK_ATTEMPTS)),
             )
         except (repo.ConflictError, repo.NoTaskAvailable) as exc:
             return "conflict", exc
