@@ -15,7 +15,7 @@ from db import db_tx
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 ALLOWED_STATIC = {
     "metadata.js", "metadata.css",
-    "annotator-session.js", "offline-drafts.js",
+    "annotator-session.js", "offline-drafts.js", "annotator-feedback.js",
     "login-dashboard.js",
     "cross-check.js", "admin-cross-check.js",
     "vendor/chart.umd-4.5.1.min.js",

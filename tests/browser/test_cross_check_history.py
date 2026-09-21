@@ -1,9 +1,12 @@
-"""My cross-checks history tab and read-only submission details."""
+"""Ordinary submission history must not disclose cross-check selection or outcomes."""
 from __future__ import annotations
+
+import pytest
 
 from playwright.sync_api import expect, sync_playwright
 
 from tests.browser.cross_check_helpers import (
+    assert_annotator_blind,
     login_annotator,
     queue_awaiting,
     screenshot,
@@ -16,30 +19,36 @@ from tests.test_cross_check_claim import enable_cross_check
 from tests.test_cross_check_submit import words
 
 
-def test_my_cross_checks_list_and_readonly_detail(cross_check_site):
+@pytest.mark.parametrize("secondary", [words(20), "Different submitted text"])
+def test_own_submissions_use_ordinary_history_and_detail(cross_check_site, secondary):
     client = cross_check_site["client"]
     url = cross_check_site["url"]
-    rounds = queue_awaiting(client, cross_check_site["seed_tasks"], 1, original=words(20), secondary=words(20))
+    rounds = queue_awaiting(client, cross_check_site["seed_tasks"], 1, original=words(20), secondary=secondary)
     round_id = rounds[0]["round_id"]
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1366, "height": 768})
         login_annotator(page, url, "bob")
         page.goto(url + "/completed.html?tab=cross-checks")
-        expect(page.locator("[data-cross-check-round]")).to_be_visible(timeout=15000)
-        expect(page.locator("#ccResultCount")).to_contain_text("loaded")
-        expect(page.locator("#crossCheckPanel [data-correct]")).to_have_count(0)
-        page.locator("[data-cross-check-round]").first.click()
+        expect(page.locator("#records [data-view]")).to_be_visible(timeout=15000)
+        expect(page.locator("#resultCount")).to_have_text("1 shown")
+        expect(page.locator("#doneCount")).to_have_text("1")
+        expect(page.locator("#records")).to_contain_text("Completed")
+        assert_annotator_blind(page)
+        assert "cross-checks" not in page.url
+        page.locator("#records [data-view]").first.click()
         expect(page.locator("#detailDialog")).to_be_visible(timeout=10000)
         expect(page.locator("#detailBody audio")).to_have_js_property("readyState", 4, timeout=10000)
         expect(page.locator("#detailBody audio")).to_have_js_property("error", None)
-        expect(page.locator("#correctButton")).to_be_hidden()
-        expect(page.locator("#detailBody")).to_contain_text(words(20).split()[0])
+        expect(page.locator("#correctButton")).to_be_visible()
+        assert_annotator_blind(page)
+        expect(page.locator("#detailBody")).to_contain_text(secondary)
         screenshot(page, "history-cross-check-detail.png")
         page.locator("#closeTopButton").click()
         page.goto(url + f"/completed.html?tab=cross-checks&round={round_id}")
         expect(page.locator("#detailDialog")).to_be_visible(timeout=15000)
-        expect(page.locator("#correctButton")).to_be_hidden()
+        expect(page.locator("#correctButton")).to_be_visible()
+        assert_annotator_blind(page)
         browser.close()
 
 
@@ -64,10 +73,13 @@ def test_adjudicated_history_does_not_show_decision_direction(cross_check_site):
         login_annotator(page, url, "bob")
         page.goto(url + f"/completed.html?tab=cross-checks&round={round_id}")
         expect(page.locator("#detailDialog")).to_be_visible(timeout=15000)
-        expect(page.locator("#detailBody")).to_contain_text("administrator has processed")
+        expect(page.locator("#detailBody")).to_contain_text("Completed")
+        assert_annotator_blind(page)
+        assert "round=" not in page.url
         expect(page.locator("#detailBody")).not_to_contain_text("Use the second transcript")
         expect(page.locator("#detailBody")).not_to_contain_text("your transcript was accepted")
-        expect(page.locator("#correctButton")).to_be_hidden()
+        expect(page.locator("#correctButton")).to_be_visible()
+        assert_annotator_blind(page)
         browser.close()
 
 
@@ -88,5 +100,6 @@ def test_completed_correct_blocked_while_cross_check_open(cross_check_site):
         page.goto(url + "/completed.html")
         expect(page.locator("[data-correct]").first).to_be_visible(timeout=15000)
         page.locator("[data-correct]").first.click()
-        expect(page.locator(".toast")).to_contain_text("under cross-check", timeout=10000)
+        expect(page.locator(".toast")).to_contain_text("currently unavailable for correction", timeout=10000)
+        assert_annotator_blind(page)
         browser.close()

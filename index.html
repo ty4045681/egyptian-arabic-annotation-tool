@@ -56,10 +56,6 @@ aside{border-inline-start:1px solid var(--border);background:var(--panel);paddin
 .save-state[data-state="dirty"],.save-state[data-state="saving"]{color:var(--warning)}
 .save-state[data-state="saved"]{color:var(--success)}
 .save-state[data-state="error"]{color:var(--danger)}
-.mode-badge{display:none;margin-top:8px;padding:8px 10px;border:1px solid rgba(139,147,255,.45);border-radius:8px;background:rgba(139,147,255,.1)}
-.mode-badge.show{display:block}
-.mode-pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--primary);color:#151622;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
-.mode-help{display:block;margin-top:4px;color:var(--muted);font-size:12px;font-weight:500}
 .audio-wrap{flex:1;max-width:420px;min-width:220px}
 audio{width:100%;height:36px;filter:invert(.88) hue-rotate(180deg) brightness(1.1) saturate(.6)}
 .review-banner{display:none;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgba(139,147,255,.42);background:rgba(139,147,255,.08);border-radius:var(--radius);color:#cdd0ff}
@@ -163,10 +159,6 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
     </section>
     <section class="taskbar" id="taskbar" aria-label="Current task controls">
       <div class="task-meta"><h1 id="taskName">—</h1><p id="taskInfo">—</p>
-        <div class="mode-badge" id="crossCheckBadge">
-          <span class="mode-pill">Independent annotation</span>
-          <span class="mode-help">This is a second, independent transcript. You cannot see another annotator&apos;s work.</span>
-        </div>
         <div id="metadataBanner" class="metadata-banner"></div>
         <div id="metadataDetails"></div>
       </div>
@@ -228,14 +220,14 @@ tbody tr.selected td{background:rgba(139,147,255,.09)}
     </div>
   </div>
 </div>
-<script src="/static/offline-drafts.js?v=20260920-cc1"></script>
+<script src="/static/offline-drafts.js?v=20260921-blind1"></script>
 <script src="/static/annotator-session.js?v=20260917-session3"></script>
-<script src="/static/metadata.js?v=20260916-ui1"></script>
-<script src="/static/cross-check.js?v=20260920-cc1"></script>
+<script src="/static/metadata.js?v=20260921-availability1"></script>
+<script src="/static/annotator-feedback.js?v=20260921-blind1"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-class ApiError extends Error{constructor(message,status,body){super(message);this.status=status;this.body=body||{}}}
+class ApiError extends Error{constructor(message,status,body){super(AnnotatorFeedback.errorMessage(message,body));this.status=status;this.body=body||{}}}
 const FONT_MIN=14,FONT_MAX=32,FONT_STEP=2,FONT_DEFAULT=18,FONT_KEY="annotator.transcriptFontSize";
 const state={
   user:"",assignment:null,task:null,segments:[],waveform:[],waveMax:1e-6,duration:0,
@@ -244,7 +236,6 @@ const state={
   transcriptSize:FONT_DEFAULT,scenes:[],claimScenes:[],reviewTaxonomy:[],selectedScene:"",sceneReview:null,nextClaimScene:"",
   features:{},scope:null,reviewDirty:false,lastSavedReview:null,localConflictDraft:null,outboxReplayPromise:null,loadGeneration:0
 };
-function isCrossCheck(){return Boolean(state.assignment&&state.assignment.mode==="cross_check"&&!state.review)}
 function assignmentFingerprint(data){return data?[data.task_id,data.version_id,data.lease_token].join(":"):""}
 function isCurrentAssignment(data){return Boolean(state.assignment&&data&&assignmentFingerprint(state.assignment)===assignmentFingerprint(data))}
 function bumpLoad(){return ++state.loadGeneration}
@@ -355,7 +346,7 @@ function setBusy(busy){
   for(const node of document.querySelectorAll("#tablePanel [data-text],#tablePanel [data-time],#tablePanel [data-quality]"))node.disabled=locked;
   for(const node of document.querySelectorAll("#sceneReviewPanel button,#sceneReviewPanel input,#sceneReviewPanel textarea,#sceneReviewPanel select"))node.disabled=locked||!reviewWriteEnabled();
 }
-function stateView(title,description,actions="",kind=""){$("taskbar").classList.remove("show");$("wavePanel").classList.remove("show");$("crossCheckBadge").classList.remove("show");$("sceneReviewPanel").hidden=true;$("sceneReviewPanel").replaceChildren();$("tablePanel").innerHTML='<div class="state '+kind+'"><div class="state-inner"><h1>'+escapeHtml(title)+'</h1><p>'+escapeHtml(description)+'</p>'+actions+'</div></div>'}
+function stateView(title,description,actions="",kind=""){$("taskbar").classList.remove("show");$("wavePanel").classList.remove("show");$("sceneReviewPanel").hidden=true;$("sceneReviewPanel").replaceChildren();$("tablePanel").innerHTML='<div class="state '+kind+'"><div class="state-inner"><h1>'+escapeHtml(title)+'</h1><p>'+escapeHtml(description)+'</p>'+actions+'</div></div>'}
 function clampFontSize(value){const n=Number(value);return Number.isFinite(n)?Math.min(FONT_MAX,Math.max(FONT_MIN,Math.round(n))):FONT_DEFAULT}
 function applyTranscriptFont(size,persist){
   state.transcriptSize=clampFontSize(size);
@@ -388,8 +379,8 @@ async function replayOutbox(username){
         });
         outcome.replayed+=1;
         outcome.terminal=outcome.terminal||terminal;
-        if(terminal&&result&&result.cross_check&&window.CrossCheck){
-          CrossCheck.setSubmitFlash({state:result.cross_check.state,round_id:result.cross_check.round_id,status:result.status});
+        if(terminal){
+          AnnotatorFeedback.setFlash({kind:/\/abandon$/.test(item.route)?"abandon":"complete",status:result.status||item.body.target_status});
         }
         if(state.assignment&&String(state.assignment.task_id)===String(item.task_id)&&typeof result.revision==="number"){
           state.assignment.revision=result.revision;
@@ -528,19 +519,16 @@ function scopeSummaryText(){
   return "Claim scope: all source scenes";
 }
 function showIdle(pool,successMessage=""){
-  const reason=pool?.reason||"available";let title="Ready for another task",description="Your previous task is complete. Claim a task when you are ready.";
+  const reason=pool?.reason||"available";let title="Ready for another task",description="Claim a task when you are ready.";
   if(reason==="all_completed"){title="All tasks are complete";description="There are no pending tasks in the current dataset."}
   else if(reason==="temporarily_all_assigned"){title="All pending tasks are reserved";description="Other annotators are currently working on the remaining tasks. Check again later."}
   else if(reason==="temporarily_busy"){title="Task pool is busy";description="Another task claim is being processed. Check again in a moment."}
   else if(reason==="no_preprocessed"){title="No tasks available";description="Preprocessed audio has not been imported yet."}
   if(successMessage){title=successMessage}
   let actions='<a class="link-btn" href="/completed.html">View completed data</a>';
-  const flash=window.CrossCheck&&CrossCheck.consumeSubmitFlash();
+  const flash=AnnotatorFeedback.consumeFlash();
   if(flash){
-    title=CrossCheck.submitMessage({cross_check:flash},flash.status);
-    description="Your independent transcript was submitted. The original published audio is unchanged by this submission.";
-    if(flash.round_id)actions='<a class="link-btn" href="/completed.html?tab=cross-checks&round='+encodeURIComponent(flash.round_id)+'">View this cross-check</a> '+actions;
-    else actions='<a class="link-btn" href="/completed.html?tab=cross-checks">View your cross-check records</a> '+actions;
+    title=AnnotatorFeedback.message(flash);
   }else if(reason==="no_matching_scene"){title="No matching scene tasks";description="The selected source scene has no tasks you can claim. Existing assignments are not released."}
   else if(reason==="no_scene_access"){title="No claimable scenes";description="An administrator has not granted you a claimable scene scope. Your current unfinished task is still reserved."}
   if(reason==="available"||reason==="no_matching_scene"||(pool&&Number(pool.available)>0))actions='<button class="btn btn-primary" id="claimButton" type="button">Claim next task</button> '+actions;
@@ -554,7 +542,7 @@ function showIdle(pool,successMessage=""){
     const inner=$("tablePanel").querySelector(".state-inner");if(inner)inner.appendChild(host);
     AnnotationMetadata.renderScenePicker(host,{
       scenes:state.claimScenes, pool:pool, selected:state.nextClaimScene,
-      scopeText:scopeSummaryText(),
+      scopeText:"Counts show tasks currently available to your account. "+scopeSummaryText(),
       onChange:(code)=>{state.nextClaimScene=code;loadAssignment()}
     });
     if(state.assignment) host.appendChild(Object.assign(document.createElement("p"),{textContent:"The next claim will use this scene preference. Your current unfinished task will still resume."}));
@@ -603,8 +591,7 @@ function loadTask(data,review){
   state.waveform=decodeWaveform(data.waveform_b64);state.waveMax=state.waveform.reduce((m,v)=>Math.max(m,Math.abs(v)),1e-6);
   $("taskbar").classList.add("show");$("wavePanel").classList.toggle("show",state.waveform.length>0);$("taskName").textContent=data.filename||data.rel_path;$("taskInfo").textContent=state.duration.toFixed(1)+" s · "+state.segments.length+" segments";
   const independent=!review&&data.mode==="cross_check";
-  $("crossCheckBadge").classList.toggle("show",independent);
-  $("audio").src=audioUrl(data.task_id);$("assignmentLine").textContent=review?"Reviewing completed task: "+data.filename:(independent?"Independent annotation: ":"")+(data.resumed?"Resumed: ":"Assigned: ")+data.filename;
+  $("audio").src=audioUrl(data.task_id);$("assignmentLine").textContent=review?"Reviewing completed task: "+data.filename:(data.resumed?"Resumed: ":"Assigned: ")+data.filename;
   for(const button of document.querySelectorAll(".reason")){button.setAttribute("aria-pressed",String((data.skip_reasons||[]).includes(button.dataset.reason)))}
   $("skipActions").hidden=review;$("taskActions").hidden=review;$("saveState").hidden=review;
   if(review){$("reviewBanner").classList.add("show");$("reviewText").textContent="Viewing "+data.filename+" in read-only mode. Your unfinished task remains reserved."}
@@ -825,14 +812,10 @@ async function submitTask(status){
     if(window.AnnotationOffline){
       await AnnotationOffline.confirmOutbox(body.operation_id,{delete_draft:true,clear_dirty:true});
     }
-    const message=window.CrossCheck?CrossCheck.submitMessage(result,status):(status==="annotated"?"Task completed":"Task skipped");
-    if(result.cross_check&&window.CrossCheck)CrossCheck.setSubmitFlash({state:result.cross_check.state,round_id:result.cross_check.round_id,status:status});
+    const message=AnnotatorFeedback.message({status});
+    AnnotatorFeedback.setFlash({status});
     state.pendingComplete=null;state.dirty.clear();state.reviewDirty=false;state.assignment=null;state.task=null;await refreshDashboard();const current=await api("/api/assignment");
-    let extra=message;
-    if(result.cross_check){
-      extra=message;
-    }
-    showIdle(current.pool,extra);toast(message)
+    showIdle(current.pool,message);toast(message)
   }catch(error){
     toast(error.message,"error",true);
     await persistWorkspaceDraft().catch(()=>{});
@@ -854,28 +837,25 @@ async function submitTask(status){
 }
 async function abandonTask(){
   if(!state.assignment||state.review||state.submitting||(window.AnnotatorSession&&AnnotatorSession.writesFrozen()))return;
-  const prompt=isCrossCheck()
-    ?"Release this cross-check? This round will close and your work will not be submitted."
-    :"Release this task? Your saved draft will remain, but another annotator may claim it.";
+  const prompt="Release this task? Your current assignment will end without submitting it.";
   if(!confirm(prompt))return;
   setBusy(true);
   try{
     await drainSaves();
     if(!state.pendingAbandon)state.pendingAbandon=freezeJson({lease_token:state.assignment.lease_token,operation_id:uuid(),confirm:true});
     if(window.AnnotationOffline){await persistWorkspaceDraft();await AnnotationOffline.putOutbox({operation_id:state.pendingAbandon.operation_id,username:state.user,task_id:state.assignment.task_id,route:"/api/assignment/current/abandon",method:"POST",body:state.pendingAbandon});}
-    const releasingCrossCheck=isCrossCheck();
     const result=await api("/api/assignment/current/abandon",{method:"POST",body:cloneJson(state.pendingAbandon)});
     if(window.AnnotationOffline){await AnnotationOffline.confirmOutbox(state.pendingAbandon.operation_id,{delete_draft:true,clear_dirty:true});}
     state.pendingAbandon=null;state.assignment=null;state.task=null;await refreshDashboard();
-    showIdle(result.pool||{reason:"available"},releasingCrossCheck?"Cross-check released":"");
-    toast(releasingCrossCheck?"Cross-check released":"Task released")
+    showIdle(result.pool||{reason:"available"},"Task released");
+    toast("Task released")
   }catch(error){
     toast(error.message,"error",true);
     if(error.status===0){state.saveBlocked=true;setSaveState("Waiting for connection","error")}
   }finally{setBusy(false)}
 }
-async function loadHistory(){try{await drainSaves();const data=await api("/api/history/recent?limit=50");state.history=data.items||[];if(!state.history.length){toast("No completed tasks in your history.","error");return}state.historyIndex=0;await showHistoryItem()}catch(error){toast(error.message,"error",true)}}
-async function showHistoryItem(){const item=state.history[state.historyIndex];if(!item)return;try{const detail=await api("/api/completed/"+encodeURIComponent(item.task_id));loadTask(detail,true);$("reviewText").textContent="Viewing "+detail.filename+" ("+(state.historyIndex+1)+" of "+state.history.length+"). Your unfinished task remains reserved.";$("newerHistoryButton").disabled=state.historyIndex===0;$("olderHistoryButton").disabled=state.historyIndex>=state.history.length-1}catch(error){toast(error.message,"error",true)}}
+async function loadHistory(){try{await drainSaves();const data=await api("/api/completed?include_submissions=1&limit=50");state.history=data.items||[];if(!state.history.length){toast("No completed tasks in your history.","error");return}state.historyIndex=0;await showHistoryItem()}catch(error){toast(error.message,"error",true)}}
+async function showHistoryItem(){const item=state.history[state.historyIndex];if(!item)return;try{const detail=await api("/api/completed/"+encodeURIComponent(item.task_id)+"?version_id="+encodeURIComponent(item.version_id));loadTask(detail,true);$("reviewText").textContent="Viewing "+detail.filename+" ("+(state.historyIndex+1)+" of "+state.history.length+"). Your unfinished task remains reserved.";$("newerHistoryButton").disabled=state.historyIndex===0;$("olderHistoryButton").disabled=state.historyIndex>=state.history.length-1}catch(error){toast(error.message,"error",true)}}
 async function moveHistory(delta){const next=state.historyIndex+delta;if(next<0||next>=state.history.length)return;state.historyIndex=next;await showHistoryItem()}
 async function returnToTask(){await loadAssignment()}
 function isSeeking(index){const slider=progressEl(index);return Boolean(slider&&(slider.dataset.dragging==="1"||document.activeElement===slider))}

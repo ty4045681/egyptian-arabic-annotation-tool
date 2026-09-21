@@ -1784,17 +1784,44 @@ def history_recent(user_id: str, limit: int = 10, before_event_id: int | None = 
 # Completed page (own records only)
 # ============================================================
 def completed_list(user_id: str, status: str = "all", q: str = "",
-                   limit: int = 20, cursor: str | None = None) -> dict:
+                   limit: int = 20, cursor: str | None = None,
+                   include_submissions: bool = False) -> dict:
     uid = _validate_uuid(user_id, "user_id")
     if status not in ("all", "annotated", "skipped"):
         raise ValidationError("status must be all|annotated|skipped")
     limit = max(1, min(int(limit), 100))
 
-    where = ["t.current_published_version_id IS NOT NULL",
-             "v.submitted_by_user_id = %s"]
-    params: list = [uid]
+    source_sql = """annotation_tasks t JOIN annotation_versions v
+                    ON v.id = t.current_published_version_id"""
+    base_where = ["t.current_published_version_id IS NOT NULL",
+                  "v.submitted_by_user_id = %s"]
+    base_params: list = [uid]
+    status_column = "t.status"
+    if include_submissions:
+        # Combine the two existing self-history scopes without revealing the
+        # purpose or quality outcome. Keep only the latest own entry per audio;
+        # a secondary version adopted for publication must appear only once.
+        source_sql = """(
+            SELECT DISTINCT ON (own.task_id) own.*
+            FROM annotation_versions own
+            JOIN annotation_tasks task ON task.id = own.task_id
+            WHERE own.submitted_by_user_id = %s
+              AND own.submitted_at IS NOT NULL
+              AND (own.id = task.current_published_version_id OR EXISTS (
+                  SELECT 1 FROM cross_check_rounds r
+                  WHERE r.secondary_version_id = own.id
+                    AND r.secondary_annotator_id = %s
+                    AND r.submitted_at IS NOT NULL
+              ))
+            ORDER BY own.task_id, own.submitted_at DESC, own.id DESC
+        ) v JOIN annotation_tasks t ON t.id = v.task_id"""
+        base_where = ["TRUE"]
+        base_params = [uid, uid]
+        status_column = "v.target_status"
+    where = list(base_where)
+    params = list(base_params)
     if status != "all":
-        where.append("t.status = %s")
+        where.append(f"{status_column} = %s")
         params.append(status)
     if q:
         where.append("(t.filename ILIKE %s OR t.folder ILIKE %s)")
@@ -1813,10 +1840,9 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""SELECT v.id, v.submitted_at, t.id, t.filename, t.folder,
-                       t.status, t.duration, t.rel_path,
+                       {status_column}, t.duration, t.rel_path,
                        (SELECT count(*) FROM segments s WHERE s.version_id = v.id)
-                FROM annotation_tasks t
-                JOIN annotation_versions v ON v.id = t.current_published_version_id
+                FROM {source_sql}
                 WHERE {' AND '.join(where)}
                 ORDER BY v.submitted_at DESC, v.id DESC
                 LIMIT %s""",
@@ -1851,14 +1877,13 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
                 i["skip_reasons"] = skips.get(i["version_id"], [])
 
         summary_row = cur.execute(
-            """SELECT
-                 count(*) FILTER (WHERE t.status = 'annotated'),
-                 count(*) FILTER (WHERE t.status = 'skipped'),
-                 COALESCE(sum(t.duration) FILTER (WHERE t.status = 'annotated'), 0)
-               FROM annotation_tasks t
-               JOIN annotation_versions v ON v.id = t.current_published_version_id
-               WHERE v.submitted_by_user_id = %s""",
-            (uid,),
+            f"""SELECT
+                 count(*) FILTER (WHERE {status_column} = 'annotated'),
+                 count(*) FILTER (WHERE {status_column} = 'skipped'),
+                 COALESCE(sum(t.duration) FILTER (WHERE {status_column} = 'annotated'), 0)
+               FROM {source_sql}
+               WHERE {' AND '.join(base_where)}""",
+            base_params,
         ).fetchone()
         has_assignment = cur.execute(
             "SELECT EXISTS (SELECT 1 FROM assignments WHERE user_id = %s)", (uid,)
@@ -1880,18 +1905,22 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
     }
 
 
-def completed_detail(user_id: str, task_id: str) -> dict:
+def completed_detail(user_id: str, task_id: str, version_id: str | None = None) -> dict:
     uid = _validate_uuid(user_id, "user_id")
     tid = _validate_uuid(task_id, "task_id")
+    vid = _validate_uuid(version_id, "version_id") if version_id else None
+    version_join = "v.id = %s" if vid else "v.id = t.current_published_version_id"
+    status_column = "v.target_status" if vid else "t.status"
     with db_tx() as conn, conn.cursor() as cur:
         row = cur.execute(
-            """SELECT t.id, t.rel_path, t.filename, t.folder, t.duration,
-                      t.status, t.category, t.preprocessed_at,
-                      v.id, v.submitted_at, v.skip_reasons
+            f"""SELECT t.id, t.rel_path, t.filename, t.folder, t.duration,
+                      {status_column}, t.category, t.preprocessed_at,
+                      v.id, v.submitted_at, v.skip_reasons,
+                      t.current_published_version_id
                FROM annotation_tasks t
-               JOIN annotation_versions v ON v.id = t.current_published_version_id
+               JOIN annotation_versions v ON {version_join} AND v.task_id = t.id
                WHERE t.id = %s""",
-            (tid,),
+            (vid, tid) if vid else (tid,),
         ).fetchone()
         if not row or not row[8]:
             raise NotFoundError("Task not found")
@@ -1901,6 +1930,17 @@ def completed_detail(user_id: str, task_id: str) -> dict:
         ).fetchone()
         if not detail or detail[0] != uid:
             raise ForbiddenError("You can only view your own submissions")
+        if vid and row[8] != row[11]:
+            visible = cur.execute(
+                """SELECT EXISTS (
+                    SELECT 1 FROM cross_check_rounds
+                    WHERE secondary_version_id = %s
+                      AND secondary_annotator_id = %s
+                      AND submitted_at IS NOT NULL
+                )""", (vid, uid),
+            ).fetchone()[0]
+            if not visible:
+                raise NotFoundError("Submission not found")
         segments = _load_segments(cur, row[8])
         wf = _load_waveform(cur, tid)
         payload = {

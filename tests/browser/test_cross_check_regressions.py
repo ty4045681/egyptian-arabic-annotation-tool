@@ -237,7 +237,7 @@ def test_settings_conflict_preserves_inputs_until_explicit_resave(cross_check_si
     assert current["sampling_rate_bps"] == (1250 if refresh_fails else 1000)
 
 
-def test_history_tab_switch_allows_reload_and_ignores_old_response(cross_check_site):
+def test_history_filter_switch_allows_reload_and_ignores_old_response(cross_check_site):
     site = cross_check_site
     queue_awaiting(site["client"], site["seed_tasks"], 1)
     with sync_playwright() as p:
@@ -251,7 +251,7 @@ def test_history_tab_switch_allows_reload_and_ignores_old_response(cross_check_s
             let count = 0;
             window.fetch = (...args) => {
                 const promise = originalFetch(...args);
-                if (String(args[0]).includes('/api/cross-checks/mine') && ++count === 1) {
+                if (String(args[0]).includes('/api/completed?') && ++count === 1) {
                     return promise.then(() => new Promise(resolve => {
                         window.releaseOldCrossChecks = () => resolve(new Response(
                             JSON.stringify({items: [], next_cursor: null}),
@@ -262,15 +262,15 @@ def test_history_tab_switch_allows_reload_and_ignores_old_response(cross_check_s
                 return promise;
             };
         }""")
-        page.locator("#tabCrossChecks").click()
+        page.locator('.filter[data-status="all"]').click()
         page.wait_for_function("() => typeof window.releaseOldCrossChecks === 'function'")
-        page.locator("#tabCompleted").click()
-        page.locator("#tabCrossChecks").click()
-        expect(page.locator("[data-cross-check-round]")).to_have_count(1, timeout=10000)
+        page.locator('.filter[data-status="skipped"]').click()
+        page.locator('.filter[data-status="all"]').click()
+        expect(page.locator("#records [data-view]")).to_have_count(1, timeout=10000)
         page.evaluate("() => window.releaseOldCrossChecks()")
-        expect(page.locator("#ccResultCount")).to_have_text("1 loaded")
-        expect(page.locator("[data-cross-check-round]")).to_have_count(1)
-        page.locator("#tabCompleted").click()
-        page.locator("#tabCrossChecks").click()
-        expect(page.locator("[data-cross-check-round]")).to_have_count(1, timeout=10000)
+        expect(page.locator("#resultCount")).to_have_text("1 shown")
+        expect(page.locator("#records [data-view]")).to_have_count(1)
+        page.locator('.filter[data-status="skipped"]').click()
+        page.locator('.filter[data-status="all"]').click()
+        expect(page.locator("#records [data-view]")).to_have_count(1, timeout=10000)
         browser.close()

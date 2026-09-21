@@ -1,5 +1,7 @@
 # 交叉标注质检前端开发报告
 
+> 当前标注员体验已按 2026-09-21 的新要求调整为无感质检，详见文末“标注员无感质检”。下文保留首轮实现与复核记录。
+
 日期：2026-09-20\
 分支：`0918`\
 计划：`docs/plans/2026-09-20-cross-annotation-quality-frontend-plan.md`
@@ -144,3 +146,37 @@ uv run --no-sync pytest -q \
   tests/browser/test_cross_check_admin.py::test_sampling_settings_percent_to_bps --tb=short
 # 3 passed in 17.12s
 ```
+
+## 标注员无感质检（2026-09-21）
+
+- 删除工作台的 Independent annotation 标识、第二份稿件说明及任务标题前缀。领取、续领、提交、跳过、释放统一使用普通标注文案。
+- 移除 My cross-checks 专用标签、质量状态、裁定提示及专用提交链接。本人复标与当前本人发布记录使用同一历史列表和详情布局，按音频保留本人最新一条记录。
+- 历史列表使用 `GET /api/completed?include_submissions=1`；详情以 `version_id` 读取自己的提交。原有接口默认口径保持兼容。版本必须属于指定音频、当前用户，并且是当前本人发布版本或该用户已提交的复标版本；不允许读取他人稿件、未提交草稿或额外历史版本。
+- 采用复标稿发布后，个人列表及其时长不重复计算同一音频。全站总标注时长、管理员统计与训练导出口径沿用原有规则。
+- 旧 `tab=cross-checks&round=...` 链接转换为普通详情，地址栏清除旧参数；旧 sessionStorage 提交提示只恢复普通完成/跳过消息。
+- 离线重试、刷新恢复和完成请求重放沿用原幂等机制，消息不展示质量结果。本地草稿内部保留 mode/round_id，供恢复使用；复制给用户的草稿内容移除这两个内部字段。
+- 标注员 API 错误展示统一处理，避免错误弹窗透出交叉质检及原稿信息。管理员的队列、设置、差异对照与裁定信息仍按原权限展示。
+- 新增本人历史合并、筛选/分页、版本鉴权和去重测试；浏览器验证普通/复标跳过及释放、两种比较结果、旧链接与提示、保存错误及本地复制内容，并保留迟到响应隔离检查。
+
+无数据库迁移。后台领取协议仍保留内部 mode 等状态用于草稿恢复与幂等操作，本次无感要求针对网站可见内容和正常操作流程。
+
+本轮相关回归验证（包含全部浏览器测试及交叉质检后端测试）：
+
+```bash
+UV_CACHE_DIR=/tmp/annotation-review-uv-cache \
+UV_PYTHON_INSTALL_DIR=/opt/annotation-python \
+uv run --no-sync pytest -q \
+  tests/test_api.py tests/test_repository.py tests/test_cross_check_*.py \
+  tests/test_annotator_submission_history.py \
+  tests/test_regression_metadata_offline_contract.py tests/browser --tb=short
+# 242 passed in 274.43s
+```
+
+独立测试服务已更新，另经 HTTPS 浏览器实际检查：续领任务不显示专用标识；本人 7 条复标示例在普通历史中展示并能播放音频；管理员质检队列可用；未出现 JavaScript 运行错误。标注员工作台及历史详情验收截图已更新。
+
+### 释放任务后的提示与候选数量
+
+- 移除空闲页面默认的“上一条任务已完成”说明，避免 Abandon 后被误认为已提交；释放成功仍显示 `Task released`。
+- 场景数量标签使用 `available`，并说明数量表示当前账号可领取的任务数。
+- 沿用既有派发规则：复标成功领取后保留参与记录，Abandon 会取消本轮并释放占用，但该账号不会再次领取同一音频。其他符合条件的账号仍可参与。
+- 相关释放流程、场景选择和后端取消测试：`7 passed in 25.19s`。

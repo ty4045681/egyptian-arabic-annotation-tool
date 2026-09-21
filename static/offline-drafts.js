@@ -266,7 +266,10 @@
       });
     },
     exportText: function (draft) {
-      return JSON.stringify(draft || {}, null, 2);
+      const copy = Object.assign({}, draft || {});
+      delete copy.mode;
+      delete copy.round_id;
+      return JSON.stringify(copy, null, 2);
     }
   };
 

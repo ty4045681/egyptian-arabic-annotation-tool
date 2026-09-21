@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import uuid
 
 from playwright.sync_api import expect
@@ -128,6 +129,16 @@ def console_errors(page):
     failures = []
     page.on("pageerror", lambda error: failures.append(str(error)))
     return failures
+
+
+def assert_annotator_blind(page):
+    expect(page.locator("#crossCheckBadge, #tabCrossChecks, #crossCheckPanel")).to_have_count(0)
+    assert not re.search(
+        r"cross[- ]?check|independent annotation|second, independent|"
+        r"awaiting (?:admin )?review|\badjudicated\b|original published",
+        page.locator("body").inner_text(), re.IGNORECASE,
+    )
+    expect(page.locator('a[href*="tab=cross-checks"]')).to_have_count(0)
 
 
 def assignment_leak_watch(page, bucket):

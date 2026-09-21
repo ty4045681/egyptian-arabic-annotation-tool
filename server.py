@@ -1215,13 +1215,16 @@ def api_completed():
         q=(request.args.get("q") or "").strip(),
         limit=query_int("limit", 20, minimum=1, maximum=100),
         cursor=request.args.get("cursor"),
+        include_submissions=bool(query_int("include_submissions", 0, minimum=0, maximum=1)),
     ))
 
 
 @app.route("/api/completed/<task_id>")
 @login_required
 def api_completed_detail(task_id: str):
-    return jsonify(repo.completed_detail(request.annotator["id"], task_id))
+    return jsonify(repo.completed_detail(
+        request.annotator["id"], task_id, version_id=request.args.get("version_id"),
+    ))
 
 
 @app.route("/api/completed/<task_id>/reopen", methods=["POST"])
