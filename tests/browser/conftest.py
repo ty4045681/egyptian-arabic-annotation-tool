@@ -117,3 +117,12 @@ def provenance_site(client, seed_tasks, tmp_path, monkeypatch):
     httpd, thread, url = start_app_server()
     yield {"url": url, "tasks": tasks, "admin_key": ADMIN_KEY}
     stop_app_server(httpd, thread)
+
+
+@pytest.fixture
+def cross_check_site(client, seed_tasks, monkeypatch):
+    """Live server for cross-check UI tests. Callers seed rounds as needed."""
+    configure_admin(monkeypatch)
+    httpd, thread, url = start_app_server()
+    yield {"url": url, "client": client, "seed_tasks": seed_tasks, "admin_key": ADMIN_KEY}
+    stop_app_server(httpd, thread)

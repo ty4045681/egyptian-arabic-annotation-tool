@@ -2,12 +2,13 @@
 
 const $ = (id) => document.getElementById(id);
 const CSRF_STORAGE_KEY = "annotation.admin.csrf";
-const VIEWS = new Set(["overview", "annotators", "corpus", "quality", "activity"]);
+const VIEWS = new Set(["overview", "annotators", "corpus", "quality", "cross-checks", "activity"]);
 const VIEW_LABELS = {
   overview: "Overview",
   annotators: "Annotators",
   corpus: "Tasks & corpus",
   quality: "Review & quality",
+  "cross-checks": "Cross-checks",
   activity: "Activity log",
 };
 
@@ -56,6 +57,8 @@ const state = {
   scopeCatalogFailed: false,
   sceneLabels: {},
   metadataFilters: {},
+  batchOptions: [],
+  savedDashboardRange: null,
 };
 
 const CONF_LABEL = {
@@ -92,6 +95,7 @@ function text(node, value, fallback = "—") {
 function element(tag, options = {}, children = []) {
   const node = document.createElement(tag);
   if (options.className) node.className = options.className;
+  if (options.id) node.id = String(options.id);
   if (options.text !== undefined) node.textContent = String(options.text);
   if (options.title) node.title = String(options.title);
   if (options.type) node.type = options.type;
@@ -208,6 +212,7 @@ const api = {
   },
   get(path, options) { return this.request(path, options); },
   post(path, body, options = {}) { return this.request(path, { ...options, method: "POST", body }); },
+  put(path, body, options = {}) { return this.request(path, { ...options, method: "PUT", body }); },
 };
 
 function uuid() {
@@ -334,6 +339,13 @@ function syncUrl() {
   if (state.view === "quality" && state.qualityQuery) url.searchParams.set("q", state.qualityQuery);
   if (state.view === "quality" && state.qualityAnnotatorId) url.searchParams.set("annotator_id", state.qualityAnnotatorId);
   if (state.view === "quality" && state.qualitySignal) url.searchParams.set("signal", state.qualitySignal);
+  if (state.view === "cross-checks") {
+    url.searchParams.delete("range");
+    url.searchParams.delete("from");
+    url.searchParams.delete("to");
+    url.searchParams.delete("annotator");
+  }
+  if (window.AdminCrossCheck) AdminCrossCheck.contributeUrl(url);
   history.replaceState(null, "", url);
 }
 
@@ -363,6 +375,7 @@ function restoreUrlState() {
   $("dateRange").value = state.range;
   $("customDates").hidden = state.range !== "custom";
   applyPreset(state.range);
+  if (window.AdminCrossCheck) AdminCrossCheck.restoreFromUrl(params);
 }
 
 function announce(message) {
@@ -412,8 +425,10 @@ function enterLogin(message = "") {
   $("deactivateAdminKey").value = "";
   state.pendingRevoke = null;
   state.pendingDeactivate = null;
+  if (window.AdminCrossCheck) AdminCrossCheck.clearSensitive();
   closeDialog($("revokeDialog"));
   closeDialog($("deactivateDialog"));
+  closeDialog($("ccSettingsDialog"));
   $("bootScreen").hidden = true;
   $("adminApp").hidden = true;
   $("loginView").hidden = false;
@@ -463,12 +478,31 @@ function renderViewShell() {
   }
   text($("pageTitle"), VIEW_LABELS[state.view]);
   text($("breadcrumbView"), VIEW_LABELS[state.view]);
+  $("dateRange").closest(".date-toolbar")?.classList.toggle("is-cross-check", state.view === "cross-checks");
   syncUrl();
   closeSidebar();
 }
 
 async function navigate(view, { focus = true } = {}) {
   if (!VIEWS.has(view)) return;
+  const previous = state.view;
+  if (previous === "cross-checks" && view !== "cross-checks" && window.AdminCrossCheck) {
+    if (!AdminCrossCheck.canLeaveView()) return;
+  }
+  if (previous === "cross-checks" && view !== "cross-checks") {
+    if (state.savedDashboardRange) {
+      state.range = state.savedDashboardRange.range;
+      state.dateFrom = state.savedDashboardRange.dateFrom;
+      state.dateTo = state.savedDashboardRange.dateTo;
+      $("dateRange").value = state.range;
+      $("customDates").hidden = state.range !== "custom";
+      applyPreset(state.range);
+    }
+    if (window.AdminCrossCheck) AdminCrossCheck.leaveView();
+  }
+  if (view === "cross-checks" && previous !== "cross-checks") {
+    state.savedDashboardRange = { range: state.range, dateFrom: state.dateFrom, dateTo: state.dateTo };
+  }
   state.view = view;
   renderViewShell();
   hideStatus();
@@ -485,6 +519,7 @@ async function loadCurrentView() {
     else if (state.view === "annotators" && state.selectedAnnotatorId) await loadAnnotator(state.selectedAnnotatorId, epoch);
     else if (state.view === "corpus") await loadCorpus(false, epoch);
     else if (state.view === "quality") await loadQuality(epoch);
+    else if (state.view === "cross-checks" && window.AdminCrossCheck) await AdminCrossCheck.loadView();
     else if (state.view === "activity") await loadAudit(false, epoch);
   } catch (error) {
     if (error.name !== "AbortError" && error.status !== 401) showStatus(error.message || "Could not load this dashboard section.");
@@ -585,6 +620,8 @@ async function loadMetadataFacets() {
     fillSelect($("overviewPredictionScene"), sceneOptions, { allText: "All model classifications", extra: [{ value: "unknown", text: "No model classification" }] });
     fillSelect($("corpusHumanScene"), sceneOptions, { allText: "All human scenes", extra: [{ value: "unknown", text: "No human scene" }] });
     fillSelect($("overviewHumanScene"), sceneOptions, { allText: "All human scenes", extra: [{ value: "unknown", text: "No human scene" }] });
+    state.batchOptions = batchOptions;
+    if (window.AdminCrossCheck) AdminCrossCheck.fillFilterOptions();
     const grid = $("scopeSceneGrid");
     if (grid && !grid.childElementCount) {
       scenes.forEach((scene) => {
@@ -632,6 +669,7 @@ async function loadAnnotators() {
   state.annotators = items.map(normaliseAnnotator);
   renderAnnotatorDirectory();
   renderQualityAnnotatorOptions();
+  if (window.AdminCrossCheck) AdminCrossCheck.fillFilterOptions();
   if (state.selectedAnnotatorId && !state.annotators.some((item) => item.id === state.selectedAnnotatorId)) {
     state.selectedAnnotatorId = "";
     syncUrl();
@@ -776,6 +814,7 @@ function renderOverview(data) {
   renderDistribution($("categoryDistribution"), pick(distributions, ["categories", "category"], pick(data, ["categories"], [])));
   renderDistribution($("skipDistribution"), pick(distributions, ["skip_reasons", "skipReasons"], pick(data, ["skip_reasons"], [])));
   renderMetadataGroups(data);
+  if (window.AdminCrossCheck) AdminCrossCheck.renderOverviewCards(data);
 }
 
 function groupRows(items, labelFn) {
@@ -1428,6 +1467,7 @@ async function loadQuality(epoch = state.requestEpoch) {
     if (epoch !== state.requestEpoch) return;
     state.qualityItems = listValue(data, ["items", "signals", "tasks", "results"]);
     renderQuality(data);
+    if (window.AdminCrossCheck) AdminCrossCheck.renderQualityCard(data);
     hideStatus();
   } catch (error) {
     const stats = overviewStats(state.overview || {});
@@ -1466,6 +1506,7 @@ function renderQuality(data) {
     row.appendChild(element("td", { className: "actions-cell" }, element("button", { className: "table-action", text: "View", type: "button", dataset: { taskAction: "view-quality", taskId: task.taskId } })));
     body.appendChild(row);
   }
+  if (window.AdminCrossCheck) AdminCrossCheck.renderQualityCard(data);
 }
 
 async function loadAudit(append = false, epoch = state.requestEpoch) {
@@ -2243,6 +2284,37 @@ function setupEvents() {
     restoreUrlState();
     renderViewShell();
     await loadCurrentView();
+  });
+}
+
+if (window.AdminCrossCheck) {
+  AdminCrossCheck.init({
+    api,
+    $,
+    element,
+    text,
+    clear,
+    uuid,
+    formatDuration,
+    formatDateTime,
+    formatInteger,
+    toast,
+    announce,
+    pick,
+    numberValue,
+    listValue,
+    setButtonBusy,
+    openDialog,
+    closeDialog,
+    shiftDate,
+    navigate,
+    syncUrl,
+    getTimezone: () => state.timezone,
+    getAnnotators: () => state.annotators,
+    getSceneLabels: () => state.sceneLabels,
+    getBatchOptions: () => state.batchOptions || [],
+    catalogFailed: () => state.scopeCatalogFailed,
+    currentView: () => state.view,
   });
 }
 

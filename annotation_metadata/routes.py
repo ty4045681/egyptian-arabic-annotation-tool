@@ -17,6 +17,7 @@ ALLOWED_STATIC = {
     "metadata.js", "metadata.css",
     "annotator-session.js", "offline-drafts.js",
     "login-dashboard.js",
+    "cross-check.js", "admin-cross-check.js",
     "vendor/chart.umd-4.5.1.min.js",
     "vendor/chartjs-plugin-annotation-3.1.0.min.js",
 }
