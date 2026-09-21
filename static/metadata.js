@@ -482,14 +482,14 @@
     const wrap = el("div", { className: "scene-picker" });
     const allBtn = el("button", { attrs: { type: "button", "aria-pressed": String(!selected) } }, [
       el("span", { text: "All in scope" }),
-      el("span", { className: "count", text: String((options.pool && options.pool.available) || 0) + " tasks" }),
+      el("span", { className: "count", text: String((options.pool && options.pool.available) || 0) + " available" }),
     ]);
     allBtn.addEventListener("click", () => options.onChange && options.onChange(""));
     wrap.appendChild(allBtn);
     (options.scenes || []).forEach((scene) => {
       const button = el("button", { attrs: { type: "button", "aria-pressed": String(selected === scene.code) } }, [
         el("span", { text: sceneDisplayLabel(scene) }),
-        el("span", { className: "count", text: String(counts[scene.code] || 0) + " tasks" }),
+        el("span", { className: "count", text: String(counts[scene.code] || 0) + " available" }),
       ]);
       button.addEventListener("click", () => options.onChange && options.onChange(scene.code));
       wrap.appendChild(button);

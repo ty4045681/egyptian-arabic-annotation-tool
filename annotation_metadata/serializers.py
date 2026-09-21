@@ -130,11 +130,15 @@ def _review_headline_part(metadata: dict) -> str:
 def serialize_task_metadata(cur, task_id, *, version_id=None,
                             published_version_id=None,
                             assignment_user_id=None,
-                            include_draft_review: bool = False) -> dict:
+                            include_draft_review: bool = False,
+                            blind: bool = False) -> dict:
     sources = [public_source(item) for item in list_current_sources(cur, task_id)]
     sources.sort(key=lambda item: (item.get("scene_code") or "", item.get("id") or ""))
-    prediction = latest_prediction(cur, task_id)
-    published_review = latest_review(cur, published_version_id) if published_version_id else None
+    prediction = None if blind else latest_prediction(cur, task_id)
+    published_review = (
+        None if blind else
+        (latest_review(cur, published_version_id) if published_version_id else None)
+    )
     working_review = latest_review(cur, version_id) if version_id else None
     claim_context = None
     if assignment_user_id is not None:
@@ -149,16 +153,19 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
     correcting = bool(
         include_draft_review and version_id and published_version_id
         and str(version_id) != str(published_version_id)
+        and not blind
     )
-    if correcting:
-        official = working_review or {
-            "status": "pending", "scene_codes": [], "note": "", "id": None,
-        }
+    pending_review = {
+        "status": "pending", "scene_codes": [], "note": "", "id": None,
+    }
+    if blind:
+        official = working_review or pending_review
+        submitted = False
+    elif correcting:
+        official = working_review or pending_review
         submitted = False
     else:
-        official = published_review or working_review or {
-            "status": "pending", "scene_codes": [], "note": "", "id": None,
-        }
+        official = published_review or working_review or pending_review
         submitted = published_review is not None
     scene_review = {
         "status": (official or {}).get("status") or "pending",
@@ -169,7 +176,7 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
         "actor_kind": (official or {}).get("actor_kind"),
     }
     draft_review = None
-    if correcting:
+    if correcting or blind:
         draft_review = {
             "status": (working_review or {}).get("status") or "pending",
             "scene_codes": list((working_review or {}).get("scene_codes") or []),
@@ -192,7 +199,7 @@ def serialize_task_metadata(cur, task_id, *, version_id=None,
         ),
         "scene_review": scene_review,
         "draft_review": draft_review,
-        "reference_review": published_review if correcting else None,
+        "reference_review": None if blind else (published_review if correcting else None),
         "claim_context": claim_context,
         "headline": "",
         "unknown": {

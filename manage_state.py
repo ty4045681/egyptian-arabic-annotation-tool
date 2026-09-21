@@ -34,7 +34,9 @@ KNOWN_TOP = {
     "audio", "folder", "duration", "status", "skip_reasons", "category",
     "annotated_by", "skipped_by", "last_modified", "last_modified_by",
     "preprocessed_at", "waveform_b64", "waveform", "segments",
+    "quality_state", "training_eligible", "quality_round_id",
 }
+QUALITY_JSON_KEYS = ("quality_state", "training_eligible", "quality_round_id")
 KNOWN_SEG = {"id", "start", "end", "duration", "asr_text", "text", "exclude_from_training"}
 TASK_NAMESPACE = uuid.UUID("b2234ce1-fc42-41df-af48-11710143274b")
 
@@ -794,7 +796,14 @@ def migrate_manifest(manifest: dict) -> uuid.UUID:
 
 
 def db_export_rows(conn) -> Iterable[dict]:
-    query = """
+    from annotation_quality.queries import (
+        credited_annotator_sql, latest_quality_round_lateral_sql,
+        training_export_eligible_sql,
+    )
+    eligible_sql, eligible_params = training_export_eligible_sql()
+    credited = credited_annotator_sql()
+    quality_join = latest_quality_round_lateral_sql()
+    query = f"""
         SELECT t.id, t.rel_path, t.legacy_audio_key, t.filename, t.folder, t.duration, t.status,
                t.category, t.preprocessed_at, t.extra AS task_extra,
                v.id AS version_id, v.version_no, v.revision, v.target_status,
@@ -812,22 +821,26 @@ def db_export_rows(conn) -> Iterable[dict]:
                      'extra', s.extra
                    ) ORDER BY s.segment_id
                  ) FILTER (WHERE s.segment_id IS NOT NULL), '[]'::jsonb
-               ) AS segments
+               ) AS segments,
+               q.id AS quality_round_id, q.state AS quality_state,
+               ({eligible_sql}) AS training_eligible
         FROM annotation_tasks t
         JOIN annotation_versions v ON v.task_id = t.id AND (
              v.id = t.current_published_version_id OR
              (t.current_published_version_id IS NULL AND v.lifecycle = 'draft')
         )
-        LEFT JOIN annotators u ON u.id = v.submitted_by_user_id
+        LEFT JOIN annotators u ON u.id = {credited}
         LEFT JOIN annotators editor ON editor.id = v.modified_by_user_id
         LEFT JOIN waveforms w ON w.task_id = t.id
         LEFT JOIN segments s ON s.version_id = v.id
-        GROUP BY t.id, v.id, u.username, editor.username, w.payload
+        {quality_join}
+        GROUP BY t.id, v.id, u.username, editor.username, w.payload,
+                 q.id, q.state
         ORDER BY t.allocation_order
     """
     with conn.cursor(name="state_export", row_factory=dict_row) as cur:
         cur.itersize = 500
-        cur.execute(query)
+        cur.execute(query, eligible_params)
         yield from cur
 
 
@@ -887,6 +900,10 @@ def row_to_legacy(row: dict) -> dict:
         })
         segments.append(seg)
     result["segments"] = segments
+    result["quality_state"] = row.get("quality_state") or "none"
+    result["training_eligible"] = bool(row.get("training_eligible"))
+    round_id = row.get("quality_round_id")
+    result["quality_round_id"] = str(round_id) if round_id else None
     return normalize_legacy(result, row["rel_path"])
 
 
@@ -904,6 +921,8 @@ def verify_manifest(manifest: dict) -> dict:
                 mismatches.append({"type": "unexpected_database_task", "rel_path": rel_path})
                 continue
             exported = row_to_legacy(row)
+            for key in QUALITY_JSON_KEYS:
+                exported.pop(key, None)
             actual_hash = canonical_hash(exported)
             if actual_hash != item["semantic_sha256"]:
                 mismatches.append({"type": "semantic_mismatch", "rel_path": rel_path, "source_path": item["source_path"], "expected": item["semantic_sha256"], "actual": actual_hash})
@@ -1172,32 +1191,63 @@ def command_assignments(args) -> None:
 def command_release(args) -> None:
     if not args.reason.strip():
         raise MigrationError("--reason is required")
+    from annotation_repository import _cancel_in_progress_cross_check
+    reason = args.reason.strip()
     with db_conn() as conn, conn.transaction(), conn.cursor() as cur:
-        row = cur.execute(
-            """SELECT a.user_id, a.task_id, a.working_version_id, t.status, a.mode
-               FROM assignments a
-               JOIN annotators u ON u.id = a.user_id
-               JOIN annotation_tasks t ON t.id = a.task_id
-               JOIN annotation_versions v ON v.id = a.working_version_id
-               WHERE u.username = %s
-               FOR UPDATE OF a, t, v""",
+        owner = cur.execute(
+            "SELECT id FROM annotators WHERE username = %s FOR UPDATE",
             (args.username,),
+        ).fetchone()
+        if not owner:
+            raise MigrationError(f"no assignment for username: {args.username}")
+        row = cur.execute(
+            """SELECT a.user_id, a.task_id, a.working_version_id, t.status, a.mode,
+                      a.cross_check_round_id
+               FROM assignments a
+               JOIN annotation_tasks t ON t.id = a.task_id
+               WHERE a.user_id = %s
+               FOR UPDATE OF a""",
+            (owner[0],),
         ).fetchone()
         if not row:
             raise MigrationError(f"no assignment for username: {args.username}")
+        cur.execute(
+            "SELECT id FROM annotation_tasks WHERE id = %s FOR UPDATE",
+            (row[1],),
+        )
         if row[4] == "revision":
+            cur.execute(
+                "SELECT id FROM annotation_versions WHERE id = %s FOR UPDATE",
+                (row[2],),
+            )
             cur.execute(
                 """UPDATE annotation_versions
                    SET lifecycle = 'abandoned', updated_at = now()
                    WHERE id = %s AND lifecycle = 'draft'""",
                 (row[2],),
             )
+        elif row[4] == "cross_check":
+            _cancel_in_progress_cross_check(
+                cur, round_id=row[5], task_id=row[1], version_id=row[2],
+                reason=reason,
+            )
+            cur.execute(
+                """INSERT INTO annotation_events
+                       (user_id, task_id, version_id, event_type, from_status,
+                        to_status, details)
+                   VALUES (%s, %s, %s, 'cross_check_cancelled', %s, %s, %s)""",
+                (row[0], row[1], row[2], row[3], row[3], Json({
+                    "mode": "cross_check",
+                    "round_id": str(row[5]),
+                    "termination_reason": reason,
+                })),
+            )
         cur.execute("DELETE FROM assignments WHERE user_id = %s", (row[0],))
         cur.execute(
             """INSERT INTO annotation_events
                    (user_id, task_id, version_id, event_type, from_status, details)
                VALUES (%s, %s, %s, 'released_admin', %s, %s)""",
-            (row[0], row[1], row[2], row[3], Json({"reason": args.reason.strip()})),
+            (row[0], row[1], row[2], row[3], Json({"reason": reason})),
         )
     print(f"released assignment for {args.username}")
 

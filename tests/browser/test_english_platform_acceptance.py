@@ -66,7 +66,7 @@ def test_english_ui_and_spoken_fallback_across_annotation_admin(live_site, tmp_p
         assert page.locator('#scopeAllowUnknown').count() == 0
         assert_english_chrome(page)
         page.screenshot(path=str(tmp_path / 'english-admin-overview.png'), full_page=True)
-        for view in ('annotators', 'corpus', 'quality', 'activity'):
+        for view in ('annotators', 'corpus', 'quality', 'cross-checks', 'activity'):
             page.locator('[data-view="' + view + '"]').click()
             assert_english_chrome(page)
         assert not failures, failures

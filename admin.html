@@ -59,6 +59,9 @@
         <button class="nav-item" type="button" data-view="quality">
           <span class="nav-icon" aria-hidden="true">◇</span><span>Quality</span>
         </button>
+        <button class="nav-item" type="button" data-view="cross-checks">
+          <span class="nav-icon" aria-hidden="true">⇄</span><span>Cross-checks</span>
+        </button>
         <button class="nav-item" type="button" data-view="activity">
           <span class="nav-icon" aria-hidden="true">↻</span><span>Activity log</span>
         </button>
@@ -138,7 +141,8 @@
           <article class="metric-card">
             <div class="metric-label"><span>Annotated</span><span class="status-dot dot-success" aria-hidden="true"></span></div>
             <strong class="metric-value" id="kpiAnnotated">—</strong>
-            <p><span id="kpiAnnotatedDuration">—</span> currently usable</p>
+            <p><span id="kpiAnnotatedDuration">—</span> published annotated audio</p>
+            <p class="metric-note">Includes audio that is still in cross-check or awaiting review.</p>
           </article>
           <article class="metric-card">
             <div class="metric-label"><span>Pending</span><span class="status-dot dot-warning" aria-hidden="true"></span></div>
@@ -200,6 +204,23 @@
                 <div><dt>Estimated finish</dt><dd id="estimatedFinish">—</dd></div>
               </dl>
             </div>
+          </article>
+
+          <article class="panel panel-wide" id="overviewCrossCheckPanel">
+            <div class="panel-heading">
+              <div>
+                <h3>Cross-checks</h3>
+                <p>All-time, all scenes. These counts do not follow the date filter above.</p>
+              </div>
+              <button class="button button-secondary button-small" type="button" data-open-cross-checks="awaiting_review">Open awaiting review</button>
+            </div>
+            <div class="kpi-grid kpi-grid-compact">
+              <article class="metric-card"><div class="metric-label">Awaiting review</div><strong class="metric-value" id="overviewCcPending">—</strong><p>Rounds waiting for an administrator</p></article>
+              <article class="metric-card"><div class="metric-label">In progress</div><strong class="metric-value" id="overviewCcInProgress">—</strong><p>Independent annotation still open</p></article>
+              <article class="metric-card"><div class="metric-label">Training export on hold</div><strong class="metric-value" id="overviewCcBlocked">—</strong><p>Unique audio currently blocked by an open round</p></article>
+              <article class="metric-card"><div class="metric-label">Cross-check submissions</div><strong class="metric-value" id="overviewCcSubmitted">—</strong><p><span id="overviewCcSubmittedAudio">—</span> labor time, not added to published audio</p></article>
+            </div>
+            <p class="overlap-note">Oldest awaiting-review round created <span id="overviewCcOldest">—</span>. Training exports exclude audio under cross-check or awaiting review. Audit exports may still include it.</p>
           </article>
 
           <article class="panel panel-wide">
@@ -352,6 +373,7 @@
           <article class="signal-card"><span class="signal-icon signal-warning" aria-hidden="true">!</span><div><h3>Stale assignments</h3><strong id="qualityStaleCount">—</strong><p>Held longer than the expected lease</p></div></article>
           <article class="signal-card"><span class="signal-icon signal-neutral" aria-hidden="true">◇</span><div><h3>Bad quality segments</h3><strong id="qualityBadSegments">—</strong><p id="qualityBadShare">— of submitted segments</p></div></article>
           <article class="signal-card"><span class="signal-icon signal-danger" aria-hidden="true">×</span><div><h3>Admin revocations</h3><strong id="qualityRevocations">—</strong><p>Within the selected period</p></div></article>
+          <article class="signal-card"><span class="signal-icon signal-warning" aria-hidden="true">⇄</span><div><h3>Cross-check awaiting review</h3><strong id="qualityCrossCheckPending">—</strong><p>All-time, all scenes</p><button class="text-button" type="button" data-open-cross-checks="awaiting_review">Open queue</button></div></article>
         </div>
         <article class="panel table-panel">
           <div class="table-toolbar"><div><h3>Quality review queue</h3><p>Signals are indicators only; they are not automatic quality judgments.</p></div></div>
@@ -366,6 +388,70 @@
             <div class="table-state" id="qualityTaskState">Loading quality signals…</div>
           </div>
         </article>
+      </section>
+
+      <section class="page-section" id="crossChecksView" data-page="cross-checks" aria-labelledby="crossChecksHeading" hidden>
+        <div class="page-heading">
+          <div>
+            <h2 id="crossChecksHeading">Cross-checks</h2>
+            <p>Independent second transcripts and administrator review. Queue dates are round created time.</p>
+          </div>
+          <button class="button button-secondary" id="ccSamplingButton" type="button">Sampling settings</button>
+        </div>
+
+        <div class="cc-summary" aria-label="All-time cross-check summary">
+          <p class="overlap-note" id="ccSummaryScope">All-time, all scenes</p>
+          <p class="form-error" id="ccSummaryError" hidden></p>
+          <button class="text-button" id="ccSummaryRetry" type="button" hidden>Retry summary</button>
+          <div class="kpi-grid kpi-grid-compact">
+            <article class="metric-card"><div class="metric-label">In progress</div><strong class="metric-value" id="ccKpiInProgress">—</strong></article>
+            <article class="metric-card"><div class="metric-label">Awaiting review</div><strong class="metric-value" id="ccKpiPending">—</strong></article>
+            <article class="metric-card"><div class="metric-label">Passed</div><strong class="metric-value" id="ccKpiPassed">—</strong></article>
+            <article class="metric-card"><div class="metric-label">Adjudicated</div><strong class="metric-value" id="ccKpiAdjudicated">—</strong></article>
+            <article class="metric-card"><div class="metric-label">Training export on hold</div><strong class="metric-value" id="ccKpiBlocked">—</strong></article>
+            <article class="metric-card"><div class="metric-label">Oldest awaiting review created</div><strong class="metric-value metric-value-small" id="ccKpiOldest">—</strong></article>
+            <article class="metric-card"><div class="metric-label">Cross-check submissions</div><strong class="metric-value" id="ccKpiSubmitted">—</strong><p>Labor count, not published audio</p></article>
+            <article class="metric-card"><div class="metric-label">Cross-check audio labor</div><strong class="metric-value" id="ccKpiSubmittedAudio">—</strong><p>Not added to published annotated audio</p></article>
+          </div>
+          <p class="overlap-note">Training exports exclude audio under cross-check or awaiting review. Audit exports may still include it.</p>
+        </div>
+
+        <div id="ccListPanel">
+          <article class="panel table-panel">
+            <form class="filter-bar" id="ccFilterForm">
+              <label class="compact-field"><span>State</span><select id="ccState"></select></label>
+              <label class="compact-field"><span>Source scene</span><select id="ccSourceScene"><option value="">All source scenes</option></select></label>
+              <label class="compact-field"><span>Batch</span><select id="ccBatch"><option value="">All batches</option></select></label>
+              <label class="compact-field"><span>Original annotator</span><select id="ccOriginalAnnotator"><option value="">All original annotators</option></select></label>
+              <label class="compact-field"><span>Cross-check annotator</span><select id="ccSecondaryAnnotator"><option value="">All cross-check annotators</option></select></label>
+              <label class="compact-field"><span>Reason</span><select id="ccReason"><option value="">All reasons</option></select></label>
+              <label class="compact-field"><span>Created from</span><input id="ccFrom" type="date"></label>
+              <label class="compact-field"><span>Created to</span><input id="ccTo" type="date"></label>
+              <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search filename, path, or ID</span><input id="ccSearch" type="search" placeholder="Filename, path, or full audio/round ID" autocomplete="off"></label>
+              <button class="button button-secondary button-small" type="submit">Apply filters</button>
+            </form>
+            <p class="overlap-note" id="ccLoadedCount">0 loaded</p>
+            <div class="table-scroll" id="ccListWrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Audio</th><th>Original</th><th>Cross-check</th><th>Duration</th><th>State</th><th>Word difference</th><th>Reasons</th><th>Created</th><th>Submitted</th><th class="actions-cell"><span class="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody id="ccListBody"></tbody>
+              </table>
+              <div class="table-state" id="ccListState">Loading cross-check rounds…</div>
+            </div>
+            <div class="pagination-row"><button class="button button-secondary button-small" id="ccLoadMore" type="button" hidden>Load more</button></div>
+          </article>
+        </div>
+
+        <div id="ccReviewPanel" hidden>
+          <div class="cc-review-toolbar">
+            <button class="button button-secondary" id="ccBackToList" type="button">Back to list</button>
+          </div>
+          <article class="panel cc-review-panel" id="ccReviewBody"></article>
+        </div>
       </section>
 
       <section class="page-section" id="activityView" data-page="activity" aria-labelledby="activityHeading" hidden>
@@ -451,10 +537,39 @@
     </div>
   </dialog>
 
+  <dialog class="modal" id="ccSettingsDialog" aria-labelledby="ccSettingsTitle">
+    <form class="modal-card" id="ccSettingsForm">
+      <div class="modal-heading">
+        <div>
+          <h2 id="ccSettingsTitle">Sampling settings</h2>
+          <p>This probability is used when claiming the next task. If one pool is empty, the server may fall back to the other, so the live mix is not guaranteed to equal this percentage.</p>
+        </div>
+        <button class="icon-button modal-close" type="button" data-close-dialog="ccSettingsDialog" aria-label="Close">×</button>
+      </div>
+      <p class="overlap-note" id="ccSamplingThreshold">Review threshold: word difference &gt; 10%</p>
+      <p class="overlap-note" id="ccSamplingMeta"></p>
+      <label class="check-row"><input id="ccSamplingEnabled" type="checkbox"><span><strong>Enable cross-check sampling</strong><small>Turning this off or setting 0% only affects new claims. Open rounds stay in the queue.</small></span></label>
+      <label class="field-label" for="ccSamplingPercent">Sampling probability (%)</label>
+      <input id="ccSamplingPercent" inputmode="decimal" placeholder="10" aria-describedby="ccSamplingHint">
+      <p class="field-hint" id="ccSamplingHint">0 to 100, up to two decimal places. 10% is stored as 1000 basis points.</p>
+      <label class="field-label" for="ccSamplingReason">Reason</label>
+      <textarea id="ccSamplingReason" rows="3" maxlength="4000" required placeholder="Explain why sampling is changing"></textarea>
+      <p class="form-error" id="ccSettingsError" role="alert" hidden></p>
+      <p class="cc-warning" id="ccSettingsStale" hidden></p>
+      <p class="form-error" id="ccSettingsStatus" hidden></p>
+      <div class="modal-actions">
+        <button class="button button-secondary" type="button" data-close-dialog="ccSettingsDialog">Close</button>
+        <button class="button button-primary" id="ccSettingsSave" type="submit" disabled>Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
   <div class="sr-only" id="liveRegion" role="status" aria-live="polite"></div>
   <link rel="stylesheet" href="/static/metadata.css?v=20260916-ui1">
   <script src="/static/metadata.js?v=20260916-ui1"></script>
-  <script type="module" src="/admin.js"></script>
+  <script src="/static/cross-check.js?v=20260920-cc1"></script>
+  <script src="/static/admin-cross-check.js?v=20260920-cc2"></script>
+  <script type="module" src="/admin.js?v=20260920-cc2"></script>
 </body>
 </html>

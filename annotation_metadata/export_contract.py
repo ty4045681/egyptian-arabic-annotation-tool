@@ -35,6 +35,7 @@ EXCEL_HEADERS = [
     "User", "Folder", "Audio", "Duration (s)", "Status",
     "Source scenes", "Source confidence", "Source scene confidences", "Batches",
     "Scene review", "Human scenes", "Model prediction",
+    "Quality state", "Training eligible",
 ]
 IDENTITY_MODEL = {
     "task": {

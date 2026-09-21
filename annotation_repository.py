@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import os
+import secrets
 import time
 import uuid
 from dataclasses import dataclass
@@ -62,6 +63,10 @@ class NotFoundError(RepositoryError):
 
 class ConflictError(RepositoryError):
     status = 409
+
+    def __init__(self, message, *, code=None):
+        super().__init__(message)
+        self.code = code
 
 
 class NoTaskAvailable(ConflictError):
@@ -244,8 +249,11 @@ def ensure_user(cur: psycopg.Cursor, username: str) -> dict:
 
 
 def _lock_active_annotator(cur, user_id):
+    # Serialize this user's mutations without blocking the KEY SHARE locks
+    # taken by foreign keys when another annotator cross-checks their work.
+    # The user's identity/key is never changed by these operations.
     row = cur.execute(
-        "SELECT id, username, status FROM annotators WHERE id = %s FOR UPDATE",
+        "SELECT id, username, status FROM annotators WHERE id = %s FOR NO KEY UPDATE",
         (user_id,),
     ).fetchone()
     if not row:
@@ -882,7 +890,8 @@ def pool_state(user_id: str | None = None, *, source_scene: str | None = None,
         annotated = counts.get("annotated", 0)
         skipped = counts.get("skipped", 0)
         pending = counts.get("pending", 0)
-        assigned = cur.execute("SELECT count(*) FROM assignments").fetchone()[0]
+        from annotation_quality.queries import assignment_queue_counts
+        assigned, cross_check_in_progress = assignment_queue_counts(cur)
         eligible_pending = cur.execute(
             "SELECT count(*) FROM annotation_tasks WHERE status = 'pending' AND eligible"
         ).fetchone()[0]
@@ -906,6 +915,7 @@ def pool_state(user_id: str | None = None, *, source_scene: str | None = None,
         "pending": pending,
         "assigned": assigned,
         "available": available,
+        "cross_check_in_progress": cross_check_in_progress,
         "reason": reason,
     }
 
@@ -916,16 +926,27 @@ def pool_state(user_id: str | None = None, *, source_scene: str | None = None,
 _ASSIGNMENT_QUERY = """
     SELECT a.task_id, a.mode, a.lease_token, a.assigned_at,
            t.rel_path, t.filename, t.folder, t.duration, t.status,
-           v.id AS version_id, v.revision, v.skip_reasons
+           v.id AS version_id, v.revision, v.skip_reasons,
+           a.cross_check_round_id, r.state
     FROM assignments a
     JOIN annotation_tasks t ON t.id = a.task_id
     JOIN annotation_versions v ON v.id = a.working_version_id
+    LEFT JOIN cross_check_rounds r ON r.id = a.cross_check_round_id
     WHERE a.user_id = %s
 """
 
+_SEGMENT_PROTECTED_EXTRA = frozenset({
+    "id", "start", "end", "duration", "asr_text", "text",
+    "exclude_from_training", "segment_id", "start_s", "end_s",
+    "annotator", "annotator_id", "username", "user_id",
+    "submitted_by", "author", "original_text", "original_annotator",
+    "original_annotator_id", "original_version_id",
+    "credited_annotator_id",
+})
+
 
 def _row_to_assignment(row, segments: list, waveform_b64: str | None) -> dict:
-    return {
+    payload = {
         "assigned": True,
         "task_id": str(row[0]),
         "mode": row[1],
@@ -943,10 +964,17 @@ def _row_to_assignment(row, segments: list, waveform_b64: str | None) -> dict:
         "waveform_b64": waveform_b64,
         "resumed": True,
     }
+    if row[1] == "cross_check" and row[12]:
+        payload["cross_check"] = {
+            "round_id": str(row[12]),
+            "state": row[13] or "in_progress",
+        }
+    return payload
 
 
 def _attach_assignment_metadata(cur, payload: dict, user_id) -> dict:
     from annotation_metadata.serializers import attach_metadata
+    from annotation_quality.serializers import apply_assignment_visibility
     published = cur.execute(
         "SELECT current_published_version_id FROM annotation_tasks WHERE id = %s",
         (payload["task_id"],),
@@ -957,8 +985,9 @@ def _attach_assignment_metadata(cur, payload: dict, user_id) -> dict:
         published_version_id=published[0] if published else None,
         assignment_user_id=user_id,
         include_draft_review=True,
+        blind=payload.get("mode") == "cross_check",
     )
-    return payload
+    return apply_assignment_visibility(payload)
 
 
 def get_assignment(user_id: str) -> dict | None:
@@ -982,10 +1011,160 @@ def has_assignment(user_id: str) -> bool:
         ).fetchone()[0]
 
 
+def _raise_claim_pool_outcome(*statuses: str) -> None:
+    if any(status == "busy" for status in statuses):
+        raise TaskPoolBusy("Task pool is busy; retry claim")
+    raise NoTaskAvailable("No task available to claim")
+
+
+def _commit_normal_assignment(
+    cur, fence: SessionFence, session_policy: SessionPolicy | None, uid,
+    claim_policy_name: str, task_id, rel_path, filename, folder, duration,
+    status, version_id, revision, best_id, best_scene, best_confidence,
+) -> dict | None:
+    from annotation_quality.repository import ensure_participant
+    candidate_token = uuid.uuid4()
+    inserted = cur.execute(
+        """INSERT INTO assignments
+               (user_id, task_id, working_version_id, mode, lease_token,
+                base_revision, assigned_at, last_activity_at,
+                claim_scene_code, claim_source_id, claim_policy,
+                claim_confidence)
+           VALUES (%s, %s, %s, 'annotation', %s, %s, now(), now(),
+                   %s, %s, %s, %s)
+           ON CONFLICT DO NOTHING
+           RETURNING lease_token""",
+        (uid, task_id, version_id, candidate_token, revision,
+         best_scene, best_id, claim_policy_name, best_confidence),
+    ).fetchone()
+    if not inserted:
+        return None
+    cur.execute(
+        "UPDATE annotation_tasks SET reserved_for_user_id = NULL, updated_at = now() WHERE id = %s",
+        (task_id,),
+    )
+    cur.execute(
+        """INSERT INTO annotation_events (user_id, task_id, version_id,
+                                          event_type, to_status, details)
+           VALUES (%s, %s, %s, 'claimed', 'pending', %s)""",
+        (uid, task_id, version_id, Json({
+            "mode": "annotation",
+            "claim_scene_code": best_scene,
+            "claim_confidence": best_confidence,
+            "claim_policy": claim_policy_name,
+            "claim_source_id": str(best_id) if best_id else None,
+        })),
+    )
+    ensure_participant(cur, task_id, uid)
+    segments = _load_segments(cur, version_id)
+    wf = _load_waveform(cur, task_id)
+    payload = {
+        "assigned": True,
+        "task_id": str(task_id),
+        "mode": "annotation",
+        "lease_token": str(inserted[0]),
+        "assigned_at": utcnow().isoformat(),
+        "rel_path": rel_path,
+        "filename": filename,
+        "folder": folder,
+        "duration": duration,
+        "status": status,
+        "version_id": str(version_id),
+        "revision": revision,
+        "skip_reasons": [],
+        "segments": segments,
+        "waveform_b64": wf,
+        "resumed": False,
+    }
+    _touch_real_activity(cur, fence, policy=session_policy)
+    return _attach_assignment_metadata(cur, payload, uid)
+
+
+def _try_claim_normal_pool(cur, fence, session_policy, uid, scope, filters,
+                           claim_policy_name: str) -> tuple[dict | None, str]:
+    from annotation_metadata.claiming import (
+        candidate_exists_sql, fetch_claim_candidate, task_still_matches,
+    )
+    exists_sql, exists_params = candidate_exists_sql(scope, filters, uid)
+    for _attempt in range(64):
+        task_row = fetch_claim_candidate(cur, scope, filters, uid, claim_policy_name)
+        if not task_row:
+            candidate_exists = cur.execute(exists_sql, exists_params).fetchone()[0]
+            if candidate_exists:
+                return None, "busy"
+            return None, "empty"
+        (task_id, rel_path, filename, folder, duration, status, version_id,
+         revision, _reserved, best_id, best_scene, best_confidence) = task_row
+        still = task_still_matches(cur, task_id, scope, filters, uid)
+        if still is None:
+            continue
+        _task_id, best_id, best_scene, best_confidence = still
+        payload = _commit_normal_assignment(
+            cur, fence, session_policy, uid, claim_policy_name,
+            task_id, rel_path, filename, folder, duration, status,
+            version_id, revision, best_id, best_scene, best_confidence,
+        )
+        if payload:
+            return payload, "claimed"
+    return None, "busy"
+
+
+def _try_claim_reserved(cur, fence, session_policy, uid, scope, filters,
+                        claim_policy_name: str) -> dict | None:
+    from annotation_metadata.claiming import claim_lock_query, task_still_matches
+    if not scope.can_claim:
+        return None
+    sql, params = claim_lock_query(
+        scope, filters, uid, claim_policy_name, reserved_only=True,
+    )
+    reserved = cur.execute(sql, params).fetchone()
+    if not reserved:
+        return None
+    (task_id, rel_path, filename, folder, duration, status, version_id,
+     revision, _reserved, best_id, best_scene, best_confidence) = reserved
+    still = task_still_matches(cur, task_id, scope, filters, uid)
+    if still is None:
+        return None
+    _task_id, best_id, best_scene, best_confidence = still
+    return _commit_normal_assignment(
+        cur, fence, session_policy, uid, claim_policy_name,
+        task_id, rel_path, filename, folder, duration, status,
+        version_id, revision, best_id, best_scene, best_confidence,
+    )
+
+
+def _finish_cross_check_claim(cur, fence, session_policy, uid, created: dict) -> dict:
+    payload = {
+        "assigned": True,
+        "task_id": str(created["task_id"]),
+        "mode": "cross_check",
+        "lease_token": str(created["lease_token"]),
+        "assigned_at": utcnow().isoformat(),
+        "status": created["status"],
+        "version_id": str(created["draft_id"]),
+        "revision": created["revision"],
+        "rel_path": created["rel_path"],
+        "filename": created["filename"],
+        "folder": created["folder"],
+        "duration": created["duration"],
+        "skip_reasons": [],
+        "resumed": False,
+        "cross_check": {
+            "round_id": str(created["round_id"]),
+            "state": "in_progress",
+        },
+        "segments": _load_segments(cur, created["draft_id"]),
+        "waveform_b64": _load_waveform(cur, created["task_id"]),
+    }
+    _touch_real_activity(cur, fence, policy=session_policy)
+    return _attach_assignment_metadata(cur, payload, uid)
+
+
 def claim(fence: SessionFence, *, source_scene: str | None = None,
           batch_code: str | None = None,
           source_confidence: str | None = None,
-          policy: SessionPolicy | None = None) -> dict:
+          policy: SessionPolicy | None = None,
+          rng=None) -> dict:
     """Claim one task for the user, preferring migration-reserved drafts.
 
     An existing assignment is always resumed, ignoring the new scene selector.
@@ -993,11 +1172,10 @@ def claim(fence: SessionFence, *, source_scene: str | None = None,
     or TaskPoolBusy when matching rows are temporarily locked.
     """
     from annotation_metadata.claim_policy import get_claim_policy
-    from annotation_metadata.claiming import (
-        assert_scope_allows, candidate_exists_sql, fetch_claim_candidate,
-        parse_claim_filters, task_still_matches,
-    )
+    from annotation_metadata.claiming import assert_scope_allows, parse_claim_filters
     from annotation_metadata.queries import load_scope
+    from annotation_quality.claiming import try_claim_cross_check
+    from annotation_quality.repository import cross_check_allowed, load_settings
 
     fence = _as_fence(fence)
     uid = fence.user_id
@@ -1024,88 +1202,64 @@ def claim(fence: SessionFence, *, source_scene: str | None = None,
 
         scope = load_scope(cur, uid)
         assert_scope_allows(scope, filters)
-        exists_sql, exists_params = candidate_exists_sql(scope, filters, uid)
 
-        task_row = None
-        lease_token = None
-        for _attempt in range(64):
-            task_row = fetch_claim_candidate(cur, scope, filters, uid, claim_policy.name)
-            if not task_row:
-                candidate_exists = cur.execute(exists_sql, exists_params).fetchone()[0]
-                if candidate_exists:
-                    raise TaskPoolBusy("Task pool is busy; retry claim")
-                raise NoTaskAvailable("No task available to claim")
+        reserved = _try_claim_reserved(
+            cur, fence, session_policy, uid, scope, filters, claim_policy.name,
+        )
+        if reserved:
+            return reserved
 
-            (task_id, rel_path, filename, folder, duration, status, version_id,
-             revision, _reserved, best_id, best_scene, best_confidence) = task_row
-            still = task_still_matches(cur, task_id, scope, filters, uid)
-            if still is None:
-                continue
-            _task_id, best_id, best_scene, best_confidence = still
-            candidate_token = uuid.uuid4()
-            inserted = cur.execute(
-                """INSERT INTO assignments
-                       (user_id, task_id, working_version_id, mode, lease_token,
-                        base_revision, assigned_at, last_activity_at,
-                        claim_scene_code, claim_source_id, claim_policy,
-                        claim_confidence)
-                   VALUES (%s, %s, %s, 'annotation', %s, %s, now(), now(),
-                           %s, %s, %s, %s)
-                   ON CONFLICT DO NOTHING
-                   RETURNING lease_token""",
-                (uid, task_id, version_id, candidate_token, revision,
-                 best_scene, best_id, claim_policy.name, best_confidence),
-            ).fetchone()
-            if inserted:
-                lease_token = inserted[0]
-                break
-        if lease_token is None:
-            raise TaskPoolBusy("Task pool is busy; retry claim")
-        cur.execute(
-            "UPDATE annotation_tasks SET reserved_for_user_id = NULL, updated_at = now() WHERE id = %s",
-            (task_id,),
+        settings = load_settings(cur)
+        allowed = cross_check_allowed(settings)
+        claim_rng = rng if rng is not None else secrets.SystemRandom()
+        prefer_cross = False
+        if allowed:
+            prefer_cross = (
+                int(claim_rng.randrange(10000)) < int(settings["sampling_rate_bps"])
+            )
+
+        if prefer_cross:
+            created, cc_status = try_claim_cross_check(
+                cur, user_id=uid, scope=scope, filters=filters,
+                claim_policy=claim_policy.name, settings=settings,
+                rng=claim_rng,
+            )
+            if created:
+                return _finish_cross_check_claim(
+                    cur, fence, session_policy, uid, created,
+                )
+            payload, normal_status = _try_claim_normal_pool(
+                cur, fence, session_policy, uid, scope, filters,
+                claim_policy.name,
+            )
+            if payload:
+                return payload
+            _raise_claim_pool_outcome(cc_status, normal_status)
+
+        payload, normal_status = _try_claim_normal_pool(
+            cur, fence, session_policy, uid, scope, filters, claim_policy.name,
         )
-        cur.execute(
-            """INSERT INTO annotation_events (user_id, task_id, version_id,
-                                              event_type, to_status, details)
-               VALUES (%s, %s, %s, 'claimed', 'pending', %s)""",
-            (uid, task_id, version_id, Json({
-                "mode": "annotation",
-                "claim_scene_code": best_scene,
-                "claim_confidence": best_confidence,
-                "claim_policy": claim_policy.name,
-                "claim_source_id": str(best_id) if best_id else None,
-            })),
-        )
-        segments = _load_segments(cur, version_id)
-        wf = _load_waveform(cur, task_id)
-        payload = {
-            "assigned": True,
-            "task_id": str(task_id),
-            "mode": "annotation",
-            "lease_token": str(lease_token),
-            "assigned_at": utcnow().isoformat(),
-            "rel_path": rel_path,
-            "filename": filename,
-            "folder": folder,
-            "duration": duration,
-            "status": status,
-            "version_id": str(version_id),
-            "revision": revision,
-            "skip_reasons": [],
-            "segments": segments,
-            "waveform_b64": wf,
-            "resumed": False,
-        }
-        _touch_real_activity(cur, fence, policy=session_policy)
-        return _attach_assignment_metadata(cur, payload, uid)
+        if payload:
+            return payload
+        if allowed:
+            created, cc_status = try_claim_cross_check(
+                cur, user_id=uid, scope=scope, filters=filters,
+                claim_policy=claim_policy.name, settings=settings,
+                rng=claim_rng,
+            )
+            if created:
+                return _finish_cross_check_claim(
+                    cur, fence, session_policy, uid, created,
+                )
+            _raise_claim_pool_outcome(normal_status, cc_status)
+        _raise_claim_pool_outcome(normal_status)
 
 
 def _lock_assignment(cur, user_id, lease_token: str | None):
     """Lock and validate the caller's assignment row + working version."""
     row = cur.execute(
         """SELECT a.task_id, a.working_version_id, a.mode, a.lease_token,
-                  t.status, t.rel_path
+                  t.status, t.rel_path, a.cross_check_round_id
            FROM assignments a
            JOIN annotation_tasks t ON t.id = a.task_id
            WHERE a.user_id = %s
@@ -1123,7 +1277,58 @@ def _lock_assignment(cur, user_id, lease_token: str | None):
         "lease_token": str(row[3]),
         "task_status": row[4],
         "rel_path": row[5],
+        "cross_check_round_id": row[6],
     }
+
+
+def _require_open_cross_check_round(cur, asg) -> None:
+    round_id = asg.get("cross_check_round_id")
+    if not round_id:
+        raise ConflictError("Cross-check assignment is missing its round")
+    row = cur.execute(
+        """SELECT state FROM cross_check_rounds
+           WHERE id = %s AND task_id = %s
+           FOR UPDATE""",
+        (round_id, asg["task_id"]),
+    ).fetchone()
+    if not row or row[0] != "in_progress":
+        raise ConflictError("Cross-check round is no longer in progress")
+
+
+def _cancel_in_progress_cross_check(
+    cur, *, round_id, task_id, version_id, reason: str,
+) -> None:
+    """Cancel an in-progress round and abandon its draft. Caller deletes assignment."""
+    if not round_id:
+        raise ConflictError("Cross-check assignment is missing its round")
+    row = cur.execute(
+        """SELECT state FROM cross_check_rounds
+           WHERE id = %s AND task_id = %s
+           FOR UPDATE""",
+        (round_id, task_id),
+    ).fetchone()
+    if not row or row[0] != "in_progress":
+        raise ConflictError("Cross-check round is no longer in progress")
+    cur.execute(
+        """SELECT id FROM annotation_versions WHERE id = %s FOR UPDATE""",
+        (version_id,),
+    )
+    cur.execute(
+        """UPDATE cross_check_rounds
+           SET revision = revision + 1,
+               state = 'cancelled',
+               termination_reason = %s,
+               resolved_at = now(),
+               updated_at = now()
+           WHERE id = %s AND state = 'in_progress'""",
+        (reason, round_id),
+    )
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'abandoned', updated_at = now()
+           WHERE id = %s AND lifecycle = 'draft'""",
+        (version_id,),
+    )
 
 
 def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: bool,
@@ -1143,7 +1348,13 @@ def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: b
         if prior:
             return {**prior["response"], "idempotent_replay": True}
         asg = _lock_assignment(cur, uid, lease_token)
-        if asg["mode"] == "revision":
+        if asg["mode"] == "cross_check":
+            _cancel_in_progress_cross_check(
+                cur, round_id=asg["cross_check_round_id"],
+                task_id=asg["task_id"], version_id=asg["version_id"],
+                reason="abandoned",
+            )
+        elif asg["mode"] == "revision":
             # Discard the revision draft; published data is untouched.
             cur.execute(
                 """UPDATE annotation_versions
@@ -1156,20 +1367,37 @@ def abandon(fence: SessionFence, lease_token: str, operation_id: str, confirm: b
         cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
         response = {"success": True, "abandoned": True}
         _store_operation(cur, op_uuid, uid, "abandon", request_hash, response)
-        cur.execute(
-            """INSERT INTO annotation_events
-                   (operation_id, user_id, task_id, version_id, event_type,
-                    from_status, details)
-               VALUES (%s, %s, %s, %s, 'abandoned', %s, %s)""",
-            (
-                op_uuid,
-                uid,
-                asg["task_id"],
-                asg["version_id"],
-                asg["task_status"],
-                Json({"mode": asg["mode"]}),
-            ),
-        )
+        if asg["mode"] == "cross_check":
+            cur.execute(
+                """INSERT INTO annotation_events
+                       (operation_id, user_id, task_id, version_id, event_type,
+                        from_status, to_status, details)
+                   VALUES (%s, %s, %s, %s, 'cross_check_cancelled', %s, %s, %s)""",
+                (
+                    op_uuid, uid, asg["task_id"], asg["version_id"],
+                    asg["task_status"], asg["task_status"],
+                    Json({
+                        "mode": "cross_check",
+                        "round_id": str(asg["cross_check_round_id"]),
+                        "termination_reason": "abandoned",
+                    }),
+                ),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO annotation_events
+                       (operation_id, user_id, task_id, version_id, event_type,
+                        from_status, details)
+                   VALUES (%s, %s, %s, %s, 'abandoned', %s, %s)""",
+                (
+                    op_uuid,
+                    uid,
+                    asg["task_id"],
+                    asg["version_id"],
+                    asg["task_status"],
+                    Json({"mode": asg["mode"]}),
+                ),
+            )
         _touch_real_activity(cur, fence, policy=policy, assignment=False)
         return response
 
@@ -1195,8 +1423,11 @@ def _load_segments(cur, version_id) -> list[dict]:
             "text": r[5] or "",
             "exclude_from_training": bool(r[6]),
         }
-        if r[7]:
-            seg.update(r[7])
+        extra = r[7] if isinstance(r[7], dict) else None
+        if extra:
+            for key, value in extra.items():
+                if key not in _SEGMENT_PROTECTED_EXTRA:
+                    seg[key] = value
         segs.append(seg)
     return segs
 
@@ -1210,24 +1441,29 @@ def _load_waveform(cur, task_id) -> str | None:
     return base64.b64encode(bytes(row[0])).decode("ascii")
 
 
+def _parse_dirty_segment(seg: dict) -> tuple[int, float, float, float, str, bool]:
+    try:
+        sid = int(seg["id"])
+    except (KeyError, TypeError, ValueError):
+        raise ValidationError(f"segment entry missing valid id: {seg!r}")
+    start, end, duration = _seg_times(seg)
+    text = seg.get("text", "")
+    if not isinstance(text, str):
+        raise ValidationError(f"segment {sid}: text must be a string")
+    exclude = bool(seg.get("exclude_from_training", False))
+    return sid, start, end, duration, text, exclude
+
+
 def _apply_dirty_segments(cur, version_id, dirty: list[dict]) -> None:
     """Update existing segments only; clients may not invent segment IDs."""
     if not dirty:
         return
     seen: set[int] = set()
     for seg in dirty:
-        try:
-            sid = int(seg["id"])
-        except (KeyError, TypeError, ValueError):
-            raise ValidationError(f"segment entry missing valid id: {seg!r}")
+        sid, start, end, duration, text, exclude = _parse_dirty_segment(seg)
         if sid in seen:
             raise ValidationError(f"segment {sid} appears more than once")
         seen.add(sid)
-        start, end, duration = _seg_times(seg)
-        text = seg.get("text", "")
-        if not isinstance(text, str):
-            raise ValidationError(f"segment {sid}: text must be a string")
-        exclude = bool(seg.get("exclude_from_training", False))
         cur.execute(
             """UPDATE segments
                SET start_s = %s, end_s = %s, duration = %s,
@@ -1237,6 +1473,30 @@ def _apply_dirty_segments(cur, version_id, dirty: list[dict]) -> None:
         )
         if cur.rowcount != 1:
             raise ValidationError(f"segment {sid} does not exist in this task")
+
+
+def _merge_dirty_segments(segments: list[dict], dirty: list[dict]) -> list[dict]:
+    """Apply dirty fields in memory using the same rules as save."""
+    merged = {int(seg["id"]): dict(seg) for seg in segments}
+    if not dirty:
+        return [merged[int(seg["id"])] for seg in segments]
+    seen: set[int] = set()
+    for seg in dirty:
+        sid, start, end, duration, text, exclude = _parse_dirty_segment(seg)
+        if sid in seen:
+            raise ValidationError(f"segment {sid} appears more than once")
+        seen.add(sid)
+        if sid not in merged:
+            raise ValidationError(f"segment {sid} does not exist in this task")
+        merged[sid].update({
+            "id": sid,
+            "start": start,
+            "end": end,
+            "duration": duration,
+            "text": text,
+            "exclude_from_training": exclude,
+        })
+    return [merged[int(seg["id"])] for seg in segments]
 
 
 def _seg_times(seg: dict) -> tuple[float, float, float]:
@@ -1252,6 +1512,21 @@ def _seg_times(seg: dict) -> tuple[float, float, float]:
     return start, end, round(end - start, 3)
 
 
+def _validate_segment_timeline(segments: list[dict], duration: float) -> None:
+    previous_end = 0.0
+    ordered = sorted(
+        segments, key=lambda seg: (float(seg["start"]), int(seg["id"])),
+    )
+    for seg in ordered:
+        start, end = float(seg["start"]), float(seg["end"])
+        segment_id = seg["id"]
+        if start < previous_end - 0.001:
+            raise ValidationError(f"segment {segment_id} overlaps the previous segment")
+        if end > duration + 0.001:
+            raise ValidationError(f"segment {segment_id} ends after the audio duration")
+        previous_end = end
+
+
 def _validate_version_segments(cur, version_id, task_id) -> None:
     duration = float(cur.execute(
         "SELECT duration FROM annotation_tasks WHERE id = %s", (task_id,)
@@ -1260,14 +1535,10 @@ def _validate_version_segments(cur, version_id, task_id) -> None:
         "SELECT segment_id, start_s, end_s FROM segments WHERE version_id = %s ORDER BY start_s, segment_id",
         (version_id,),
     ).fetchall()
-    previous_end = 0.0
-    for segment_id, start, end in rows:
-        start, end = float(start), float(end)
-        if start < previous_end - 0.001:
-            raise ValidationError(f"segment {segment_id} overlaps the previous segment")
-        if end > duration + 0.001:
-            raise ValidationError(f"segment {segment_id} ends after the audio duration")
-        previous_end = end
+    _validate_segment_timeline(
+        [{"id": row[0], "start": row[1], "end": row[2]} for row in rows],
+        duration,
+    )
 
 
 # ============================================================
@@ -1287,6 +1558,8 @@ def save_draft(fence: SessionFence, lease_token: str, expected_revision: int,
         if prior:
             return prior["response"]
         asg = _lock_assignment(cur, uid, lease_token)
+        if asg["mode"] == "cross_check":
+            _require_open_cross_check_round(cur, asg)
         row = cur.execute(
             "SELECT revision FROM annotation_versions WHERE id = %s FOR UPDATE",
             (asg["version_id"],),
@@ -1356,91 +1629,112 @@ def complete(fence: SessionFence, lease_token: str, expected_revision: int,
                     "status_code": prior["status_code"], "response": prior["response"]}
 
         asg = _lock_assignment(cur, uid, lease_token)
-        cur.execute(
-            "SELECT id FROM annotation_tasks WHERE id = %s FOR UPDATE",
-            (asg["task_id"],),
-        )
-        row = cur.execute(
-            "SELECT revision FROM annotation_versions WHERE id = %s FOR UPDATE",
+        if asg["mode"] != "cross_check":
+            return _complete_published_assignment(
+                cur, fence, uid, asg, expected_revision, target_status,
+                reasons, dirty_segments, op_uuid, request_hash, scene_review,
+                policy,
+            )
+        # Cross-check compare runs after this txn releases user/assignment
+        # write locks (plan 6.2).
+
+    from annotation_quality.service import submit_cross_check
+    return submit_cross_check(
+        fence, lease_token, expected_revision, target_status, reasons,
+        dirty_segments, op_uuid, request_hash, scene_review, policy,
+    )
+
+
+def _complete_published_assignment(
+    cur, fence: SessionFence, uid, asg: dict, expected_revision: int,
+    target_status: str, reasons: list[str], dirty_segments: list[dict],
+    op_uuid, request_hash: str, scene_review, policy: SessionPolicy | None,
+) -> dict:
+    cur.execute(
+        "SELECT id FROM annotation_tasks WHERE id = %s FOR UPDATE",
+        (asg["task_id"],),
+    )
+    row = cur.execute(
+        "SELECT revision FROM annotation_versions WHERE id = %s FOR UPDATE",
+        (asg["version_id"],),
+    ).fetchone()
+    if not row:
+        raise ConflictError("Working version no longer exists")
+    current = row[0]
+    if current != int(expected_revision):
+        raise RevisionConflict(current)
+
+    _apply_dirty_segments(cur, asg["version_id"], dirty_segments)
+    _validate_version_segments(cur, asg["version_id"], asg["task_id"])
+    from annotation_metadata.reviews import apply_optional_review
+    review, _review_changed = apply_optional_review(
+        cur, version_id=asg["version_id"], payload=scene_review,
+        actor_user_id=uid, operation_id=op_uuid,
+    )
+    if review is None:
+        from annotation_metadata.repository import latest_review
+        review = latest_review(cur, asg["version_id"])
+
+    if target_status == "annotated":
+        empty = cur.execute(
+            """SELECT segment_id FROM segments
+               WHERE version_id = %s AND exclude_from_training = false
+                 AND btrim(text) = '' ORDER BY segment_id""",
             (asg["version_id"],),
-        ).fetchone()
-        if not row:
-            raise ConflictError("Working version no longer exists")
-        current = row[0]
-        if current != int(expected_revision):
-            raise RevisionConflict(current)
+        ).fetchall()
+        if empty:
+            ids = [str(r[0]) for r in empty]
+            raise ValidationError(
+                "Segments without text must be annotated or marked Bad Quality: "
+                + ", ".join(ids)
+            )
 
-        _apply_dirty_segments(cur, asg["version_id"], dirty_segments)
-        _validate_version_segments(cur, asg["version_id"], asg["task_id"])
-        from annotation_metadata.reviews import apply_optional_review
-        review, _review_changed = apply_optional_review(
-            cur, version_id=asg["version_id"], payload=scene_review,
-            actor_user_id=uid, operation_id=op_uuid,
-        )
-        if review is None:
-            from annotation_metadata.repository import latest_review
-            review = latest_review(cur, asg["version_id"])
-
-        if target_status == "annotated":
-            empty = cur.execute(
-                """SELECT segment_id FROM segments
-                   WHERE version_id = %s AND exclude_from_training = false
-                     AND btrim(text) = '' ORDER BY segment_id""",
-                (asg["version_id"],),
-            ).fetchall()
-            if empty:
-                ids = [str(r[0]) for r in empty]
-                raise ValidationError(
-                    "Segments without text must be annotated or marked Bad Quality: "
-                    + ", ".join(ids)
-                )
-
-        # Publish: supersede any previous published version, flip task state.
-        cur.execute(
-            """UPDATE annotation_versions
-               SET lifecycle = 'superseded', updated_at = now()
-               WHERE task_id = %s AND lifecycle = 'published' AND id <> %s""",
-            (asg["task_id"], asg["version_id"]),
-        )
-        cur.execute(
-            """UPDATE annotation_versions
-               SET lifecycle = 'published', target_status = %s, skip_reasons = %s,
-                   revision = revision + 1,
-                   human_modified = true, modified_by_user_id = %s,
-                   submitted_by_user_id = %s, submitted_at = now(), updated_at = now()
-               WHERE id = %s""",
-            (target_status, reasons, uid, uid, asg["version_id"]),
-        )
-        cur.execute(
-            """UPDATE annotation_tasks
-               SET status = %s, current_published_version_id = %s,
-                   reserved_for_user_id = NULL, updated_at = now()
-               WHERE id = %s""",
-            (target_status, asg["version_id"], asg["task_id"]),
-        )
-        response = {
-            "success": True,
-            "task_id": str(asg["task_id"]),
-            "status": target_status,
-            "skip_reasons": reasons,
-            "scene_review": review,
-        }
-        _store_operation(cur, op_uuid, uid, "complete", request_hash, response)
-        cur.execute(
-            """INSERT INTO annotation_events
-                   (operation_id, user_id, task_id, version_id, event_type,
-                    from_status, to_status, details)
-               VALUES (%s, %s, %s, %s, 'completed', %s, %s, %s)""",
-            (op_uuid, uid, asg["task_id"], asg["version_id"],
-             asg["task_status"], target_status,
-             Json({
-                 "mode": asg["mode"], "skip_reasons": reasons,
-                 "scene_review_id": (review or {}).get("id"),
-             })),
-        )
-        cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
-        _touch_real_activity(cur, fence, policy=policy, assignment=False)
-        return response
+    # Publish: supersede any previous published version, flip task state.
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'superseded', updated_at = now()
+           WHERE task_id = %s AND lifecycle = 'published' AND id <> %s""",
+        (asg["task_id"], asg["version_id"]),
+    )
+    cur.execute(
+        """UPDATE annotation_versions
+           SET lifecycle = 'published', target_status = %s, skip_reasons = %s,
+               revision = revision + 1,
+               human_modified = true, modified_by_user_id = %s,
+               submitted_by_user_id = %s, submitted_at = now(), updated_at = now()
+           WHERE id = %s""",
+        (target_status, reasons, uid, uid, asg["version_id"]),
+    )
+    cur.execute(
+        """UPDATE annotation_tasks
+           SET status = %s, current_published_version_id = %s,
+               reserved_for_user_id = NULL, updated_at = now()
+           WHERE id = %s""",
+        (target_status, asg["version_id"], asg["task_id"]),
+    )
+    response = {
+        "success": True,
+        "task_id": str(asg["task_id"]),
+        "status": target_status,
+        "skip_reasons": reasons,
+        "scene_review": review,
+    }
+    _store_operation(cur, op_uuid, uid, "complete", request_hash, response)
+    cur.execute(
+        """INSERT INTO annotation_events
+               (operation_id, user_id, task_id, version_id, event_type,
+                from_status, to_status, details)
+           VALUES (%s, %s, %s, %s, 'completed', %s, %s, %s)""",
+        (op_uuid, uid, asg["task_id"], asg["version_id"],
+         asg["task_status"], target_status,
+         Json({
+             "mode": asg["mode"], "skip_reasons": reasons,
+             "scene_review_id": (review or {}).get("id"),
+         })),
+    )
+    cur.execute("DELETE FROM assignments WHERE user_id = %s", (uid,))
+    _touch_real_activity(cur, fence, policy=policy, assignment=False)
+    return response
 
 
 # ============================================================
@@ -1490,17 +1784,44 @@ def history_recent(user_id: str, limit: int = 10, before_event_id: int | None = 
 # Completed page (own records only)
 # ============================================================
 def completed_list(user_id: str, status: str = "all", q: str = "",
-                   limit: int = 20, cursor: str | None = None) -> dict:
+                   limit: int = 20, cursor: str | None = None,
+                   include_submissions: bool = False) -> dict:
     uid = _validate_uuid(user_id, "user_id")
     if status not in ("all", "annotated", "skipped"):
         raise ValidationError("status must be all|annotated|skipped")
     limit = max(1, min(int(limit), 100))
 
-    where = ["t.current_published_version_id IS NOT NULL",
-             "v.submitted_by_user_id = %s"]
-    params: list = [uid]
+    source_sql = """annotation_tasks t JOIN annotation_versions v
+                    ON v.id = t.current_published_version_id"""
+    base_where = ["t.current_published_version_id IS NOT NULL",
+                  "v.submitted_by_user_id = %s"]
+    base_params: list = [uid]
+    status_column = "t.status"
+    if include_submissions:
+        # Combine the two existing self-history scopes without revealing the
+        # purpose or quality outcome. Keep only the latest own entry per audio;
+        # a secondary version adopted for publication must appear only once.
+        source_sql = """(
+            SELECT DISTINCT ON (own.task_id) own.*
+            FROM annotation_versions own
+            JOIN annotation_tasks task ON task.id = own.task_id
+            WHERE own.submitted_by_user_id = %s
+              AND own.submitted_at IS NOT NULL
+              AND (own.id = task.current_published_version_id OR EXISTS (
+                  SELECT 1 FROM cross_check_rounds r
+                  WHERE r.secondary_version_id = own.id
+                    AND r.secondary_annotator_id = %s
+                    AND r.submitted_at IS NOT NULL
+              ))
+            ORDER BY own.task_id, own.submitted_at DESC, own.id DESC
+        ) v JOIN annotation_tasks t ON t.id = v.task_id"""
+        base_where = ["TRUE"]
+        base_params = [uid, uid]
+        status_column = "v.target_status"
+    where = list(base_where)
+    params = list(base_params)
     if status != "all":
-        where.append("t.status = %s")
+        where.append(f"{status_column} = %s")
         params.append(status)
     if q:
         where.append("(t.filename ILIKE %s OR t.folder ILIKE %s)")
@@ -1519,10 +1840,9 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""SELECT v.id, v.submitted_at, t.id, t.filename, t.folder,
-                       t.status, t.duration, t.rel_path,
+                       {status_column}, t.duration, t.rel_path,
                        (SELECT count(*) FROM segments s WHERE s.version_id = v.id)
-                FROM annotation_tasks t
-                JOIN annotation_versions v ON v.id = t.current_published_version_id
+                FROM {source_sql}
                 WHERE {' AND '.join(where)}
                 ORDER BY v.submitted_at DESC, v.id DESC
                 LIMIT %s""",
@@ -1557,14 +1877,13 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
                 i["skip_reasons"] = skips.get(i["version_id"], [])
 
         summary_row = cur.execute(
-            """SELECT
-                 count(*) FILTER (WHERE t.status = 'annotated'),
-                 count(*) FILTER (WHERE t.status = 'skipped'),
-                 COALESCE(sum(t.duration) FILTER (WHERE t.status = 'annotated'), 0)
-               FROM annotation_tasks t
-               JOIN annotation_versions v ON v.id = t.current_published_version_id
-               WHERE v.submitted_by_user_id = %s""",
-            (uid,),
+            f"""SELECT
+                 count(*) FILTER (WHERE {status_column} = 'annotated'),
+                 count(*) FILTER (WHERE {status_column} = 'skipped'),
+                 COALESCE(sum(t.duration) FILTER (WHERE {status_column} = 'annotated'), 0)
+               FROM {source_sql}
+               WHERE {' AND '.join(base_where)}""",
+            base_params,
         ).fetchone()
         has_assignment = cur.execute(
             "SELECT EXISTS (SELECT 1 FROM assignments WHERE user_id = %s)", (uid,)
@@ -1586,18 +1905,22 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
     }
 
 
-def completed_detail(user_id: str, task_id: str) -> dict:
+def completed_detail(user_id: str, task_id: str, version_id: str | None = None) -> dict:
     uid = _validate_uuid(user_id, "user_id")
     tid = _validate_uuid(task_id, "task_id")
+    vid = _validate_uuid(version_id, "version_id") if version_id else None
+    version_join = "v.id = %s" if vid else "v.id = t.current_published_version_id"
+    status_column = "v.target_status" if vid else "t.status"
     with db_tx() as conn, conn.cursor() as cur:
         row = cur.execute(
-            """SELECT t.id, t.rel_path, t.filename, t.folder, t.duration,
-                      t.status, t.category, t.preprocessed_at,
-                      v.id, v.submitted_at, v.skip_reasons
+            f"""SELECT t.id, t.rel_path, t.filename, t.folder, t.duration,
+                      {status_column}, t.category, t.preprocessed_at,
+                      v.id, v.submitted_at, v.skip_reasons,
+                      t.current_published_version_id
                FROM annotation_tasks t
-               JOIN annotation_versions v ON v.id = t.current_published_version_id
+               JOIN annotation_versions v ON {version_join} AND v.task_id = t.id
                WHERE t.id = %s""",
-            (tid,),
+            (vid, tid) if vid else (tid,),
         ).fetchone()
         if not row or not row[8]:
             raise NotFoundError("Task not found")
@@ -1607,6 +1930,17 @@ def completed_detail(user_id: str, task_id: str) -> dict:
         ).fetchone()
         if not detail or detail[0] != uid:
             raise ForbiddenError("You can only view your own submissions")
+        if vid and row[8] != row[11]:
+            visible = cur.execute(
+                """SELECT EXISTS (
+                    SELECT 1 FROM cross_check_rounds
+                    WHERE secondary_version_id = %s
+                      AND secondary_annotator_id = %s
+                      AND submitted_at IS NOT NULL
+                )""", (vid, uid),
+            ).fetchone()[0]
+            if not visible:
+                raise NotFoundError("Submission not found")
         segments = _load_segments(cur, row[8])
         wf = _load_waveform(cur, tid)
         payload = {
@@ -1672,6 +2006,19 @@ def reopen_completed(fence: SessionFence, task_id: str, operation_id: str,
         if submitter != uid:
             raise ForbiddenError("You can only correct your own submissions")
 
+        open_round = cur.execute(
+            """SELECT state FROM cross_check_rounds
+               WHERE task_id = %s
+                 AND state IN ('in_progress', 'awaiting_review')
+               FOR UPDATE""",
+            (tid,),
+        ).fetchone()
+        if open_round:
+            raise ConflictError(
+                "This task has an open cross-check and cannot be reopened",
+                code="cross_check_active",
+            )
+
         open_draft = cur.execute(
             "SELECT id FROM annotation_versions WHERE task_id = %s AND lifecycle = 'draft' FOR UPDATE",
             (tid,),
@@ -1732,6 +2079,13 @@ def reopen_completed(fence: SessionFence, task_id: str, operation_id: str,
 # Dashboard / leaderboard
 # ============================================================
 def dashboard() -> dict:
+    from annotation_quality.queries import (
+        credited_annotator_sql,
+        cross_check_submitted_workload,
+        unique_annotated_corpus,
+    )
+
+    credited = credited_annotator_sql()
     with db_tx() as conn, conn.cursor() as cur:
         counts = dict(
             cur.execute("SELECT status, count(*) FROM annotation_tasks GROUP BY status").fetchall()
@@ -1739,40 +2093,29 @@ def dashboard() -> dict:
         total = sum(counts.values())
         annotated = counts.get("annotated", 0)
         skipped = counts.get("skipped", 0)
+        _, annotated_duration = unique_annotated_corpus(cur)
+        workload_count, workload_seconds = cross_check_submitted_workload(cur)
         lb_rows = cur.execute(
-            """SELECT username, annotated, skipped, dur, total_annotated_duration
-               FROM (
-                   SELECT u.username,
-                          count(*) FILTER (WHERE v.target_status = 'annotated')
-                              AS annotated,
-                          count(*) FILTER (WHERE v.target_status = 'skipped')
-                              AS skipped,
-                          COALESCE(
-                              sum(t.duration) FILTER (
-                                  WHERE v.target_status = 'annotated'
-                              ),
-                              0
-                          ) AS dur,
-                          COALESCE(
-                              SUM(
-                                  COALESCE(
-                                      sum(t.duration) FILTER (
-                                          WHERE v.target_status = 'annotated'
-                                      ),
-                                      0
-                                  )
-                              ) OVER (),
-                              0
-                          ) AS total_annotated_duration
-                   FROM annotation_tasks t
-                   JOIN annotation_versions v
-                     ON v.id = t.current_published_version_id
-                   JOIN annotators u ON u.id = v.submitted_by_user_id
-                   GROUP BY u.username
-               ) ranked
-               ORDER BY dur DESC, username"""
+            f"""SELECT u.username,
+                       count(*) FILTER (WHERE v.target_status = 'annotated')
+                           AS annotated,
+                       count(*) FILTER (WHERE v.target_status = 'skipped')
+                           AS skipped,
+                       COALESCE(
+                           sum(t.duration) FILTER (
+                               WHERE v.target_status = 'annotated'
+                           ),
+                           0
+                       ) AS dur
+                FROM annotation_tasks t
+                JOIN annotation_versions v
+                  ON v.id = t.current_published_version_id
+                LEFT JOIN annotators u ON u.id = {credited}
+                WHERE u.id IS NOT NULL
+                  AND v.lifecycle = 'published'
+                GROUP BY u.username
+                ORDER BY dur DESC, username"""
         ).fetchall()
-    annotated_duration = float(lb_rows[0][4]) if lb_rows else 0.0
     return {
         "stats": {
             "total": total,
@@ -1783,6 +2126,8 @@ def dashboard() -> dict:
                 round((annotated + skipped) / total * 100, 1) if total else 0.0
             ),
             "annotated_duration_seconds": annotated_duration,
+            "cross_check_submitted_count": workload_count,
+            "cross_check_submitted_audio_seconds": workload_seconds,
         },
         "leaderboard": [
             {
@@ -2296,8 +2641,10 @@ def _admin_task_filter_sql(filters: dict, *, task_alias="t",
         like = f"%{filters['q']}%"
         params.extend([like, like])
     if filters["annotator_id"]:
+        from annotation_quality.queries import credited_annotator_sql
+        credited = credited_annotator_sql(version_alias)
         clauses.append(
-            f"({version_alias}.submitted_by_user_id = %s OR EXISTS ("
+            f"({credited} = %s OR EXISTS ("
             f"SELECT 1 FROM assignments af WHERE af.task_id = {task_alias}.id "
             "AND af.user_id = %s))"
         )
@@ -2589,6 +2936,12 @@ def admin_overview(filters: dict | None = None) -> dict:
                ORDER BY task_count DESC, status"""
         ).fetchall()
         _mark("reviews")
+        from annotation_quality.queries import (
+            cross_check_quality_summary, cross_check_submitted_workload,
+        )
+        cross_check = cross_check_quality_summary(cur)
+        workload_count, workload_seconds = cross_check_submitted_workload(cur)
+        _mark("cross_check")
 
     confidence_buckets = [
         {"confidence": item[0], "task_count": int(item[1]),
@@ -2643,6 +2996,8 @@ def admin_overview(filters: dict | None = None) -> dict:
             "skipped_duration_seconds": float(row[5]),
             "pending_count": int(row[6]),
             "pending_duration_seconds": float(row[7]),
+            "cross_check_submitted_count": workload_count,
+            "cross_check_submitted_audio_seconds": workload_seconds,
         },
         "pending": {
             "assigned_count": int(row[8]),
@@ -2650,7 +3005,9 @@ def admin_overview(filters: dict | None = None) -> dict:
             "ineligible_count": int(row[10]),
             "reserved_count": int(row[11]),
             "oldest_created_at": row[12].isoformat() if row[12] else None,
+            "cross_check_in_progress_count": cross_check["in_progress_count"],
         },
+        "cross_check": cross_check,
         "segments": {
             "total_count": total_segments,
             "total_duration_seconds": float(segment_row[1]),
@@ -2916,6 +3273,8 @@ def admin_quality(filters: dict | None = None, limit: int = 50) -> dict:
                 WHERE {' AND '.join(revoked_clauses)}""",
             revoked_params,
         ).fetchone()[0]
+        from annotation_quality.queries import cross_check_quality_summary
+        cross_check = cross_check_quality_summary(cur)
 
     items = [
         {
@@ -2968,6 +3327,7 @@ def admin_quality(filters: dict | None = None, limit: int = 50) -> dict:
             "stale_assignment": "last activity more than 4 hours ago",
             "warning": "Signals require human review and are not quality scores",
         },
+        "cross_check": cross_check,
         "updated_at": utcnow().isoformat(),
     }
 
@@ -3037,10 +3397,12 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
         revoked_where.append("rv.revoked_at < %s")
         revoked_params.append(normalized["to"])
 
+    from annotation_quality.queries import credited_annotator_sql
+    credited = credited_annotator_sql()
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""WITH current_stats AS (
-                    SELECT v.submitted_by_user_id AS user_id,
+                    SELECT {credited} AS user_id,
                            count(*) FILTER (WHERE t.status = 'annotated') AS annotated,
                            count(*) FILTER (WHERE t.status = 'skipped') AS skipped,
                            COALESCE(sum(t.duration), 0) AS duration
@@ -3048,7 +3410,8 @@ def admin_annotators(filters: dict | None = None, limit: int = 50,
                     JOIN annotation_versions v
                       ON v.id = t.current_published_version_id
                     WHERE {current_where}
-                    GROUP BY v.submitted_by_user_id
+                      AND {credited} IS NOT NULL
+                    GROUP BY {credited}
                 ), history_stats AS (
                     SELECT e.user_id, count(*) AS completed,
                            max(e.created_at) AS last_completed_at
@@ -3169,6 +3532,8 @@ def admin_annotator_detail(annotator_id: str,
         ).fetchone()
         if not user:
             raise NotFoundError("Annotator not found")
+        from annotation_quality.queries import credited_annotator_sql
+        credited = credited_annotator_sql()
         current = cur.execute(
             f"""SELECT count(*) FILTER (WHERE t.status = 'annotated'),
                        count(*) FILTER (WHERE t.status = 'skipped'),
@@ -3178,7 +3543,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND {credited} = %s
                 WHERE {current_where}""",
             (uid, *current_params),
         ).fetchone()
@@ -3191,7 +3556,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND {credited} = %s
                 LEFT JOIN segments s ON s.version_id = v.id
                 WHERE {current_where}""",
             (uid, *current_params),
@@ -3258,7 +3623,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND {credited} = %s
                 CROSS JOIN LATERAL unnest(v.skip_reasons) reason
                 WHERE {current_where}
                 GROUP BY reason ORDER BY count(*) DESC, reason""",
@@ -3269,7 +3634,7 @@ def admin_annotator_detail(annotator_id: str,
                 FROM annotation_tasks t
                 JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
-                 AND v.submitted_by_user_id = %s
+                 AND {credited} = %s
                 WHERE {current_where}
                 GROUP BY COALESCE(t.category, 'Uncategorized')
                 ORDER BY count(*) DESC, COALESCE(t.category, 'Uncategorized')""",
@@ -3386,6 +3751,7 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
         task_id = _validate_uuid(task_id, "cursor")
         clauses.append("(t.created_at, t.id) < (%s::timestamptz, %s::uuid)")
         params.extend([created_at, task_id])
+    from annotation_quality.queries import credited_annotator_sql
     with db_tx() as conn, conn.cursor() as cur:
         matched = cur.execute(
             f"""SELECT count(*), COALESCE(sum(t.duration), 0)
@@ -3416,7 +3782,7 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
                 LEFT JOIN annotation_versions v
                   ON v.id = t.current_published_version_id
                 LEFT JOIN annotators submitter
-                  ON submitter.id = v.submitted_by_user_id
+                  ON submitter.id = {credited_annotator_sql()}
                 LEFT JOIN assignments a ON a.task_id = t.id
                 LEFT JOIN annotators assignee ON assignee.id = a.user_id
                 LEFT JOIN annotation_versions d
@@ -3520,7 +3886,8 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
     clauses = ["v.lifecycle IN ('published', 'revoked', 'superseded')"]
     params: list = []
     if normalized["annotator_id"]:
-        clauses.append("v.submitted_by_user_id = %s")
+        from annotation_quality.queries import credited_annotator_sql
+        clauses.append(f"{credited_annotator_sql()} = %s")
         params.append(normalized["annotator_id"])
     if normalized["status"] in ("annotated", "skipped"):
         clauses.append("v.target_status = %s")
@@ -3561,10 +3928,13 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
         clauses.append("(v.submitted_at, v.id) < (%s::timestamptz, %s::uuid)")
         params.extend([submitted_at, version_id])
 
+    from annotation_quality.queries import credited_annotator_sql
+    credited = credited_annotator_sql()
     with db_tx() as conn, conn.cursor() as cur:
         rows = cur.execute(
             f"""SELECT v.id, v.submitted_at, v.lifecycle, v.target_status,
-                       v.skip_reasons, v.revision, v.submitted_by_user_id,
+                       v.skip_reasons, v.revision,
+                       {credited},
                        u.username, u.status, t.id, t.filename, t.folder,
                        t.rel_path, t.duration, t.category,
                        (t.current_published_version_id = v.id) AS is_current,
@@ -3579,13 +3949,18 @@ def admin_annotations(filters: dict | None = None, limit: int = 50,
                            SELECT max(begin_event.created_at)
                            FROM annotation_events begin_event
                            WHERE begin_event.task_id = v.task_id
-                             AND begin_event.user_id = v.submitted_by_user_id
-                             AND begin_event.event_type IN ('claimed', 'reopened')
+                             AND begin_event.user_id = COALESCE(
+                                 v.submitted_by_user_id, v.credited_annotator_id
+                             )
+                             AND begin_event.event_type IN (
+                                 'claimed', 'reopened', 'cross_check_claimed'
+                             )
                              AND begin_event.created_at <= v.submitted_at
                        ))) AS turnaround_seconds
                 FROM annotation_versions v
                 JOIN annotation_tasks t ON t.id = v.task_id
-                LEFT JOIN annotators u ON u.id = v.submitted_by_user_id
+                LEFT JOIN annotators u
+                  ON u.id = {credited}
                 LEFT JOIN segments s ON s.version_id = v.id
                 WHERE {' AND '.join(clauses)}
                 GROUP BY v.id, t.id, u.id
@@ -4051,25 +4426,44 @@ def _release_task_draft(cur, task_id, *, action_id, reason: str,
                         event: bool = True) -> dict | None:
     assignment = cur.execute(
         """SELECT a.user_id, a.working_version_id, a.mode, u.username,
-                  v.human_modified
+                  v.human_modified, a.cross_check_round_id
            FROM assignments a
            JOIN annotators u ON u.id = a.user_id
            JOIN annotation_versions v ON v.id = a.working_version_id
-           WHERE a.task_id = %s FOR UPDATE OF a, v""",
+           WHERE a.task_id = %s FOR UPDATE OF a""",
         (task_id,),
     ).fetchone()
+    if assignment and assignment[2] == "cross_check":
+        _cancel_in_progress_cross_check(
+            cur, round_id=assignment[5], task_id=task_id,
+            version_id=assignment[1], reason=reason,
+        )
+        cur.execute(
+            """INSERT INTO annotation_events
+                   (user_id, task_id, version_id, event_type, from_status,
+                    to_status, admin_action_id, details)
+               SELECT %s, t.id, %s, 'cross_check_cancelled', t.status, t.status,
+                      %s, %s FROM annotation_tasks t WHERE t.id = %s""",
+            (assignment[0], assignment[1], action_id,
+             Json({
+                 "mode": "cross_check",
+                 "round_id": str(assignment[5]),
+                 "termination_reason": reason,
+             }), task_id),
+        )
     drafts = cur.execute(
         """SELECT id FROM annotation_versions
            WHERE task_id = %s AND lifecycle = 'draft' FOR UPDATE""",
         (task_id,),
     ).fetchall()
     if assignment:
-        cur.execute(
-            """UPDATE annotation_versions
-               SET lifecycle = 'abandoned', updated_at = now()
-               WHERE id = %s AND lifecycle = 'draft'""",
-            (assignment[1],),
-        )
+        if assignment[2] != "cross_check":
+            cur.execute(
+                """UPDATE annotation_versions
+                   SET lifecycle = 'abandoned', updated_at = now()
+                   WHERE id = %s AND lifecycle = 'draft'""",
+                (assignment[1],),
+            )
         cur.execute("DELETE FROM assignments WHERE task_id = %s", (task_id,))
         if event:
             cur.execute(
@@ -4100,14 +4494,82 @@ def _release_task_draft(cur, task_id, *, action_id, reason: str,
     }
 
 
-def admin_revoke_preview(annotator_id: str, items: list[dict],
+def _related_cross_check_user_ids(cur, task_ids) -> set:
+    if not task_ids:
+        return set()
+    rows = cur.execute(
+        """SELECT secondary_annotator_id
+           FROM cross_check_rounds
+           WHERE task_id = ANY(%s)
+             AND state IN ('in_progress', 'awaiting_review')
+           UNION
+           SELECT user_id FROM assignments WHERE task_id = ANY(%s)""",
+        (list(task_ids), list(task_ids)),
+    ).fetchall()
+    return {row[0] for row in rows if row[0]}
+
+
+def _lock_annotators_stable(cur, user_ids, *, required_id=None) -> dict:
+    ids = sorted({uid for uid in user_ids if uid}, key=str)
+    if required_id is not None and required_id not in ids:
+        ids = sorted(ids + [required_id], key=str)
+    if not ids:
+        return {}
+    rows = cur.execute(
+        """SELECT id, status FROM annotators
+           WHERE id = ANY(%s) ORDER BY id FOR UPDATE""",
+        (ids,),
+    ).fetchall()
+    found = {row[0]: row[1] for row in rows}
+    if required_id is not None and required_id not in found:
+        raise NotFoundError("Annotator not found")
+    if any(uid not in found for uid in ids):
+        raise ConflictError("Annotator no longer exists")
+    return found
+
+
+def _lock_assignments_for_tasks(cur, task_ids) -> None:
+    if not task_ids:
+        return
+    cur.execute(
+        """SELECT user_id FROM assignments
+           WHERE task_id = ANY(%s)
+           ORDER BY task_id
+           FOR UPDATE""",
+        (list(task_ids),),
+    )
+
+
+def _is_admin_edited_version(submitted_by, purpose, published_by) -> bool:
+    return (
+        purpose == "adjudication"
+        and submitted_by is None
+        and published_by is not None
+    )
+
+
+def _admin_edited_block_reclaim(annotator_id, block_reclaim: bool) -> bool:
+    if annotator_id is None:
+        if block_reclaim:
+            raise ValidationError(
+                "Admin-edited revoke requires block_reclaim=false"
+            )
+        return False
+    return bool(block_reclaim)
+
+
+def admin_revoke_preview(annotator_id: str | None, items: list[dict],
                          block_reclaim: bool = True,
                          release_conflicts: bool = False) -> dict:
-    uid = _validate_uuid(annotator_id, "annotator_id")
+    uid = (
+        None if annotator_id is None
+        else _validate_uuid(annotator_id, "annotator_id")
+    )
+    block_reclaim = _admin_edited_block_reclaim(uid, block_reclaim)
     normalized = _normalize_revoke_items(items)
     results = []
     with db_tx() as conn, conn.cursor() as cur:
-        if not cur.execute(
+        if uid is not None and not cur.execute(
             "SELECT 1 FROM annotators WHERE id = %s", (uid,)
         ).fetchone():
             raise NotFoundError("Annotator not found")
@@ -4120,7 +4582,12 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
                                   WHERE a.task_id = t.id),
                           EXISTS (SELECT 1 FROM annotation_versions d
                                   WHERE d.task_id = t.id
-                                    AND d.lifecycle = 'draft')
+                                    AND d.lifecycle = 'draft'),
+                          v.purpose, v.published_by_admin_action_id,
+                          (SELECT r.state FROM cross_check_rounds r
+                           WHERE r.task_id = t.id
+                             AND r.state IN ('in_progress', 'awaiting_review')
+                           LIMIT 1)
                    FROM annotation_tasks t
                    LEFT JOIN annotation_versions v
                      ON v.id = t.current_published_version_id
@@ -4128,15 +4595,19 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
                 (item["task_id"],),
             ).fetchone()
             conflict = None
+            open_state = row[12] if row else None
             if not row:
                 conflict = "not_found"
             elif row[5] != item["expected_version_id"]:
                 conflict = "current_version_changed"
+            elif uid is None:
+                if not _is_admin_edited_version(row[7], row[10], row[11]):
+                    conflict = "not_admin_adjudication"
             elif row[7] != uid:
                 conflict = "not_current_submitter"
-            elif row[6] is None:
+            if conflict is None and row[6] is None:
                 conflict = "baseline_missing"
-            elif (row[8] or row[9]) and not release_conflicts:
+            if conflict is None and (row[8] or row[9] or open_state) and not release_conflicts:
                 conflict = "active_revision"
             results.append({
                 "task_id": str(item["task_id"]),
@@ -4150,6 +4621,10 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
                 "will_release_assignment": bool(
                     row and (row[8] or row[9]) and release_conflicts
                 ),
+                "open_cross_check_state": open_state,
+                "will_invalidate_cross_check": bool(
+                    open_state and release_conflicts and conflict is None
+                ),
             })
     revokeable = [item for item in results if item["revokeable"]]
     return {
@@ -4159,6 +4634,9 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
             "duration_seconds": sum(
                 item["duration_seconds"] for item in revokeable
             ),
+            "open_cross_check_rounds": sum(
+                1 for item in results if item.get("open_cross_check_state")
+            ),
         },
         "items": results,
     }
@@ -4167,17 +4645,36 @@ def admin_revoke_preview(annotator_id: str, items: list[dict],
 def _revoke_locked_task(cur, *, task_row, expected_version_id,
                         annotator_id, action_id, reason: str,
                         block_reclaim: bool, release_conflicts: bool):
+    from annotation_quality.repository import (
+        invalidate_open_cross_check_for_task, lock_open_round_for_task,
+    )
     task_id, duration, task_status, current_id, baseline_id = task_row
     if current_id != expected_version_id:
         raise ConflictError(f"Task {task_id} current version changed")
+    open_round = lock_open_round_for_task(cur, task_id)
+    version_ids = {current_id}
+    if open_round and open_round[2]:
+        version_ids.add(open_round[2])
+    for version_id in sorted(version_ids, key=str):
+        cur.execute(
+            "SELECT id FROM annotation_versions WHERE id = %s FOR UPDATE",
+            (version_id,),
+        )
     version = cur.execute(
-        """SELECT id, submitted_by_user_id, target_status, lifecycle
-           FROM annotation_versions WHERE id = %s FOR UPDATE""",
+        """SELECT id, submitted_by_user_id, target_status, lifecycle,
+                  purpose, published_by_admin_action_id
+           FROM annotation_versions WHERE id = %s""",
         (current_id,),
     ).fetchone()
     if not version or version[3] != "published":
         raise ConflictError(f"Task {task_id} no longer has a published version")
-    if version[1] != annotator_id:
+    if annotator_id is None:
+        if not _is_admin_edited_version(version[1], version[4], version[5]):
+            raise ConflictError(
+                f"Task {task_id} is not an admin-edited adjudication version"
+            )
+        block_reclaim = False
+    elif version[1] != annotator_id:
         raise ConflictError(f"Task {task_id} is not currently submitted by annotator")
     if baseline_id is None:
         raise ConflictError(f"Task {task_id} has no baseline")
@@ -4188,12 +4685,31 @@ def _revoke_locked_task(cur, *, task_row, expected_version_id,
         (task_id, task_id),
     ).fetchone()
     released = None
-    if has_conflict[0] or has_conflict[1]:
+    invalidated = None
+    if has_conflict[0] or has_conflict[1] or open_round:
         if not release_conflicts:
             raise ConflictError(f"Task {task_id} has an active revision")
-        released = _release_task_draft(
-            cur, task_id, action_id=action_id, reason=reason
-        )
+        if open_round:
+            invalidated = invalidate_open_cross_check_for_task(
+                cur, task_id=task_id, action_id=action_id, reason=reason,
+                from_status=task_status,
+            )
+            if invalidated and invalidated.get("released"):
+                released = {
+                    "annotator_id": invalidated["secondary_annotator_id"],
+                    "working_version_id": invalidated["secondary_version_id"],
+                    "mode": "cross_check",
+                }
+        still = cur.execute(
+            """SELECT EXISTS (SELECT 1 FROM assignments WHERE task_id = %s),
+                      EXISTS (SELECT 1 FROM annotation_versions
+                              WHERE task_id = %s AND lifecycle = 'draft')""",
+            (task_id, task_id),
+        ).fetchone()
+        if still[0] or still[1]:
+            released = _release_task_draft(
+                cur, task_id, action_id=action_id, reason=reason
+            )
     cur.execute(
         """UPDATE annotation_versions
            SET lifecycle = 'revoked', revoked_at = now(), revoked_reason = %s,
@@ -4215,7 +4731,7 @@ def _revoke_locked_task(cur, *, task_row, expected_version_id,
     draft_id, baseline_quality = _clone_clean_draft_from_baseline(
         cur, task_id, action_id=action_id
     )
-    if block_reclaim:
+    if block_reclaim and annotator_id is not None:
         cur.execute(
             """INSERT INTO task_annotator_blocks
                    (task_id, user_id, reason, admin_action_id)
@@ -4226,34 +4742,49 @@ def _revoke_locked_task(cur, *, task_row, expected_version_id,
                    created_at = now()""",
             (task_id, annotator_id, reason, action_id),
         )
+    event_details = {"reason": reason, "clean_draft_id": str(draft_id)}
+    if invalidated:
+        event_details["invalidated_round_id"] = str(invalidated["round_id"])
+        event_details["invalidated_previous_state"] = invalidated["previous_state"]
+    if annotator_id is None:
+        event_details["actual_author"] = "admin"
+        event_details["source_publish_action_id"] = str(version[5])
     cur.execute(
         """INSERT INTO annotation_events
                (user_id, task_id, version_id, event_type, from_status,
                 to_status, admin_action_id, details)
            VALUES (%s, %s, %s, 'revoked_admin', %s, 'pending', %s, %s)""",
         (annotator_id, task_id, current_id, task_status, action_id,
-         Json({"reason": reason, "clean_draft_id": str(draft_id)})),
+         Json(event_details)),
     )
     return {
         "task_id": task_id, "before_version_id": current_id,
         "after_version_id": draft_id, "duration": float(duration),
-        "blocked": bool(block_reclaim), "released": released,
+        "blocked": bool(block_reclaim and annotator_id is not None),
+        "released": released,
         "baseline_quality": baseline_quality,
         "target_status": version[2],
+        "invalidated": invalidated,
+        "published_by_admin_action_id": version[5],
+        "purpose": version[4],
     }
 
 
 def admin_revoke(admin_session_id: str, operation_id: str,
-                 annotator_id: str, items: list[dict], reason: str,
+                 annotator_id: str | None, items: list[dict], reason: str,
                  block_reclaim: bool = True, confirm: bool = False,
                  release_conflicts: bool = False) -> dict:
     if not confirm:
         raise ValidationError("Revoke requires explicit confirmation")
-    uid = _validate_uuid(annotator_id, "annotator_id")
+    uid = (
+        None if annotator_id is None
+        else _validate_uuid(annotator_id, "annotator_id")
+    )
+    block_reclaim = _admin_edited_block_reclaim(uid, block_reclaim)
     normalized = _normalize_revoke_items(items)
     reason_value = _required_reason(reason)
     request_payload = {
-        "annotator_id": str(uid),
+        "annotator_id": str(uid) if uid is not None else None,
         "items": [
             {"task_id": str(item["task_id"]),
              "expected_version_id": str(item["expected_version_id"])}
@@ -4273,10 +4804,10 @@ def admin_revoke(admin_session_id: str, operation_id: str,
         )
         if action["replay"]:
             return _admin_replay_response(action)
-        if not cur.execute(
-            "SELECT 1 FROM annotators WHERE id = %s FOR UPDATE", (uid,)
-        ).fetchone():
-            raise NotFoundError("Annotator not found")
+        task_ids = [item["task_id"] for item in normalized]
+        related = _related_cross_check_user_ids(cur, task_ids)
+        _lock_annotators_stable(cur, related, required_id=uid)
+        _lock_assignments_for_tasks(cur, task_ids)
         results = []
         for item in normalized:
             task = cur.execute(
@@ -4295,22 +4826,38 @@ def admin_revoke(admin_session_id: str, operation_id: str,
                 release_conflicts=bool(release_conflicts),
             )
             results.append(result)
+            item_details = {
+                "blocked": result["blocked"],
+                "released_assignment": bool(result["released"]),
+                "baseline_quality": result["baseline_quality"],
+            }
+            if result.get("invalidated"):
+                item_details["invalidated_round_id"] = str(
+                    result["invalidated"]["round_id"]
+                )
+                item_details["invalidated_previous_state"] = (
+                    result["invalidated"]["previous_state"]
+                )
+            if uid is None:
+                item_details["actual_author"] = "admin"
+                item_details["source_publish_action_id"] = str(
+                    result["published_by_admin_action_id"]
+                )
             _insert_admin_action_item(
                 cur, action["action_id"], task_id=result["task_id"],
                 annotator_id=uid,
                 expected_version_id=item["expected_version_id"],
                 before_version_id=result["before_version_id"],
                 after_version_id=result["after_version_id"], result="revoked",
-                details={
-                    "blocked": result["blocked"],
-                    "released_assignment": bool(result["released"]),
-                    "baseline_quality": result["baseline_quality"],
-                },
+                details=item_details,
             )
         summary = {
             "requested": len(normalized), "revoked": len(results),
             "blocked": sum(1 for result in results if result["blocked"]),
             "released": sum(1 for result in results if result["released"]),
+            "invalidated": sum(
+                1 for result in results if result.get("invalidated")
+            ),
             "duration_seconds": sum(result["duration"] for result in results),
         }
         _finish_admin_action(cur, action["action_id"], summary)
@@ -4350,9 +4897,10 @@ def admin_restore(admin_session_id: str, operation_id: str,
         ).fetchone()
         if not source or source[0] != "revoke_annotations":
             raise ConflictError("Source action is not a restorable revoke")
-        # Lock every affected submitter before any task/version row. This
-        # matches deactivate (annotator -> task -> version) and prevents the
-        # reverse task -> annotator edge that can deadlock the two operations.
+        # Lock every affected ordinary submitter before any task/version row.
+        # Admin-edited items have annotator_id NULL and no ordinary user to
+        # activate-check. This matches deactivate (annotator -> task ->
+        # version) and prevents the reverse task -> annotator deadlock.
         source_items = {}
         for task_id in tids:
             source_item = cur.execute(
@@ -4367,19 +4915,14 @@ def admin_restore(admin_session_id: str, operation_id: str,
                 raise ConflictError(
                     f"Task {task_id} was not revoked by the source action"
                 )
-            if not source_item[0]:
-                raise ConflictError(f"Task {task_id} has no recorded submitter")
             source_items[task_id] = source_item
-        annotator_ids = sorted({item[0] for item in source_items.values()}, key=str)
-        annotator_rows = cur.execute(
-            """SELECT id, status FROM annotators
-               WHERE id = ANY(%s) ORDER BY id FOR UPDATE""",
-            (annotator_ids,),
-        ).fetchall()
-        annotator_status = {row[0]: row[1] for row in annotator_rows}
+        annotator_ids = {item[0] for item in source_items.values() if item[0]}
+        annotator_status = _lock_annotators_stable(cur, annotator_ids)
         for annotator_id_value in annotator_ids:
             if annotator_status.get(annotator_id_value) != "active":
-                raise ConflictError("Restored annotation submitter is not active")
+                raise ConflictError(
+                    "Restored annotation submitter is not active"
+                )
         # An existing assignment is already a terminal restore conflict. Check
         # it without taking an assignment lock before acquiring task locks;
         # after a task is locked, claim cannot insert a new assignment.
@@ -4406,6 +4949,16 @@ def admin_restore(admin_session_id: str, operation_id: str,
             ).fetchone():
                 raise ConflictError(f"Task {task_id} has already been claimed")
             if cur.execute(
+                """SELECT 1 FROM cross_check_rounds
+                   WHERE task_id = %s
+                     AND state IN ('in_progress', 'awaiting_review')""",
+                (task_id,),
+            ).fetchone():
+                raise ConflictError(
+                    f"Task {task_id} has an open cross-check",
+                    code="cross_check_active",
+                )
+            if cur.execute(
                 """SELECT 1 FROM annotation_events
                    WHERE task_id = %s AND event_type = 'claimed'
                      AND created_at > %s LIMIT 1""",
@@ -4425,7 +4978,8 @@ def admin_restore(admin_session_id: str, operation_id: str,
                     f"Task {task_id} clean draft has been changed"
                 )
             old = cur.execute(
-                """SELECT lifecycle, target_status, submitted_by_user_id
+                """SELECT lifecycle, target_status, submitted_by_user_id,
+                          purpose, published_by_admin_action_id
                    FROM annotation_versions WHERE id = %s FOR UPDATE""",
                 (source_item[1],),
             ).fetchone()
@@ -4433,7 +4987,12 @@ def admin_restore(admin_session_id: str, operation_id: str,
                 raise ConflictError(
                     f"Task {task_id} revoked version is no longer restorable"
                 )
-            if old[2] != source_item[0]:
+            if source_item[0] is None:
+                if not _is_admin_edited_version(old[2], old[3], old[4]):
+                    raise ConflictError(
+                        f"Task {task_id} is not an admin-edited adjudication version"
+                    )
+            elif old[2] != source_item[0]:
                 raise ConflictError(
                     f"Task {task_id} submitter does not match the revoke audit"
                 )
@@ -4467,12 +5026,13 @@ def admin_restore(admin_session_id: str, operation_id: str,
                    WHERE id = %s""",
                 (old[1], source_item[1], task_id),
             )
-            cur.execute(
-                """DELETE FROM task_annotator_blocks
-                   WHERE task_id = %s AND user_id = %s
-                     AND admin_action_id = %s""",
-                (task_id, source_item[0], source_action_id),
-            )
+            if source_item[0] is not None:
+                cur.execute(
+                    """DELETE FROM task_annotator_blocks
+                       WHERE task_id = %s AND user_id = %s
+                         AND admin_action_id = %s""",
+                    (task_id, source_item[0], source_action_id),
+                )
             cur.execute(
                 """INSERT INTO annotation_events
                        (user_id, task_id, version_id, event_type, from_status,
@@ -4618,6 +5178,27 @@ def admin_deactivate_preview(annotator_id: str) -> dict:
         sessions = cur.execute(
             "SELECT count(*) FROM active_sessions WHERE user_id = %s", (uid,)
         ).fetchone()[0]
+        own_in_progress = cur.execute(
+            """SELECT count(*) FROM cross_check_rounds r
+               JOIN assignments a ON a.cross_check_round_id = r.id
+               WHERE a.user_id = %s AND r.state = 'in_progress'""",
+            (uid,),
+        ).fetchone()[0]
+        awaiting_as_secondary = cur.execute(
+            """SELECT count(*) FROM cross_check_rounds
+               WHERE secondary_annotator_id = %s
+                 AND state = 'awaiting_review'""",
+            (uid,),
+        ).fetchone()[0]
+        open_on_published = cur.execute(
+            """SELECT count(*) FROM cross_check_rounds r
+               JOIN annotation_tasks t ON t.id = r.task_id
+               JOIN annotation_versions v
+                 ON v.id = t.current_published_version_id
+               WHERE v.submitted_by_user_id = %s
+                 AND r.state IN ('in_progress', 'awaiting_review')""",
+            (uid,),
+        ).fetchone()[0]
     return {
         "annotator": {
             "id": str(user[0]), "username": user[1], "status": user[2],
@@ -4629,6 +5210,9 @@ def admin_deactivate_preview(annotator_id: str) -> dict:
             "assignments_to_release": 1 if assignment else 0,
             "reservations_to_release": int(reservations),
             "sessions_to_revoke": int(sessions),
+            "cross_check_in_progress_to_cancel": int(own_in_progress),
+            "cross_check_awaiting_review_kept": int(awaiting_as_secondary),
+            "cross_check_open_on_published": int(open_on_published),
         },
         "assignment": ({
             "task_id": str(assignment[0]), "mode": assignment[1],
@@ -4739,6 +5323,13 @@ def admin_deactivate(admin_session_id: str, operation_id: str,
                 raise ConflictError(
                     f"Task {task_id_value} has another annotator's active revision"
                 )
+            from annotation_quality.repository import (
+                invalidate_open_cross_check_for_task,
+            )
+            invalidate_open_cross_check_for_task(
+                cur, task_id=task_id_value, action_id=action["action_id"],
+                reason=reason_value, from_status=task[2],
+            )
             result = _revoke_locked_task(
                 cur, task_row=task,
                 expected_version_id=task[3], annotator_id=uid,
@@ -4797,9 +5388,14 @@ def authorized_media(user_id: str, task_id: str) -> dict:
                    SELECT 1 FROM annotation_versions v
                    WHERE v.id = t.current_published_version_id
                      AND v.submitted_by_user_id = %s
+                 ) OR EXISTS (
+                   SELECT 1 FROM cross_check_rounds r
+                   WHERE r.task_id = t.id
+                     AND r.secondary_annotator_id = %s
+                     AND r.submitted_at IS NOT NULL
                  )
                )""",
-            (tid, uid, uid),
+            (tid, uid, uid, uid),
         ).fetchone()
         if not row:
             raise ForbiddenError("You may only access media for your current task or your own submissions")

@@ -219,7 +219,8 @@ def pool_snapshot(cur, user_id, filters: TaskFilter, *, policy: str | None = Non
     annotated = counts.get("annotated", 0)
     skipped = counts.get("skipped", 0)
     pending = counts.get("pending", 0)
-    assigned = cur.execute("SELECT count(*) FROM assignments").fetchone()[0]
+    from annotation_quality.queries import assignment_queue_counts
+    assigned, cross_check_in_progress = assignment_queue_counts(cur)
     eligible_pending = cur.execute(
         "SELECT count(*) FROM annotation_tasks WHERE status = 'pending' AND eligible"
     ).fetchone()[0]
@@ -238,7 +239,26 @@ def pool_snapshot(cur, user_id, filters: TaskFilter, *, policy: str | None = Non
     if scope.can_claim:
         matching, matching_unassigned = count_claimable_pair(cur, scope, filters, uid)
         by_scene, unknown_available = scene_counts(cur, scope, filters, uid)
-    available = matching_unassigned if scope.can_claim else 0
+    normal_available = matching_unassigned if scope.can_claim else 0
+    from annotation_quality.repository import cross_check_allowed, load_settings
+    from annotation_quality.claiming import (
+        count_cross_check_candidates, cross_check_scene_counts,
+    )
+    settings = load_settings(cur)
+    cc_allowed = scope.can_claim and cross_check_allowed(settings)
+    cross_check_available = 0
+    if cc_allowed:
+        cross_check_available = count_cross_check_candidates(
+            cur, scope, filters, uid,
+        )
+        cc_by_scene = cross_check_scene_counts(cur, scope, filters, uid)
+        for item in by_scene:
+            item["available"] = int(item["available"]) + int(
+                cc_by_scene.get(item["scene_code"], 0)
+            )
+        if scope.allows_fallback_source():
+            unknown_available += int(cc_by_scene.get(FALLBACK_SOURCE_SCENE, 0))
+    available = normal_available + cross_check_available
     reason = empty_pool_reason(
         scope=scope, filters=filters, total=total, pending=pending,
         eligible_pending=eligible_pending, matching=matching,
@@ -254,6 +274,9 @@ def pool_snapshot(cur, user_id, filters: TaskFilter, *, policy: str | None = Non
         "pending": pending,
         "assigned": assigned,
         "available": available,
+        "normal_available": normal_available,
+        "cross_check_available": cross_check_available,
+        "cross_check_in_progress": cross_check_in_progress,
         "reason": reason,
         "by_scene": by_scene,
         "unknown_available": unknown_available,

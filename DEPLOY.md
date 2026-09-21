@@ -445,7 +445,7 @@ labels). Excel adds source scene/confidence/batch and human verification columns
 1. 备份 PostgreSQL，记录当前代码 commit。
 2. 维护窗口执行 `uv run python manage_state.py apply-migrations`。
 3. 部署后端和新 HTML/JS，重启 Gunicorn。
-4. `/api/health` 必须返回 `[1, 2, 3, 4, 5, 6, 7]`。
+4. `/api/health` 必须返回 `[1, 2, 3, 4, 5, 6, 7, 8]`。
 5. 用两个浏览器完成 login → conflict → takeover → 旧会话无法保存。
 6. 再测 offline → 关闭页面 → 原设备恢复本地草稿；新设备只看到服务器草稿。assignment 不变。
 7. 前 24 小时观察接管量、session rejection、保存冲突和心跳写入。
@@ -465,7 +465,13 @@ labels). Excel adds source scene/confidence/batch and human verification columns
 
 `007_annotation_speed_indexes.sql` 为公开 28 日速度图增加部分索引：当前 published/annotated 版本的 `submitted_at`，以及 `status = 'annotated'` 任务的 `current_published_version_id`。100k 行上的 `EXPLAIN (ANALYZE, BUFFERS)` 显示，没有这些索引时嵌套循环连接会跑数分钟。不要回滚这条迁移。
 
-部署后 `/api/health` 必须返回 `[1, 2, 3, 4, 5, 6, 7]`。旧代码会忽略这些索引。
+部署后 `/api/health` 必须返回 `[1, 2, 3, 4, 5, 6, 7, 8]`。旧代码会忽略这些索引。
+
+## 20. 交叉质检 schema（008）
+
+`008_cross_annotation_quality.sql` 增加交叉质检配置行、轮次表、参与者回填，以及版本 `purpose` / `credited_annotator_id` 和 assignment `cross_check` 模式。词差异阈值不是可写配置，固定为每轮 1000 bps。新领取默认 `enabled=false`。不要回滚这条迁移。
+
+部署后 `/api/health` 必须返回 `[1, 2, 3, 4, 5, 6, 7, 8]`。关闭开关只停止新复标领取；已有轮次、裁定接口和导出限制仍须由认识 008 的后端处理。
 
 ## 常用命令
 

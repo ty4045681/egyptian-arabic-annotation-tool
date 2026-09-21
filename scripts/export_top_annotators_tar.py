@@ -67,6 +67,10 @@ class Snapshot:
     excluded_bad_quality_count: int
     excluded_unusually_fast_tasks: int
     excluded_unusually_fast_segments: int
+    snapshot_at: datetime | None = None
+    excluded_open_quality_tasks: int = 0
+    excluded_open_quality_seconds: float = 0.0
+    exported_task_quality: tuple[dict, ...] = ()
 
 
 def parse_args() -> argparse.Namespace:
@@ -136,29 +140,25 @@ def load_snapshot(
     exclude_unusually_fast: bool = False,
     completed_from: datetime | None = None,
     completed_to: datetime | None = None,
+    task_filter=None,
 ) -> Snapshot:
     if completed_from and completed_to and completed_from >= completed_to:
         raise ValueError("completed_from must be earlier than completed_to")
 
-    ranking_sql = """
-        SELECT u.id::text, u.username, count(*)::int,
-               COALESCE(sum(t.duration), 0)::double precision
-        FROM annotation_tasks t
-        JOIN annotation_versions v ON v.id = t.current_published_version_id
-        JOIN annotators u ON u.id = v.submitted_by_user_id
-        WHERE t.status = 'annotated'
-        GROUP BY u.id, u.username
-        HAVING COALESCE(sum(t.duration), 0) > %s
-        ORDER BY count(*) DESC, COALESCE(sum(t.duration), 0) DESC, u.username
-    """
-    ranking_params: list[object] = [min_seconds]
-    if top_n is not None:
-        ranking_sql += "\n        LIMIT %s"
-        ranking_params.append(top_n)
+    from annotation_quality.queries import (
+        credited_annotator_sql,
+        exported_task_quality_sql,
+        training_export_where_sql,
+        training_timing_joins_sql,
+        unique_open_quality_blocked_sql,
+    )
 
-    # This is intentionally the same rule used by admin_quality().  Records
-    # without a claim/reopen event are not displayed as unusually fast there,
-    # so they remain eligible for export.
+    eligible_sql, eligible_params = training_export_where_sql(task_filter)
+    blocked_sql, blocked_params = unique_open_quality_blocked_sql(task_filter)
+    credited = credited_annotator_sql()
+    timing_joins = training_timing_joins_sql()
+    # Same wall-clock rule as admin_quality(), plus cross_check claim/submit
+    # events. Admin wait time is not annotation work.
     fast_filter_sql = ""
     fast_condition_sql = """
         completed.id IS NOT NULL
@@ -173,48 +173,50 @@ def load_snapshot(
 
     completion_range_sql = ""
     completion_range_params: list[datetime] = []
+    completion_ts = "COALESCE(completed.created_at, timing_content.submitted_at, v.submitted_at)"
     if completed_from is not None:
-        completion_range_sql += """
-          AND COALESCE(completed.created_at, v.submitted_at) > %s
+        completion_range_sql += f"""
+          AND {completion_ts} > %s
         """
         completion_range_params.append(completed_from)
     if completed_to is not None:
-        completion_range_sql += """
-          AND COALESCE(completed.created_at, v.submitted_at) <= %s
+        completion_range_sql += f"""
+          AND {completion_ts} <= %s
         """
         completion_range_params.append(completed_to)
 
-    current_annotation_joins = """
-        JOIN annotation_versions v ON v.submitted_by_user_id = c.user_id
+    ranking_sql = f"""
+        SELECT u.id::text, u.username, count(*)::int,
+               COALESCE(sum(t.duration), 0)::double precision
+        FROM annotation_tasks t
+        JOIN annotation_versions v ON v.id = t.current_published_version_id
+        LEFT JOIN annotators u ON u.id = {credited}
+        {timing_joins}
+        WHERE {eligible_sql}
+          AND u.id IS NOT NULL
+          {completion_range_sql}
+        GROUP BY u.id, u.username
+        HAVING COALESCE(sum(t.duration), 0) > %s
+        ORDER BY count(*) DESC, COALESCE(sum(t.duration), 0) DESC, u.username
+    """
+    ranking_params: list[object] = [
+        *eligible_params, *completion_range_params, min_seconds,
+    ]
+    if top_n is not None:
+        ranking_sql += "\n        LIMIT %s"
+        ranking_params.append(top_n)
+
+    current_annotation_joins = f"""
+        JOIN annotation_versions v ON {credited} = c.user_id
         JOIN annotation_tasks t ON t.current_published_version_id = v.id
-        LEFT JOIN LATERAL (
-            SELECT e.id, e.created_at, e.user_id
-            FROM annotation_events e
-            WHERE e.task_id = t.id
-              AND e.version_id = v.id
-              AND e.event_type = 'completed'
-              AND e.to_status = 'annotated'
-            ORDER BY e.created_at DESC, e.id DESC
-            LIMIT 1
-        ) completed ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT max(begin_event.created_at) AS at
-            FROM annotation_events begin_event
-            WHERE begin_event.task_id = t.id
-              AND begin_event.user_id = COALESCE(
-                  completed.user_id, v.submitted_by_user_id
-              )
-              AND begin_event.event_type IN ('claimed', 'reopened')
-              AND begin_event.created_at <= COALESCE(
-                  completed.created_at, v.submitted_at
-              )
-        ) started ON TRUE
+        {timing_joins}
     """
     segments_sql = """
         SELECT c.rank, c.username, t.id::text, t.rel_path, s.segment_id,
                s.start_s, s.end_s, s.text, s.asr_text,
                started.at AS annotation_started_at,
-               COALESCE(completed.created_at, v.submitted_at)
+               COALESCE(completed.created_at, timing_content.submitted_at,
+                        v.submitted_at)
                    AS annotation_completed_at,
                CASE
                    WHEN completed.created_at IS NOT NULL
@@ -226,13 +228,14 @@ def load_snapshot(
              AS c(user_id, rank, username)
         {current_annotation_joins}
         JOIN segments s ON s.version_id = v.id
-        WHERE t.status = 'annotated'
+        WHERE {eligible_sql}
           AND s.exclude_from_training = false
           {completion_range_sql}
           {fast_filter_sql}
         ORDER BY c.rank, t.rel_path, s.segment_id
     """.format(
         current_annotation_joins=current_annotation_joins,
+        eligible_sql=eligible_sql,
         completion_range_sql=completion_range_sql,
         fast_filter_sql=fast_filter_sql,
     )
@@ -241,12 +244,13 @@ def load_snapshot(
         FROM unnest(%s::uuid[]) AS c(user_id)
         {current_annotation_joins}
         JOIN segments s ON s.version_id = v.id
-        WHERE t.status = 'annotated'
+        WHERE {eligible_sql}
           AND s.exclude_from_training = true
           {completion_range_sql}
           {fast_filter_sql}
     """.format(
         current_annotation_joins=current_annotation_joins,
+        eligible_sql=eligible_sql,
         completion_range_sql=completion_range_sql,
         fast_filter_sql=fast_filter_sql,
     )
@@ -256,11 +260,12 @@ def load_snapshot(
         FROM unnest(%s::uuid[]) AS c(user_id)
         {current_annotation_joins}
         JOIN segments s ON s.version_id = v.id
-        WHERE t.status = 'annotated'
+        WHERE {eligible_sql}
           {completion_range_sql}
           AND ({fast_condition_sql})
     """.format(
         current_annotation_joins=current_annotation_joins,
+        eligible_sql=eligible_sql,
         completion_range_sql=completion_range_sql,
         fast_condition_sql=fast_condition_sql,
     )
@@ -270,6 +275,7 @@ def load_snapshot(
             conn.execute(
                 "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
             )
+            snapshot_at = conn.execute("SELECT now()").fetchone()[0]
             rows = conn.execute(ranking_sql, ranking_params).fetchall()
             annotators = [
                 Annotator(
@@ -294,16 +300,31 @@ def load_snapshot(
             user_ids = [a.user_id for a in annotators]
             ranks = [a.rank for a in annotators]
             usernames = [a.username for a in annotators]
-            segment_rows = conn.execute(
-                segments_sql,
-                (user_ids, ranks, usernames, *completion_range_params),
-            ).fetchall()
+            segment_params = (
+                user_ids, ranks, usernames, *eligible_params, *completion_range_params,
+            )
+            exclude_params = (user_ids, *eligible_params, *completion_range_params)
+            segment_rows = conn.execute(segments_sql, segment_params).fetchall()
             excluded_count = conn.execute(
-                excluded_sql, (user_ids, *completion_range_params)
+                excluded_sql, exclude_params
             ).fetchone()[0]
             fast_tasks, fast_segments = conn.execute(
-                fast_excluded_sql, (user_ids, *completion_range_params)
+                fast_excluded_sql, exclude_params
             ).fetchone()
+            blocked_row = conn.execute(
+                f"""SELECT count(*), COALESCE(sum(t.duration), 0)
+                    FROM annotation_tasks t
+                    JOIN annotation_versions v
+                      ON v.id = t.current_published_version_id
+                    WHERE {blocked_sql}""",
+                blocked_params,
+            ).fetchone()
+            task_ids = list({str(row[2]) for row in segment_rows})
+            quality_rows = []
+            if task_ids:
+                quality_rows = conn.execute(
+                    exported_task_quality_sql(), (task_ids,),
+                ).fetchall()
 
     segments = [
         Segment(
@@ -324,6 +345,16 @@ def load_snapshot(
         )
         for row in segment_rows
     ]
+    exported_task_quality = tuple(
+        {
+            "task_id": row[0],
+            "final_version_id": row[1],
+            "round_id": row[2],
+            "round_state": row[3],
+            "outcome": row[4],
+        }
+        for row in quality_rows
+    )
     return Snapshot(
         annotators=annotators,
         segments=segments,
@@ -334,6 +365,10 @@ def load_snapshot(
         excluded_unusually_fast_segments=(
             int(fast_segments or 0) if exclude_unusually_fast else 0
         ),
+        snapshot_at=snapshot_at,
+        excluded_open_quality_tasks=int(blocked_row[0] or 0),
+        excluded_open_quality_seconds=float(blocked_row[1] or 0),
+        exported_task_quality=exported_task_quality,
     )
 
 
@@ -635,7 +670,6 @@ def main() -> int:
         AUDIO_LEVEL_NOTICE, applied_filter_context, build_training_scene_sidecar,
         parse_task_filter,
     )
-    from annotation_metadata.queries import metadata_filter_sql
 
     task_filter = parse_task_filter({
         "source_scene": args.source_scene,
@@ -652,21 +686,12 @@ def main() -> int:
         exclude_unusually_fast=args.exclude_unusually_fast,
         completed_from=args.completed_from,
         completed_to=args.completed_to,
+        task_filter=task_filter,
     )
     annotators = snapshot.annotators
     segments = snapshot.segments
-    if task_filter is not None:
-        with psycopg.connect(dsn) as conn:
-            sql, params = metadata_filter_sql(task_filter)
-            matching = {
-                str(row[0])
-                for row in conn.execute(
-                    f"SELECT id FROM annotation_tasks t WHERE {sql}", params,
-                ).fetchall()
-            }
-        segments = [item for item in segments if item.task_id in matching]
-        if not segments:
-            raise RuntimeError("Task filter excluded every selected segment")
+    if task_filter is not None and not segments:
+        raise RuntimeError("Task filter excluded every selected segment")
     print("Selected annotators:", flush=True)
     for annotator in annotators:
         print(
@@ -759,6 +784,17 @@ def main() -> int:
                 "exported_audio_seconds": total_frames / TARGET_SAMPLE_RATE,
                 "audio_format": "16 kHz mono PCM-16 WAV",
                 "data_json_fields": ["audio", "text", "asr_text"],
+                "snapshot_at": (
+                    snapshot.snapshot_at.isoformat()
+                    if snapshot.snapshot_at is not None
+                    else datetime.now(timezone.utc).isoformat()
+                ),
+                "excluded_open_quality_rounds": {
+                    "task_count": snapshot.excluded_open_quality_tasks,
+                    "audio_seconds": snapshot.excluded_open_quality_seconds,
+                    "unit": "unique_task_audio_seconds",
+                },
+                "exported_task_quality": list(snapshot.exported_task_quality),
             },
         )
         print(
