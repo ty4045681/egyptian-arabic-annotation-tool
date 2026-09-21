@@ -5,6 +5,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import annotation_repository as repo
+import annotation_quality.repository as quality_repo
 import db
 from tests.test_cross_check_claim import annotate_all, enable_cross_check, fence_of
 from tests.test_scene_claims import source, user
@@ -144,3 +145,53 @@ def test_twenty_users_claim_distinct_cross_check_tasks(database, seed_tasks):
     assert {row[2] for row in rounds} == {"in_progress"}
     assert {row[2] for row in assignments} == {"cross_check"}
     assert len({str(row[3]) for row in assignments}) == 20
+
+
+def test_reciprocal_claims_do_not_deadlock(database, seed_tasks, monkeypatch):
+    alice_task = seed_tasks(1, folder="alice")[0]
+    alice, _ = annotate_all("reciprocal-alice", [alice_task])
+    bob_task = seed_tasks(1, folder="bob")[0]
+    bob, _ = annotate_all("reciprocal-bob", [bob_task])
+    enable_cross_check()
+    fences = [fence_of(uid) for uid in (alice, bob)]
+
+    # Both transactions must hold their own user/task locks before the
+    # original-annotator foreign key is checked by the round insert.
+    barrier = threading.Barrier(2, timeout=10)
+    insert_round = quality_repo.insert_in_progress_round
+
+    def synchronized_insert(*args, **kwargs):
+        barrier.wait()
+        return insert_round(*args, **kwargs)
+
+    monkeypatch.setattr(quality_repo, "insert_in_progress_round", synchronized_insert)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(repo.claim, fence) for fence in fences]
+        claims = [future.result(timeout=15) for future in futures]
+
+    assert [claim["task_id"] for claim in claims] == [bob_task, alice_task]
+    assert all(claim["mode"] == "cross_check" for claim in claims)
+    assert len(_open_rounds()) == len(_assignments()) == 2
+
+
+def test_claim_skips_original_author_locked_by_admin(database, seed_tasks):
+    reviewed = seed_tasks(1, folder="reviewed")[0]
+    alice, _ = annotate_all("locked-original", [reviewed])
+    pending = seed_tasks(1, folder="pending")[0]
+    bob = user("locked-original-reviewer")
+    fence = fence_of(bob)
+    enable_cross_check()
+
+    # Administrative actions lock users before tasks. Claim must not wait
+    # on that user while it holds the task the administrator needs next.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with db.db_conn() as blocker:
+            blocker.execute(
+                "SELECT id FROM annotators WHERE id = %s FOR UPDATE", (alice,),
+            )
+            future = pool.submit(repo.claim, fence)
+            assignment = future.result(timeout=5)
+
+    assert assignment["task_id"] == pending
+    assert assignment["mode"] == "annotation"
+    assert _open_rounds() == []

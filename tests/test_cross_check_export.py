@@ -135,6 +135,89 @@ def test_adjudicated_export_only_final_version(client, seed_tasks, database):
     assert quality[str(queued[0]["task_id"])]["outcome"] == "secondary"
 
 
+@pytest.mark.parametrize("resolution", ["passed", "original", "secondary"])
+def test_correction_does_not_inherit_old_quality_result(
+        client, seed_tasks, database, tmp_path, resolution):
+    queued = queue_rounds(
+        client, seed_tasks, 1, original_text=IDENTICAL,
+        secondary_text=IDENTICAL if resolution == "passed" else SECRET_B,
+    )[0]
+    task_id, round_id = queued["task_id"], queued["round_id"]
+    if resolution != "passed":
+        original_id, secondary_id, revision, _ = _round_versions(round_id)
+        command = CrossCheckDecisionCommand.model_validate({
+            "operation_id": str(uuid.uuid4()),
+            "expected_revision": int(revision),
+            "expected_original_version_id": str(original_id),
+            "expected_secondary_version_id": str(secondary_id),
+            "decision": resolution,
+            "reason": "resolve before the author corrects the transcript",
+        })
+        decide_cross_check(str(_admin_session()["id"]), round_id, command)
+
+    previous = _snapshot(database).exported_task_quality[0]
+    assert previous["round_id"] == round_id
+    assert previous["round_state"] == (
+        "passed" if resolution == "passed" else "adjudicated"
+    )
+    login(client, "bob" if resolution == "secondary" else "alice")
+    reopened = client.post(
+        f"/api/completed/{task_id}/reopen",
+        json={"operation_id": str(uuid.uuid4())},
+    )
+    assert reopened.status_code == 200, reopened.json
+    current_assignment = client.get("/api/assignment")
+    assert current_assignment.status_code == 200, current_assignment.json
+    assignment = current_assignment.json
+    revised, _ = complete(
+        client, assignment,
+        segments=text_segments(assignment, "entirely new unreviewed content"),
+    )
+    assert revised.status_code == 200, revised.json
+
+    current = _snapshot(database).exported_task_quality[0]
+    assert current["final_version_id"] != previous["final_version_id"]
+    assert current["round_id"] is None
+    assert current["round_state"] is None
+    assert current["outcome"] is None
+
+    output = tmp_path / "corrected.xlsx"
+    assert export_xlsx(output) == 1
+    workbook = load_workbook(output, read_only=True)
+    try:
+        row = list(workbook.active.iter_rows(values_only=True))[1]
+        assert row[EXCEL_HEADERS.index("Quality state")] == "none"
+        assert row[EXCEL_HEADERS.index("Training eligible")] == "yes"
+    finally:
+        workbook.close()
+
+    json_output = tmp_path / "corrected-json"
+    assert export_json(json_output)["count"] == 1
+    payloads = [
+        json.loads(path.read_text())
+        for path in json_output.rglob("*.json")
+        if path.name not in {"assignments.json", "export_manifest.json"}
+    ]
+    assert len(payloads) == 1
+    assert payloads[0]["quality_state"] == "none"
+    assert payloads[0]["quality_round_id"] is None
+    assert payloads[0]["training_eligible"] is True
+
+    # The historic verdict stays auditable, and the new version can be sampled.
+    with db.db_conn() as conn:
+        state = conn.execute(
+            "SELECT state FROM cross_check_rounds WHERE id = %s", (round_id,),
+        ).fetchone()[0]
+    assert state == previous["round_state"]
+    client.post("/api/logout", json={})
+    login(client, "carol")
+    next_round = bob_claim(client)
+    assert next_round["task_id"] == task_id
+    assert next_round["cross_check"]["round_id"] != round_id
+    with pytest.raises(RuntimeError, match="No annotators exceed"):
+        _snapshot(database)
+
+
 def test_admin_edited_null_submitter_is_exported(client, seed_tasks, database):
     queued = queue_rounds(
         client, seed_tasks, 1,

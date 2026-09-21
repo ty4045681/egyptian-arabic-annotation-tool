@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from array import array
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 import unicodedata
 
 COMPARISON_VERSION = "worddiff_v1"
@@ -69,7 +69,7 @@ class TimeInterval:
 
 @dataclass(frozen=True)
 class WordMapping:
-    """Owning segment plus original NFC text span and that segment's times."""
+    """Owning segment, raw-text code point span, and that segment's times."""
 
     segment_id: Any
     text_start: int
@@ -271,12 +271,44 @@ def _tokenize_transcript(segments: Sequence[_Segment]) -> list[_Token]:
     return tokens
 
 
+def _nfd_with_sources(text: str) -> Iterator[tuple[str, int]]:
+    """Canonical decomposition/order while retaining each raw character index."""
+    marks: list[tuple[str, int]] = []
+    for index, char in enumerate(text):
+        for decomposed in unicodedata.normalize("NFD", char):
+            if unicodedata.combining(decomposed):
+                marks.append((decomposed, index))
+            else:
+                yield from sorted(marks, key=lambda item: unicodedata.combining(item[0]))
+                marks.clear()
+                yield decomposed, index
+    yield from sorted(marks, key=lambda item: unicodedata.combining(item[0]))
+
+
+def _nfc_with_raw_spans(text: str) -> tuple[str, list[tuple[int, int]]]:
+    nfc = unicodedata.normalize("NFC", text)
+    if nfc == text:
+        return nfc, [(index, index + 1) for index in range(len(text))]
+
+    # Both strings have the same ordered NFD stream. Pair its characters to
+    # carry raw spans through composition, expansion, and combining-mark
+    # reordering, including Hangul (whose Jamo have combining class zero).
+    starts = [len(text)] * len(nfc)
+    ends = [0] * len(nfc)
+    for (_, raw_index), (_, nfc_index) in zip(
+        _nfd_with_sources(text), _nfd_with_sources(nfc), strict=True,
+    ):
+        starts[nfc_index] = min(starts[nfc_index], raw_index)
+        ends[nfc_index] = max(ends[nfc_index], raw_index + 1)
+    return nfc, list(zip(starts, ends, strict=True))
+
+
 def _tokenize_segment(segment: _Segment) -> list[_Token]:
-    nfc = unicodedata.normalize("NFC", segment.text)
-    folded: list[tuple[str, int]] = []
-    for index, char in enumerate(nfc):
+    nfc, raw_spans = _nfc_with_raw_spans(segment.text)
+    folded: list[tuple[str, int, int]] = []
+    for char, (raw_start, raw_end) in zip(nfc, raw_spans, strict=True):
         for folded_char in char.casefold():
-            folded.append((folded_char, index))
+            folded.append((folded_char, raw_start, raw_end))
 
     tokens: list[_Token] = []
     buf: list[str] = []
@@ -307,30 +339,29 @@ def _tokenize_segment(segment: _Segment) -> list[_Token]:
     length = len(folded)
     index = 0
     while index < length:
-        char, source = folded[index]
+        char, raw_start, raw_end = folded[index]
         if (
             char in _WORD_JOINERS
             and buf
             and buf[-1].isalpha()
             and _next_is_letter(folded, index + 1)
         ):
-            span_end = source + 1
+            span_end = max(span_end or 0, raw_end)
             index += 1
             continue
         if char in _WORD_JOINERS or _is_unicode_punctuation(char) or char.isspace():
             flush()
             index += 1
             continue
-        if span_start is None:
-            span_start = source
-        span_end = source + 1
+        span_start = raw_start if span_start is None else min(span_start, raw_start)
+        span_end = max(span_end or 0, raw_end)
         buf.append(char)
         index += 1
     flush()
     return tokens
 
 
-def _next_is_letter(folded: Sequence[tuple[str, int]], index: int) -> bool:
+def _next_is_letter(folded: Sequence[tuple[str, int, int]], index: int) -> bool:
     return index < len(folded) and folded[index][0].isalpha()
 
 

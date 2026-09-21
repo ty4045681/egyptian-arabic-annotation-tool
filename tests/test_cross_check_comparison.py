@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unicodedata
 
+import pytest
+
 from annotation_quality.comparison import (
     COMPARISON_VERSION,
     MAX_COMPARISON_CELLS,
@@ -188,6 +190,33 @@ def test_digits_senses_and_arabic_letters_are_not_over_normalized():
     # Arabic diacritics are kept; combining fatha is not stripped.
     assert compare("ب", "بَ").edit_distance == 1
     assert compare("بَ", "بَ").edit_distance == 0
+
+
+@pytest.mark.parametrize("raw_prefix", [
+    "e\u0301",                 # Latin composition shortens the text.
+    "ا\u0654",                 # Arabic alef + hamza.
+    "\u1100\u1161\u11a8",      # Hangul Jamo with combining class zero.
+    "A\u0301\u0327",           # Reordering across a composed character.
+    "\u0344",                  # One raw character expands under NFC.
+    "\u0301\u0327",            # Leading combining marks reorder.
+    "Straße",                  # Casefold expands one character to two.
+])
+def test_diff_spans_reference_raw_text_after_unicode_normalization(raw_prefix):
+    nfc_prefix = unicodedata.normalize("NFC", raw_prefix)
+    original_text = f"({raw_prefix}) cat!"
+    secondary_text = f"({nfc_prefix}) dog!"
+    result = compare(original_text, secondary_text)
+
+    assert result.edit_distance == 1
+    assert [op.op for op in result.ops] == ["match", "replace"]
+    for text, side, expected_prefix, expected_word in (
+        (original_text, "original", raw_prefix, "cat"),
+        (secondary_text, "secondary", nfc_prefix, "dog"),
+    ):
+        prefix_map = getattr(result.ops[0], side)
+        word_map = getattr(result.ops[1], side)
+        assert text[prefix_map.text_start:prefix_map.text_end] == expected_prefix
+        assert text[word_map.text_start:word_map.text_end] == expected_word
 
 
 def test_different_segmentation_same_text_keeps_per_side_mappings():

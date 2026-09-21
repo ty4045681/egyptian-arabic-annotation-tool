@@ -218,6 +218,17 @@ def try_claim_cross_check(
             if row is None:
                 _abandon_savepoint(cur)
                 continue
+            # Admin operations can hold a stronger lock on the original
+            # author before locking this task. Never wait on that author
+            # while holding the task; the round's foreign key needs this lock.
+            original_author = cur.execute(
+                """SELECT id FROM annotators WHERE id = %s
+                   FOR KEY SHARE SKIP LOCKED""",
+                (row[9],),
+            ).fetchone()
+            if original_author is None:
+                _abandon_savepoint(cur)
+                continue
             best = matching_best_source(cur, task_id, scope, filters)
             if best is None:
                 _abandon_savepoint(cur)

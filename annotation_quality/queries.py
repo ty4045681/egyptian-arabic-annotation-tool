@@ -287,6 +287,15 @@ def training_timing_joins_sql(
     """
 
 
+def _quality_round_matches_current_version_sql(*, task_alias: str = "t") -> str:
+    # Auto-pass keeps the original version; adjudication can publish either
+    # submission or a new edited version. Later corrections have no verdict.
+    return f"""{task_alias}.current_published_version_id = CASE
+        WHEN r.state = 'adjudicated' THEN r.final_version_id
+        ELSE r.original_version_id
+    END"""
+
+
 def latest_quality_round_lateral_sql(
     *, task_alias: str = "t", alias: str = "q",
 ) -> str:
@@ -297,6 +306,7 @@ def latest_quality_round_lateral_sql(
             FROM cross_check_rounds r
             WHERE r.task_id = {task_alias}.id
               AND r.state NOT IN ('cancelled', 'invalidated')
+              AND ({_quality_round_matches_current_version_sql(task_alias=task_alias)})
             ORDER BY CASE WHEN r.state IN ({open_states}) THEN 0 ELSE 1 END,
                      r.created_at DESC, r.id DESC
             LIMIT 1
@@ -305,7 +315,7 @@ def latest_quality_round_lateral_sql(
 
 
 def exported_task_quality_sql() -> str:
-    return """
+    return f"""
         SELECT t.id::text,
                t.current_published_version_id::text,
                q.id::text,
@@ -317,9 +327,9 @@ def exported_task_quality_sql() -> str:
             FROM cross_check_rounds r
             WHERE r.task_id = t.id
               AND r.state IN ('passed', 'adjudicated')
+              AND ({_quality_round_matches_current_version_sql()})
             ORDER BY r.resolved_at DESC NULLS LAST, r.id DESC
             LIMIT 1
         ) q ON TRUE
         WHERE t.id = ANY(%s::uuid[])
     """
-

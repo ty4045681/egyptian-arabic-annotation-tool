@@ -249,8 +249,11 @@ def ensure_user(cur: psycopg.Cursor, username: str) -> dict:
 
 
 def _lock_active_annotator(cur, user_id):
+    # Serialize this user's mutations without blocking the KEY SHARE locks
+    # taken by foreign keys when another annotator cross-checks their work.
+    # The user's identity/key is never changed by these operations.
     row = cur.execute(
-        "SELECT id, username, status FROM annotators WHERE id = %s FOR UPDATE",
+        "SELECT id, username, status FROM annotators WHERE id = %s FOR NO KEY UPDATE",
         (user_id,),
     ).fetchone()
     if not row:
