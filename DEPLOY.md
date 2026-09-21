@@ -292,6 +292,11 @@ curl -fsS https://arabic-annotation.top/api/health
 
 ## 13. 备份与恢复验证
 
+**当前腾讯云 PostgreSQL 18 生产环境**使用
+[每日备份配置](deploy/tencent-production/README.md)：每天北京时间 03:17 备份
+`annotation_production_20260915`，保留 14 天，每次在独立临时实例恢复验证。
+以下 `/home/cjg`、`huawei` 配置仅适用于旧服务器，不应直接安装到当前生产机。
+
 ```bash
 sudo cp deploy/backup.env.example /etc/annotation-tool-backup.env
 sudo chown root:huawei /etc/annotation-tool-backup.env
