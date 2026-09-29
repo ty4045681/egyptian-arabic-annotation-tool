@@ -122,7 +122,7 @@ def _list_query_payload() -> dict:
     if args.get("state"):
         payload["state"] = args.get("state")
     for key in (
-        "source_scene", "batch_code", "original_annotator_id",
+        "source_scene", "source_confidence", "batch_code", "original_annotator_id",
         "secondary_annotator_id", "reason_code", "q", "cursor",
     ):
         if args.get(key) not in (None, ""):

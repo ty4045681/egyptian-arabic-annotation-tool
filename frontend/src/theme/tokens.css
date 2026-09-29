@@ -1,0 +1,108 @@
+/* AUTO-GENERATED from src/theme/tokens.ts — do not edit by hand.
+ * Regenerate: npm --prefix frontend run gen:tokens
+ * Drift check: npm --prefix frontend run check:tokens */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+audio,
+canvas,
+img,
+video {
+  max-width: 100%;
+}
+
+:root,
+[data-theme="admin"] {
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --page-gutter: 24px;
+  --control-height: 32px;
+  --control-height-touch: 44px;
+  --radius-control: 6px;
+  --radius-container: 8px;
+  --font-size-ui: 14px;
+  --font-size-aux: 12px;
+  --font-size-transcript: 18px;
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --app-background: #f8fafc;
+  --app-surface: #ffffff;
+  --app-surface-alt: #fafafa;
+  --app-text: #1e293b;
+  --app-text-secondary: #64748b;
+  --app-border: #e2e8f0;
+  --app-border-strong: #cbd5e1;
+  --app-primary: #4f46e5;
+  --app-primary-soft: #eef2ff;
+  --app-success: #1a7f37;
+  --app-warning: #9a6700;
+  --app-warning-soft: #fef0c7;
+  --app-danger: #b42318;
+  --app-info: #0969da;
+  --app-neutral: #475467;
+}
+
+[data-theme="annotator"] {
+  --app-background: #141414;
+  --app-surface: #1f1f1f;
+  --app-surface-alt: #262626;
+  --app-text: rgba(255, 255, 255, 0.88);
+  --app-text-secondary: rgba(255, 255, 255, 0.55);
+  --app-border: #434343;
+  --app-border-strong: #595959;
+  --app-primary: #177ddc;
+  --app-primary-soft: rgba(23, 125, 220, 0.24);
+  --app-success: #49aa19;
+  --app-warning: #d89614;
+  --app-warning-soft: rgba(216, 150, 20, 0.22);
+  --app-danger: #dc4446;
+  --app-info: #177ddc;
+  --app-neutral: rgba(255, 255, 255, 0.55);
+}
+
+:root[data-admin-mode="dark"],
+[data-theme="admin"][data-color-mode="dark"] {
+  --app-background: #0f172a;
+  --app-surface: #172033;
+  --app-surface-alt: #1e293b;
+  --app-text: #e2e8f0;
+  --app-text-secondary: #94a3b8;
+  --app-border: #334155;
+  --app-border-strong: #475569;
+  --app-primary: #a5b4fc;
+  --app-primary-soft: #282b50;
+  --app-success: #4ade80;
+  --app-warning: #fbbf24;
+  --app-warning-soft: #3a2d16;
+  --app-danger: #fca5a5;
+  --app-info: #93c5fd;
+  --app-neutral: #94a3b8;
+}
+
+body {
+  background: var(--app-background);
+  color: var(--app-text);
+  font-family: var(--font-family);
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  :root,
+  [data-theme="admin"],
+  [data-theme="annotator"] {
+    --page-gutter: 16px;
+    --control-height: 44px;
+  }
+}

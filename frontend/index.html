@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Annotation management console" />
+    <meta name="csp-nonce" content="%FRONTEND_CSP_NONCE%" />
+    <title>Annotation · Admin console</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Same-origin legacy offline store (IndexedDB annotation-offline-v1).
+         The React persistence layer delegates to this exact implementation
+         (P1 storage contract); no second schema. CSP script-src 'self'
+         covers it; Flask serves it from the existing /static/ whitelist. -->
+    <script src="/static/offline-drafts.js"></script>
+    <script type="module" src="/src/app/main.tsx"></script>
+  </body>
+</html>

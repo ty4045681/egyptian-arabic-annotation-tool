@@ -1,0 +1,47 @@
+.shell {
+  min-height: 100vh;
+  background: var(--app-background);
+  color: var(--app-text);
+  display: flex;
+  flex-direction: column;
+}
+
+.appbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: 0 var(--page-gutter);
+  height: 48px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  flex: none;
+}
+
+.brand {
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.taskSlot {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-text-secondary);
+  font-size: var(--font-size-aux);
+}
+
+.userSlot {
+  white-space: nowrap;
+  color: var(--app-text-secondary);
+  font-size: var(--font-size-aux);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-lg) var(--page-gutter) var(--space-xxl);
+}

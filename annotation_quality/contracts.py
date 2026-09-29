@@ -173,8 +173,9 @@ class CrossCheckClaimFilters(StrictModel):
 
 
 class CrossCheckListQuery(StrictModel):
-    state: CrossCheckState = CrossCheckState.AWAITING_REVIEW
+    state: CrossCheckState | Literal["all"] = CrossCheckState.AWAITING_REVIEW
     source_scene: str | None = None
+    source_confidence: str | None = None
     batch_code: str | None = None
     original_annotator_id: str | None = None
     secondary_annotator_id: str | None = None
@@ -217,6 +218,7 @@ class CrossCheckListQuery(StrictModel):
 
 
 class CrossCheckListItem(StrictModel):
+    filename: str | None = None
     round_id: str
     task_id: str
     state: CrossCheckState

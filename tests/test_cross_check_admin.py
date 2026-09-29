@@ -288,6 +288,8 @@ def test_list_default_filters_cursor_and_no_full_text(
     )
     assert filtered.status_code == 200, filtered.json
     assert filtered.json["items"]
+    assert filtered.json["items"][0]["filename"] == queued[0]["assignment"]["filename"]
+    assert filtered.json["items"][0]["source_scene"] == "airport"
     assert all(
         item["original_annotator_id"] == alice
         and item["secondary_annotator_id"] == bob
@@ -732,6 +734,8 @@ def test_quality_cross_check_counts(admin_client, database, seed_tasks):
     assert summary["pending_review_count"] == 1
     assert summary["passed_count"] == 1
     assert summary["adjudicated_count"] == 1
+    assert summary["cancelled_count"] == 0
+    assert summary["invalidated_count"] == 0
     assert summary["blocked_audio_seconds"] == 20.0
     assert quality.json["stats"]["unusually_fast"] >= 0
     assert "stale_assignments" in quality.json["stats"]

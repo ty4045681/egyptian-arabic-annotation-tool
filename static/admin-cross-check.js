@@ -142,6 +142,13 @@
       const node = $(id);
       if (node) node.value = ui.filters[key] || "";
     });
+    syncQueueTabs();
+  }
+
+  function syncQueueTabs() {
+    document.querySelectorAll("[data-cc-state]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.ccState === ui.filters.state));
+    });
   }
 
   function readFilterFields() {
@@ -154,6 +161,7 @@
     ui.filters.q = $("ccSearch")?.value.trim() || "";
     ui.filters.from = $("ccFrom")?.value || "";
     ui.filters.to = $("ccTo")?.value || "";
+    syncQueueTabs();
   }
 
   function fillFilterOptions() {
@@ -256,6 +264,8 @@
   function renderOverviewCards(data) {
     const cc = host.pick(data || {}, ["cross_check"], {}) || {};
     const totals = host.pick(data || {}, ["totals"], {}) || {};
+    text($("navCrossCheckCount"), host.formatInteger(cc.pending_review_count || 0));
+    $("navCrossCheckCount").hidden = !cc.pending_review_count;
     text($("overviewCcPending"), host.formatInteger(cc.pending_review_count || 0));
     text($("overviewCcInProgress"), host.formatInteger(cc.in_progress_count || 0));
     text($("overviewCcBlocked"), host.formatDuration(cc.blocked_audio_seconds || 0, false));
@@ -458,8 +468,8 @@
       row.appendChild(element("td", { text: host.formatDateTime(item.submitted_at) }));
       const actions = element("td", { className: "actions-cell" });
       const button = element("button", {
-        className: "table-action",
-        text: "View",
+        className: `button button-small ${item.state === "awaiting_review" ? "button-primary" : "button-secondary"}`,
+        text: item.state === "awaiting_review" ? "Review" : "View",
         type: "button",
         dataset: { ccRound: item.round_id },
       });
@@ -1392,6 +1402,12 @@
   }
 
   function bindChrome() {
+    $("ccQueueTabs").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-cc-state]");
+      if (!button) return;
+      $("ccState").value = button.dataset.ccState;
+      onFiltersChanged();
+    });
     $("ccFilterForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
       onFiltersChanged();

@@ -108,6 +108,7 @@ def word_difference_rate(edit_distance, n_original, n_secondary,
 
 def list_item_payload(row: dict) -> dict:
     item = CrossCheckListItem.model_validate({
+        "filename": row.get("filename"),
         "round_id": str(row["round_id"]),
         "task_id": str(row["task_id"]),
         "state": row["state"],

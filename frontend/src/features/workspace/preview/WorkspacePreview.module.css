@@ -1,0 +1,97 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.state {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  padding: var(--space-xl);
+}
+
+.taskbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  padding: var(--space-md) var(--space-lg);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.filename {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.saveRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.fontControls {
+  display: inline-flex;
+  gap: var(--space-xs);
+}
+
+.transport {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  padding: var(--space-md) var(--space-lg);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.wave {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.segments {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.error {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  padding: var(--space-lg);
+}
+
+.errorText {
+  overflow-wrap: anywhere;
+}
+
+.exportBox {
+  width: 100%;
+  min-height: 120px;
+  font-family: monospace;
+  font-size: var(--font-size-aux);
+}
+
+.backLink {
+  display: inline-block;
+  margin-top: var(--space-md);
+}

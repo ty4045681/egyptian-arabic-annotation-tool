@@ -96,35 +96,31 @@ def test_large_detail_and_difference_navigation(cross_check_site):
         expect(audio).to_have_js_property("paused", False)
         expect(audio).not_to_have_js_property("currentTime", 0)
         expect(page.locator("mark.cc-mark").first).to_be_visible()
+        audio.evaluate("player => { window.previousReviewAudio = player; }")
         page.locator("#ccBackToList").click()
-        expect(page.locator("#ccListPanel")).to_be_visible()
-        expect(audio).to_have_js_property("paused", True)
-        expect(audio).not_to_have_attribute("src")
+        expect(page.get_by_test_id("cross-check-table")).to_be_visible()
+        expect(audio).to_have_count(0)
+        assert page.evaluate("window.previousReviewAudio.paused")
+        assert page.evaluate("window.previousReviewAudio.getAttribute('src')") is None
         browser.close()
 
 
-def test_sampling_percent_parser_in_browser(cross_check_site):
+def test_sampling_percent_validation_in_browser(cross_check_site):
     url = cross_check_site["url"]
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
         login_admin(page, url)
-        values = page.evaluate(
-            """() => ({
-              ten: CrossCheck.samplingBpsFromPercent('10'),
-              tiny: CrossCheck.samplingBpsFromPercent('0.01'),
-              full: CrossCheck.samplingBpsFromPercent('100'),
-              zero: CrossCheck.samplingBpsFromPercent('0'),
-              rate: CrossCheck.formatWordDifferenceRate(0.11),
-              missing: CrossCheck.formatWordDifferenceRate(null)
-            })"""
-        )
+        open_cross_checks(page)
+        page.locator("#ccSamplingButton").click()
+        expect(page.locator("#ccSamplingPercent")).to_be_visible()
+        expect(page.locator("#ccSamplingPercent")).to_be_disabled()
+        page.locator("#ccSamplingEnabled").check()
+        page.locator("#ccSamplingReason").fill("Validate allowed percentages")
+        for percent in ["10", "0.01", "100", "0"]:
+            page.locator("#ccSamplingPercent").fill(percent)
+            expect(page.locator("#ccSettingsSave")).to_be_enabled()
+        for percent in ["", "0.001", "101", "-1"]:
+            page.locator("#ccSamplingPercent").fill(percent)
+            expect(page.locator("#ccSettingsSave")).to_be_disabled()
         browser.close()
-    assert values == {
-        "ten": 1000,
-        "tiny": 1,
-        "full": 10000,
-        "zero": 0,
-        "rate": "11%",
-        "missing": "Not available",
-    }

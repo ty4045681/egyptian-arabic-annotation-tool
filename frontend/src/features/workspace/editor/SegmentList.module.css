@@ -1,0 +1,123 @@
+.row {
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+
+.row.selected {
+  border-color: var(--app-primary);
+}
+
+.row.dirty {
+  border-inline-start: 3px solid var(--app-warning);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-xs);
+}
+
+.playButton {
+  min-width: var(--control-height);
+  height: var(--control-height);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text);
+  cursor: pointer;
+}
+
+.index {
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  unicode-bidi: isolate;
+}
+
+.timeField {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.timeLabel {
+  font-size: var(--font-size-aux);
+  color: var(--app-text-secondary);
+}
+
+.timeInput {
+  width: 92px;
+  height: var(--control-height);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-sm);
+  background: var(--app-surface);
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+  unicode-bidi: isolate;
+}
+
+.timeInvalid {
+  border-color: var(--app-danger);
+  outline-color: var(--app-danger);
+}
+
+.clock {
+  font-size: var(--font-size-aux);
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+  unicode-bidi: isolate;
+}
+
+.qualityButton {
+  height: var(--control-height);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text);
+  cursor: pointer;
+  margin-inline-start: auto;
+}
+
+.qualityButton.excluded {
+  background: var(--app-warning-soft);
+  border-color: var(--app-warning);
+}
+
+.transcript {
+  width: 100%;
+  min-height: 56px;
+  font-size: var(--transcript-size, var(--font-size-transcript));
+  line-height: 1.6;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-sm) 10px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  resize: vertical;
+}
+
+.empty {
+  padding: var(--space-xl);
+  color: var(--app-text-secondary);
+}
+
+@media (max-width: 480px) {
+  .meta {
+    gap: 6px;
+  }
+
+  .transcript {
+    display: block;
+  }
+
+  .qualityButton {
+    margin-inline-start: 0;
+  }
+}

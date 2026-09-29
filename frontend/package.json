@@ -1,0 +1,49 @@
+{
+  "name": "annotation-frontend-p1",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Admin console and workspace preview built with Vite, React, TypeScript strict, and Ant Design.",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "build": "tsc --noEmit && vite build",
+    "build:p1": "tsc --noEmit && FRONTEND_BUILD=p1 vite build --outDir dist-p1",
+    "build:harness": "vite build --config vite.harness.config.ts",
+    "gen:tokens": "node scripts/generate-tokens.mjs",
+    "check:tokens": "node scripts/generate-tokens.mjs --check",
+    "check:dist": "node scripts/check-dist.mjs"
+  },
+  "dependencies": {
+    "@ant-design/icons": "6.3.4",
+    "@tanstack/react-query": "5.103.2",
+    "antd": "6.6.5",
+    "dayjs": "1.11.23",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "react-router-dom": "7.18.4",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "@types/node": "24.13.6",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.8",
+    "@vitejs/plugin-react": "4.7.0",
+    "eslint": "9.39.1",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-react-refresh": "0.4.22",
+    "fake-indexeddb": "6.2.5",
+    "globals": "16.5.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.44.0",
+    "vite": "7.2.4",
+    "vitest": "3.2.4"
+  },
+  "engines": {
+    "node": "24.21.0",
+    "npm": "11.19.0"
+  }
+}

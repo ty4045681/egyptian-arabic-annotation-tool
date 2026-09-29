@@ -1,0 +1,79 @@
+.panel {
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  margin-top: var(--space-lg);
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+
+.toggle {
+  width: 100%;
+  min-height: var(--control-height-touch);
+  text-align: start;
+  justify-content: flex-start;
+  padding: 0 var(--space-md);
+}
+
+.body {
+  padding: 0 var(--space-md) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.statusRow {
+  display: flex;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.statusOption {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: var(--control-height-touch);
+}
+
+.scenes {
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.sceneOption {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: var(--control-height);
+}
+
+.hint {
+  color: var(--app-text-secondary);
+  font-size: var(--font-size-aux);
+}
+
+.noteLabel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-size: var(--font-size-aux);
+  color: var(--app-text-secondary);
+}
+
+.note {
+  font-size: var(--font-size-ui);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-sm) 10px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  resize: vertical;
+}
+
+.error {
+  color: var(--app-danger);
+  font-size: var(--font-size-aux);
+}

@@ -2495,6 +2495,7 @@ def _normalize_admin_filters(filters: dict | None) -> dict:
             "signal must be all|unusually_fast|stale_assignment"
         )
     annotator = raw.get("annotator_id")
+    assignee = raw.get("assignee_id")
     timezone_name = str(raw.get("timezone") or "UTC")[:100]
     try:
         selected_timezone = ZoneInfo(timezone_name)
@@ -2516,6 +2517,10 @@ def _normalize_admin_filters(filters: dict | None) -> dict:
         "annotator_id": (
             _validate_uuid(annotator, "annotator_id") if annotator else None
         ),
+        "assignee_id": (
+            "unassigned" if assignee == "unassigned" else
+            _validate_uuid(assignee, "assignee_id") if assignee else None
+        ),
         "folder": str(raw.get("folder") or "")[:1000],
         "category": str(raw.get("category") or "")[:1000],
         "q": str(raw.get("q") or "")[:1000],
@@ -2533,8 +2538,8 @@ def _normalize_admin_filters(filters: dict | None) -> dict:
         raise ValidationError(
             "lifecycle must be all|published|revoked|superseded"
         )
-    from annotation_metadata.contracts import TaskFilter, parse_strict
-    result["metadata"] = parse_strict(TaskFilter, {
+    from annotation_metadata.contracts import AdminTaskFilter, parse_strict
+    result["metadata"] = parse_strict(AdminTaskFilter, {
         "source_scene": raw.get("source_scene") or None,
         "source_confidence": raw.get("source_confidence") or None,
         "batch_code": raw.get("batch_code") or None,
@@ -2554,6 +2559,7 @@ def _applied_admin_filters(filters: dict) -> dict:
         "category": filters.get("category") or None,
         "q": filters.get("q") or None,
         "annotator_id": str(filters["annotator_id"]) if filters.get("annotator_id") else None,
+        "assignee_id": str(filters["assignee_id"]) if filters.get("assignee_id") else None,
         "lifecycle": filters.get("lifecycle"),
         "timezone": filters.get("timezone"),
         "from": filters["from"].isoformat() if filters.get("from") else None,
@@ -2572,6 +2578,7 @@ def _admin_list_filter_digest(filters: dict) -> str:
         "category": filters.get("category") or "",
         "q": filters.get("q") or "",
         "annotator_id": str(filters["annotator_id"]) if filters.get("annotator_id") else None,
+        "assignee_id": str(filters["assignee_id"]) if filters.get("assignee_id") else None,
         "lifecycle": filters.get("lifecycle"),
         "timezone": filters.get("timezone"),
         "from": filters["from"].isoformat() if filters.get("from") else None,
@@ -2649,6 +2656,16 @@ def _admin_task_filter_sql(filters: dict, *, task_alias="t",
             "AND af.user_id = %s))"
         )
         params.extend([filters["annotator_id"], filters["annotator_id"]])
+    assignee = filters.get("assignee_id")
+    if assignee == "unassigned":
+        clauses.append(
+            f"NOT EXISTS (SELECT 1 FROM assignments af WHERE af.task_id = {task_alias}.id)"
+        )
+    elif assignee:
+        clauses.append(
+            f"EXISTS (SELECT 1 FROM assignments af WHERE af.task_id = {task_alias}.id AND af.user_id = %s)"
+        )
+        params.append(assignee)
     timestamp = f"COALESCE({version_alias}.submitted_at, {task_alias}.created_at)"
     if filters["from"]:
         clauses.append(f"{timestamp} >= %s")
@@ -3734,6 +3751,46 @@ def admin_annotator_detail(annotator_id: str,
     }
 
 
+def _admin_task_filter_counts(cur, filters: dict) -> dict:
+    """Each facet keeps all other filters, before pagination. Sources may overlap."""
+    from annotation_metadata.queries import source_row_match_sql
+
+    base = "FROM annotation_tasks t LEFT JOIN annotation_versions v ON v.id = t.current_published_version_id"
+    where, params = _admin_task_filter_sql({**filters, "status": "all"})
+    status = cur.execute(
+        f"""SELECT count(*),
+                   count(*) FILTER (WHERE t.status = 'pending'),
+                   count(*) FILTER (WHERE t.status = 'annotated'),
+                   count(*) FILTER (WHERE t.status = 'skipped'),
+                   count(*) FILTER (WHERE EXISTS (
+                       SELECT 1 FROM assignments a WHERE a.task_id = t.id))
+            {base} WHERE {where}""", params,
+    ).fetchone()
+    counts = {"status": dict(zip(
+        ("all", "pending", "annotated", "skipped", "assigned"), map(int, status),
+    ))}
+    for facet, updates, column, fallback in (
+        ("confidence", {"source_confidence": None}, "confidence", "unknown"),
+        ("scenes", {"source_scene": None, "source_scenes": ()}, "scene_code", "spoken_languages"),
+    ):
+        metadata = filters["metadata"].model_copy(update=updates)
+        where, params = _admin_task_filter_sql({**filters, "metadata": metadata})
+        source_sql, source_params = source_row_match_sql(metadata, src_alias="src")
+        rows = cur.execute(
+            f"""SELECT COALESCE(facet.value, %s), count(DISTINCT t.id)
+                {base}
+                LEFT JOIN LATERAL (
+                    SELECT DISTINCT src.{column} AS value FROM task_sources src
+                    WHERE src.task_id = t.id AND {source_sql}
+                ) facet ON true
+                WHERE {where}
+                GROUP BY 1""",
+            [fallback, *source_params, *params],
+        ).fetchall()
+        counts[facet] = {value: int(count) for value, count in rows}
+    return counts
+
+
 def admin_tasks(filters: dict | None = None, limit: int = 50,
                 cursor: str | None = None) -> dict:
     """Task-centric corpus list, including pending and assigned work."""
@@ -3753,6 +3810,8 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
         params.extend([created_at, task_id])
     from annotation_quality.queries import credited_annotator_sql
     with db_tx() as conn, conn.cursor() as cur:
+        cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        filter_counts = _admin_task_filter_counts(cur, normalized) if not cursor else None
         matched = cur.execute(
             f"""SELECT count(*), COALESCE(sum(t.duration), 0)
                 FROM annotation_tasks t
@@ -3874,6 +3933,7 @@ def admin_tasks(filters: dict | None = None, limit: int = 50,
         "items": items, "next_cursor": next_cursor,
         "matched_count": matched_count,
         "matched_duration_seconds": matched_duration_seconds,
+        "filter_counts": filter_counts,
         "applied_filters": _applied_admin_filters(normalized),
         "filter_digest": filter_digest,
     }

@@ -1,0 +1,181 @@
+.admin-list {
+  --admin-list-font-size: 13px;
+  --admin-list-label-size: 11px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 5%);
+  font-size: var(--admin-list-font-size);
+  line-height: 20px;
+}
+
+.admin-list-heading,
+.admin-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--app-text-secondary);
+  font-size: var(--admin-list-label-size);
+  line-height: 18px;
+}
+
+.admin-list-heading {
+  min-height: 37px;
+  padding-block: 9px;
+  background: var(--app-surface-alt);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.admin-list .admin-list-heading h2 {
+  margin: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+}
+
+.admin-list-footer {
+  border-top: 1px solid var(--app-border);
+}
+
+.admin-list .ant-btn {
+  height: 28px;
+  padding-inline: 10px;
+  border-radius: 8px;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.admin-list .ant-tag {
+  margin-inline-end: 0;
+  padding: 0 7px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: normal;
+}
+
+.admin-table-scroll,
+.admin-table {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin-table-scroll {
+  overflow-x: auto;
+}
+
+.admin-table .ant-table.ant-table-small .ant-table-tbody > tr > td {
+  padding: 10px 12px;
+  border-color: var(--app-border);
+  font-size: var(--admin-list-font-size);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.admin-table .ant-table.ant-table-small .ant-table-thead > tr > th {
+  padding: 9px 12px;
+  background: var(--app-surface-alt);
+  color: var(--app-text-secondary);
+  font-size: var(--admin-list-label-size);
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.admin-table .ant-table-thead > tr > th::before {
+  display: none;
+}
+
+.admin-table .ant-table-column-sorter-up,
+.admin-table .ant-table-column-sorter-down {
+  font-size: 10px;
+}
+
+.admin-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+
+.admin-table .ant-table.ant-table-small .ant-table-tbody .admin-table-meta,
+.admin-list-meta {
+  color: var(--app-text-secondary);
+  font-size: var(--admin-list-label-size);
+  line-height: 18px;
+}
+
+.admin-filename {
+  display: block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-list .admin-person-button {
+  padding-inline: 4px;
+  font-size: var(--admin-list-font-size);
+}
+
+.admin-list-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-list-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--app-border);
+  overflow-wrap: anywhere;
+}
+
+.admin-list-item:last-child {
+  border-bottom: 0;
+}
+
+.admin-list-item p {
+  margin: 0;
+}
+
+.admin-list-summary {
+  padding: 16px 12px;
+}
+
+.admin-list > .ant-card {
+  border: 0;
+  box-shadow: none;
+}
+
+.admin-list .ant-empty {
+  margin: 32px 12px;
+  color: var(--app-text-secondary);
+  font-size: var(--admin-list-font-size);
+}
+
+.admin-list .admin-table .ant-table.ant-table-small .ant-table-placeholder > td {
+  padding: 32px 12px;
+  color: var(--app-text-secondary);
+}
+
+.admin-list > [data-state] {
+  border: 0;
+  border-radius: 0;
+  font-size: var(--admin-list-font-size);
+}
+
+.admin-list > [data-state] > p {
+  font-size: inherit;
+}

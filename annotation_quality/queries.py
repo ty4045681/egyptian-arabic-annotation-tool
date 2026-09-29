@@ -6,7 +6,7 @@ import hashlib
 import json
 import uuid
 
-from annotation_metadata.contracts import TaskFilter, parse_strict
+from annotation_metadata.contracts import AdminTaskFilter, parse_strict
 from annotation_metadata.queries import metadata_filter_sql
 from annotation_quality.contracts import OPEN_ROUND_STATES, CrossCheckListQuery
 
@@ -38,6 +38,7 @@ def applied_list_filters(query: CrossCheckListQuery, *, timezone_name: str) -> d
     return {
         "state": str(query.state),
         "source_scene": query.source_scene,
+        "source_confidence": query.source_confidence,
         "batch_code": query.batch_code,
         "original_annotator_id": query.original_annotator_id,
         "secondary_annotator_id": query.secondary_annotator_id,
@@ -59,8 +60,11 @@ def list_filter_digest(query: CrossCheckListQuery, *, timezone_name: str) -> str
 
 
 def list_where_sql(query: CrossCheckListQuery) -> tuple[str, list]:
-    clauses = ["r.state = %s"]
-    params: list = [str(query.state)]
+    clauses = ["true"]
+    params: list = []
+    if query.state != "all":
+        clauses.append("r.state = %s")
+        params.append(str(query.state))
     if query.original_annotator_id:
         clauses.append("r.original_annotator_id = %s")
         params.append(uuid.UUID(query.original_annotator_id))
@@ -89,8 +93,9 @@ def list_where_sql(query: CrossCheckListQuery) -> tuple[str, list]:
             q_params.extend([q_uuid, q_uuid])
         clauses.append(q_clause)
         params.extend(q_params)
-    metadata = parse_strict(TaskFilter, {
+    metadata = parse_strict(AdminTaskFilter, {
         "source_scene": query.source_scene,
+        "source_confidence": query.source_confidence,
         "batch_code": query.batch_code,
     })
     meta_sql, meta_params = metadata_filter_sql(metadata, task_alias="t")
@@ -108,7 +113,9 @@ def cross_check_quality_summary(cur) -> dict:
                count(*) FILTER (WHERE state = 'awaiting_review'),
                count(*) FILTER (WHERE state = 'passed'),
                count(*) FILTER (WHERE state = 'adjudicated'),
-               min(created_at) FILTER (WHERE state = 'awaiting_review')
+               min(created_at) FILTER (WHERE state = 'awaiting_review'),
+               count(*) FILTER (WHERE state = 'cancelled'),
+               count(*) FILTER (WHERE state = 'invalidated')
            FROM cross_check_rounds""",
     ).fetchone()
     # Unique-task duration: never SUM(DISTINCT duration), which collapses
@@ -128,6 +135,8 @@ def cross_check_quality_summary(cur) -> dict:
         "pending_review_count": int(counts[1] or 0),
         "passed_count": int(counts[2] or 0),
         "adjudicated_count": int(counts[3] or 0),
+        "cancelled_count": int(counts[5] or 0),
+        "invalidated_count": int(counts[6] or 0),
         "blocked_audio_seconds": float(blocked or 0),
         "count_unit": "rounds",
         "blocked_unit": "unique_task_audio_seconds",

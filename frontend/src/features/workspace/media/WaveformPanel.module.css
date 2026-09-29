@@ -1,0 +1,37 @@
+.panel {
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  background: var(--app-surface);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  color: var(--app-text);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-xs);
+}
+
+.title {
+  font-size: var(--font-size-aux);
+  font-weight: 600;
+  color: var(--app-text-secondary);
+}
+
+.expandButton {
+  min-height: var(--control-height);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-control);
+  background: var(--app-surface);
+  color: var(--app-text);
+  cursor: pointer;
+  padding: 0 var(--space-md);
+}
+
+.canvas {
+  width: 100%;
+  display: block;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}

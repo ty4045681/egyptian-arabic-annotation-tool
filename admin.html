@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="referrer" content="same-origin">
   <title>Admin Console · Annotation Tool</title>
-  <link rel="stylesheet" href="/admin.css">
+  <link rel="stylesheet" href="/static/metadata.css?v=20260916-ui1">
+  <link rel="stylesheet" href="/admin.css?v=20260928-ui2">
 </head>
 <body>
   <a class="skip-link" href="#adminMain">Skip to dashboard</a>
@@ -48,55 +49,50 @@
 
       <nav class="primary-nav" aria-label="Dashboard sections">
         <button class="nav-item is-active" type="button" data-view="overview" aria-current="page">
-          <span class="nav-icon" aria-hidden="true">⌂</span><span>Overview</span>
+          <span class="nav-icon" data-icon="home" aria-hidden="true"></span><span>Overview</span>
         </button>
         <button class="nav-item" type="button" data-view="annotators">
-          <span class="nav-icon" aria-hidden="true">◉</span><span>Annotators</span>
+          <span class="nav-icon" data-icon="users" aria-hidden="true"></span><span>Annotators</span><span class="count-pill" id="annotatorCount">—</span>
         </button>
         <button class="nav-item" type="button" data-view="corpus">
-          <span class="nav-icon" aria-hidden="true">▤</span><span>Tasks &amp; corpus</span>
+          <span class="nav-icon" data-icon="database" aria-hidden="true"></span><span>Tasks &amp; corpus</span>
         </button>
         <button class="nav-item" type="button" data-view="quality">
-          <span class="nav-icon" aria-hidden="true">◇</span><span>Quality</span>
+          <span class="nav-icon" data-icon="shield" aria-hidden="true"></span><span>Quality</span>
         </button>
         <button class="nav-item" type="button" data-view="cross-checks">
-          <span class="nav-icon" aria-hidden="true">⇄</span><span>Cross-checks</span>
+          <span class="nav-icon" data-icon="swap" aria-hidden="true"></span><span>Cross-checks</span><span class="count-pill count-danger" id="navCrossCheckCount" hidden></span>
         </button>
         <button class="nav-item" type="button" data-view="activity">
-          <span class="nav-icon" aria-hidden="true">↻</span><span>Activity log</span>
+          <span class="nav-icon" data-icon="clock" aria-hidden="true"></span><span>Activity log</span>
         </button>
       </nav>
 
-      <div class="sidebar-section annotator-directory">
-        <div class="sidebar-section-head">
-          <h2>Annotators</h2>
-          <span class="count-pill" id="annotatorCount">—</span>
-        </div>
-        <label class="search-field" for="sidebarAnnotatorSearch">
-          <span aria-hidden="true">⌕</span>
-          <span class="sr-only">Search annotators</span>
-          <input id="sidebarAnnotatorSearch" type="search" placeholder="Search people" autocomplete="off">
-        </label>
-        <div class="sidebar-list" id="sidebarAnnotatorList" aria-live="polite">
-          <div class="sidebar-placeholder">Loading annotators…</div>
-        </div>
-      </div>
-
       <div class="sidebar-footer">
-        <span class="session-state"><i aria-hidden="true"></i><span id="sessionKeyId">Admin session</span></span>
-        <button class="text-button" id="logoutButton" type="button">Log out</button>
+        <span class="avatar" aria-hidden="true">AD</span>
+        <div class="session-copy"><strong>Administrator</strong><span class="session-state">Key · <span id="sessionKeyId">—</span></span></div>
+        <button class="icon-button" id="logoutButton" type="button" aria-label="Log out" title="Log out"><span data-icon="logout" aria-hidden="true"></span></button>
       </div>
     </aside>
 
     <header class="topbar">
       <div class="topbar-leading">
-        <button class="icon-button mobile-menu-button" id="openSidebarButton" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <button class="icon-button mobile-menu-button" id="openSidebarButton" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><span data-icon="menu" aria-hidden="true"></span></button>
         <div>
           <p class="breadcrumb">Admin / <span id="breadcrumbView">Overview</span></p>
-          <h1 id="pageTitle">Overview</h1>
+          <h1 class="sr-only" id="pageTitle">Overview</h1>
         </div>
       </div>
-      <div class="date-toolbar" aria-label="Dashboard date range">
+      <div class="topbar-actions" id="pageRangeSlot">
+      <span class="session-badge"><span class="status-dot dot-success" aria-hidden="true"></span>Admin session</span>
+      <div class="date-toolbar" id="dashboardDateToolbar" aria-label="Dashboard date range">
+        <div class="segmented-control range-presets" id="activityRangeButtons" role="group" aria-label="Activity date range">
+          <button type="button" data-range="7d" aria-pressed="false">7d</button>
+          <button type="button" data-range="30d" aria-pressed="true">30d</button>
+          <button type="button" data-range="90d" aria-pressed="false">90d</button>
+          <button type="button" data-range="all" aria-pressed="false">All</button>
+          <button type="button" data-range="custom" aria-pressed="false">Custom</button>
+        </div>
         <label class="compact-field">
           <span class="sr-only">Quick date range</span>
           <select id="dateRange">
@@ -113,7 +109,8 @@
           <label class="compact-field"><span>To</span><input id="dateTo" type="date"></label>
           <button class="button button-secondary button-small" id="applyDatesButton" type="button">Apply</button>
         </div>
-        <button class="icon-button refresh-button" id="refreshButton" type="button" aria-label="Refresh dashboard" title="Refresh dashboard">↻</button>
+      </div>
+      <button class="button button-secondary refresh-button" id="refreshButton" type="button" aria-label="Refresh dashboard"><span data-icon="refresh" aria-hidden="true"></span>Refresh</button>
       </div>
     </header>
 
@@ -126,12 +123,14 @@
       <section class="page-section" id="overviewView" data-page="overview" aria-labelledby="overviewHeading">
         <div class="page-heading">
           <div>
-            <h2 id="overviewHeading">Corpus overview</h2>
-            <p>Current usable data and historical annotation activity.</p>
+            <h2 id="overviewHeading">Overview</h2>
+            <p>Corpus health and annotation throughput</p>
           </div>
-          <p class="updated-label">Updated <time id="overviewUpdatedAt">—</time></p>
+          <div class="page-heading-actions" id="overviewRefreshSlot"><p class="updated-label">Updated <time id="overviewUpdatedAt">—</time></p></div>
         </div>
 
+        <section class="attention-grid" id="overviewAlerts" aria-label="Needs attention" hidden></section>
+        <h3 class="section-title">Current snapshot <span class="badge badge-neutral">Current corpus state</span></h3>
         <div class="kpi-grid" id="overviewKpis" aria-live="polite">
           <article class="metric-card metric-card-featured">
             <div class="metric-label"><span>Total audio</span><span class="metric-help" title="All imported audio tasks">i</span></div>
@@ -142,7 +141,6 @@
             <div class="metric-label"><span>Annotated</span><span class="status-dot dot-success" aria-hidden="true"></span></div>
             <strong class="metric-value" id="kpiAnnotated">—</strong>
             <p><span id="kpiAnnotatedDuration">—</span> published annotated audio</p>
-            <p class="metric-note">Includes audio that is still in cross-check or awaiting review.</p>
           </article>
           <article class="metric-card">
             <div class="metric-label"><span>Pending</span><span class="status-dot dot-warning" aria-hidden="true"></span></div>
@@ -160,22 +158,23 @@
             <p><span id="kpiTrainableDuration">—</span> clean duration</p>
           </article>
           <article class="metric-card">
-            <div class="metric-label"><span>Active annotators</span><span class="metric-help" title="Unique annotators active within the selected range">i</span></div>
+            <div class="metric-label"><span>Active annotators</span><span class="metric-help" tabindex="0" title="Unique annotators active within the selected date range" aria-label="Unique annotators active within the selected date range">i</span></div>
             <strong class="metric-value" id="kpiActiveAnnotators">—</strong>
             <p><span id="kpiDailyThroughput">—</span> tasks / day (7d)</p>
           </article>
         </div>
 
         <div class="overview-grid">
-          <article class="panel panel-wide">
+          <article class="panel activity-panel">
             <div class="panel-heading">
-              <div><h3>Annotation activity</h3><p>Historical submissions by day</p></div>
-              <div class="chart-legend" aria-label="Chart legend">
-                <span><i class="legend-swatch swatch-annotated"></i>Annotated</span>
-                <span><i class="legend-swatch swatch-skipped"></i>Skipped</span>
-                <span><i class="legend-swatch swatch-revoked"></i>Revoked</span>
-              </div>
+              <div class="panel-title-inline"><h3>Annotation activity</h3><p>Submissions per day</p></div>
+              <div id="activityRangeSlot"></div>
             </div>
+              <div class="chart-legend" aria-label="Chart legend">
+                <span><i class="legend-swatch swatch-annotated"></i>Annotated <b id="activityAnnotated">—</b></span>
+                <span><i class="legend-swatch swatch-skipped"></i>Skipped <b id="activitySkipped">—</b></span>
+                <span><i class="legend-swatch swatch-revoked"></i>Revoked <b id="activityRevoked">—</b></span>
+              </div>
             <div class="chart-wrap" id="activityChartWrap">
               <canvas id="activityChart" role="img" aria-label="Daily annotated, skipped, and revoked task counts"></canvas>
               <div class="chart-tooltip" id="activityTooltip" hidden></div>
@@ -183,61 +182,51 @@
             </div>
           </article>
 
-          <article class="panel">
-            <div class="panel-heading"><div><h3>Queue health</h3><p>Pending task availability</p></div></div>
-            <div class="donut-layout">
-              <canvas class="donut-chart" id="queueChart" width="180" height="180" role="img" aria-label="Pending queue distribution"></canvas>
-              <div class="donut-center" aria-hidden="true"><strong id="queueTotal">—</strong><span>pending</span></div>
-              <dl class="compact-legend" id="queueLegend"></dl>
-            </div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-heading"><div><h3>Completion</h3><p>Current effective corpus</p></div></div>
+          <article class="panel summary-panel">
+            <div class="panel-heading"><h3>Completion</h3></div>
             <div class="completion-block">
               <strong id="completionRate">—</strong>
-              <span>of all audio resolved</span>
+              <span>of all audio resolved (annotated + skipped)</span>
               <div class="progress-track" role="progressbar" id="completionProgress" aria-label="Corpus completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
               <dl class="summary-list">
+                <div><dt><i class="legend-swatch swatch-annotated"></i>Annotated</dt><dd id="completionAnnotated">—</dd></div>
+                <div><dt><i class="legend-swatch swatch-skipped"></i>Skipped</dt><dd id="completionSkipped">—</dd></div>
+                <div><dt>Pending</dt><dd id="completionPending">—</dd></div>
                 <div><dt>Oldest pending</dt><dd id="oldestPending">—</dd></div>
-                <div><dt>Long-held assignments</dt><dd id="staleAssignments">—</dd></div>
                 <div><dt>Estimated finish</dt><dd id="estimatedFinish">—</dd></div>
               </dl>
             </div>
           </article>
 
-          <article class="panel panel-wide" id="overviewCrossCheckPanel">
-            <div class="panel-heading">
-              <div>
-                <h3>Cross-checks</h3>
-                <p>All-time, all scenes. These counts do not follow the date filter above.</p>
-              </div>
-              <button class="button button-secondary button-small" type="button" data-open-cross-checks="awaiting_review">Open awaiting review</button>
-            </div>
-            <div class="kpi-grid kpi-grid-compact">
-              <article class="metric-card"><div class="metric-label">Awaiting review</div><strong class="metric-value" id="overviewCcPending">—</strong><p>Rounds waiting for an administrator</p></article>
-              <article class="metric-card"><div class="metric-label">In progress</div><strong class="metric-value" id="overviewCcInProgress">—</strong><p>Independent annotation still open</p></article>
-              <article class="metric-card"><div class="metric-label">Training export on hold</div><strong class="metric-value" id="overviewCcBlocked">—</strong><p>Unique audio currently blocked by an open round</p></article>
-              <article class="metric-card"><div class="metric-label">Cross-check submissions</div><strong class="metric-value" id="overviewCcSubmitted">—</strong><p><span id="overviewCcSubmittedAudio">—</span> labor time, not added to published audio</p></article>
-            </div>
-            <p class="overlap-note">Oldest awaiting-review round created <span id="overviewCcOldest">—</span>. Training exports exclude audio under cross-check or awaiting review. Audit exports may still include it.</p>
-          </article>
-
-          <article class="panel panel-wide">
-            <div class="panel-heading"><div><h3>Corpus distribution</h3><p>Current effective tasks by category and skip reason</p></div></div>
-            <div class="distribution-grid">
-              <div><h4>Categories</h4><div class="bar-list" id="categoryDistribution"></div></div>
-              <div><h4>Skip reasons</h4><div class="bar-list" id="skipDistribution"></div></div>
+          <article class="panel summary-panel">
+            <div class="panel-heading"><h3>Queue health</h3><span class="muted"><span id="queueTotal">—</span> pending</span></div>
+            <div class="queue-content">
+              <canvas class="queue-chart" id="queueChart" role="img" aria-label="Pending queue distribution"></canvas>
+              <dl class="compact-legend" id="queueLegend"></dl>
+              <dl class="summary-list"><div><dt>Long-held assignments</dt><dd><button class="text-button warning-text" type="button" id="staleAssignments">—</button></dd></div></dl>
+              <p class="overlap-note" id="queueOverlapNote" hidden></p>
             </div>
           </article>
 
-          <article class="panel panel-wide" id="metadataOverviewPanel">
-            <div class="panel-heading">
-              <div>
-                <h3>Sources and review</h3>
-                <p>Statistics use the current filters. Source scene and batch groups may overlap; source confidence and published review are mutually exclusive.</p>
-              </div>
+          <article class="panel summary-panel" id="overviewCrossCheckPanel">
+            <div class="panel-heading"><h3>Cross-checks <span class="badge badge-neutral">All-time</span></h3><button class="text-button accent-text" type="button" data-open-cross-checks="awaiting_review">Open →</button></div>
+            <div class="summary-content">
+              <p class="sr-only">All-time, all scenes. These counts do not follow the date filter.</p>
+              <dl class="summary-list">
+                <div><dt>Awaiting review</dt><dd class="danger-text" id="overviewCcPending">—</dd></div>
+                <div><dt>In progress</dt><dd id="overviewCcInProgress">—</dd></div>
+                <div><dt>Training export on hold</dt><dd id="overviewCcBlocked">—</dd></div>
+                <div><dt>Submissions · labor</dt><dd><span id="overviewCcSubmitted">—</span> · <span id="overviewCcSubmittedAudio">—</span></dd></div>
+                <div><dt>Oldest awaiting</dt><dd id="overviewCcOldest">—</dd></div>
+              </dl>
+              <p class="overlap-note">Training exports exclude audio under cross-check. Audit exports may still include it. Labor time is not counted as published audio.</p>
             </div>
+          </article>
+        </div>
+
+        <section id="metadataOverviewPanel" aria-labelledby="distributionHeading">
+          <div class="distribution-heading"><h3 class="section-title" id="distributionHeading">Corpus distribution</h3></div>
+          <details class="distribution-filters"><summary>Filter distributions <span id="overviewFilterCount" class="count-pill" hidden></span></summary>
             <form class="filter-bar admin-metadata-filters" id="overviewFilterForm">
               <label class="compact-field"><span>Source scene</span><select id="overviewSourceScene"><option value="">All source scenes</option></select></label>
               <label class="compact-field"><span>Source confidence</span><select id="overviewSourceConfidence"><option value="">All confidence</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="unknown">Unknown</option></select></label>
@@ -247,94 +236,47 @@
               <label class="compact-field"><span>Human review scene</span><select id="overviewHumanScene"><option value="">All human scenes</option><option value="unknown">No human scene</option></select></label>
               <button class="button button-secondary button-small" type="submit">Apply filters</button>
             </form>
-            <div class="metadata-overview-grid">
-              <div><h4>Source scenes</h4><p class="overlap-note">The same task can appear in more than one source scene; group totals can exceed the task count.</p><div id="sourceSceneGroups"></div></div>
-              <div><h4>Source confidence</h4><p class="overlap-note">Mutually exclusive buckets using the highest matching source evidence in the current filter.</p><div id="confidenceGroups"></div></div>
-              <div><h4>Source batches</h4><p class="overlap-note">The same task can appear in more than one batch; group totals can exceed the task count.</p><div id="sourceBatchGroups"></div></div>
-              <div><h4>Published review</h4><p class="overlap-note">Counts the current published version only; draft reviews are not published verification. Groups are mutually exclusive.</p><div id="reviewStatusGroups"></div></div>
-            </div>
-          </article>
-        </div>
+          </details>
+          <div class="distribution-cards">
+            <article class="panel distribution-card"><h3>Source scenes</h3><div id="sourceSceneGroups"></div><p class="overlap-note">A task can belong to several source scenes, so totals can exceed the task count.</p></article>
+            <article class="panel distribution-card"><h3>Categories</h3><div class="bar-list" id="categoryDistribution"></div></article>
+            <article class="panel distribution-card"><h3>Skip reasons</h3><div class="bar-list warning-bars" id="skipDistribution"></div><h3 class="subsection-title">Source confidence</h3><div class="info-bars" id="confidenceGroups"></div></article>
+            <article class="panel distribution-card"><h3>Source batches</h3><div id="sourceBatchGroups"></div><p class="overlap-note">A task can appear in several source batches.</p></article>
+            <article class="panel distribution-card"><h3>Published review</h3><div class="success-bars" id="reviewStatusGroups"></div><p class="overlap-note">Counts the current published version only. Draft reviews are not published verification.</p></article>
+          </div>
+        </section>
       </section>
 
       <section class="page-section" id="annotatorsView" data-page="annotators" aria-labelledby="annotatorsHeading" hidden>
         <div class="page-heading">
-          <div><h2 id="annotatorsHeading">Annotators</h2><p>Compare throughput, turnaround, label mix, and current contributions.</p></div>
+          <div><h2 id="annotatorsHeading">Annotators</h2><p>Throughput, contributions and access. Select a person for details.</p></div>
+          <button class="button button-secondary" id="exportAnnotatorsButton" type="button"><span data-icon="download" aria-hidden="true"></span>Export CSV</button>
         </div>
-
-        <div class="annotator-empty-state" id="annotatorEmptyState">
-          <span class="empty-state-icon" aria-hidden="true">◉</span>
-          <h3>Select an annotator</h3>
-          <p>Choose a person from the sidebar to inspect their work and manage current annotations.</p>
-        </div>
-
-        <div id="annotatorDetail" hidden>
-          <article class="profile-header">
-            <div class="profile-identity">
-              <span class="avatar avatar-large" id="annotatorAvatar" aria-hidden="true">—</span>
-              <div><div class="profile-name-line"><h3 id="annotatorName">—</h3><span class="badge" id="annotatorStatus">—</span></div><p id="annotatorMeta">—</p></div>
-            </div>
-            <div class="profile-actions">
-              <button class="button button-secondary" id="exportAnnotatorButton" type="button">Export visible CSV</button>
-              <button class="button button-danger" id="deactivateAnnotatorButton" type="button">Deactivate annotator</button>
-            </div>
-          </article>
-
-          <div class="kpi-grid kpi-grid-compact">
-            <article class="metric-card"><div class="metric-label">Current contributions</div><strong class="metric-value" id="annotatorCurrent">—</strong><p id="annotatorCurrentDuration">—</p></article>
-            <article class="metric-card"><div class="metric-label">Historical submissions</div><strong class="metric-value" id="annotatorSubmitted">—</strong><p><span id="annotatorActiveDays">—</span> active days</p></article>
-            <article class="metric-card"><div class="metric-label">Median turnaround</div><strong class="metric-value" id="annotatorMedian">—</strong><p>P90 <span id="annotatorP90">—</span></p></article>
-            <article class="metric-card"><div class="metric-label">Admin revoke rate</div><strong class="metric-value" id="annotatorRevokeRate">—</strong><p><span id="annotatorRevoked">—</span> revoked submissions</p></article>
+        <div class="directory-toolbar">
+          <label class="search-field search-field-wide" for="sidebarAnnotatorSearch"><span data-icon="search" aria-hidden="true"></span><span class="sr-only">Search annotators</span><input id="sidebarAnnotatorSearch" type="search" placeholder="Search annotators…" autocomplete="off"></label>
+          <div class="segmented-control" id="annotatorStatusFilters" role="group" aria-label="Annotator activity">
+            <button type="button" data-status="all" aria-pressed="true">All</button>
+            <button type="button" data-status="recent" aria-pressed="false">Active 7d</button>
+            <button type="button" data-status="idle" aria-pressed="false">Idle</button>
+            <button type="button" data-status="never" aria-pressed="false">Never active</button>
+            <button type="button" data-status="deactivated" aria-pressed="false">Deactivated</button>
           </div>
-          <article class="panel" id="sceneScopePanel">
-            <div class="panel-heading"><div><h3>Scene scope</h3><p>Restrict which source scenes this annotator may claim. Existing assignments are not released.</p></div></div>
-            <form id="sceneScopeForm" class="scope-form" data-scope-ready="0" aria-busy="true">
-              <p id="scopeEditorStatus" class="scope-editor-status" role="status">Loading claim scope…</p>
-              <fieldset id="scopeEditorFields" disabled hidden>
-                <label>Scope mode <select id="scopeMode"><option value="all">All source scenes</option><option value="restricted">Restricted scenes</option><option value="none">Cannot claim</option></select></label>
-                <div class="scene-grid" id="scopeSceneGrid"></div>
-                <label>Reason <input id="scopeReason" required maxlength="4000" placeholder="Explain why this claim scope is changing"></label>
-                <p class="form-error" id="scopeError" role="alert" hidden></p>
-                <button class="button button-secondary" type="submit">Save claim scope</button>
-              </fieldset>
-            </form>
-          </article>
-
-          <div class="detail-grid">
-            <article class="panel panel-wide">
-              <div class="panel-heading"><div><h3>Daily output</h3><p>Tasks and submitted audio duration</p></div></div>
-              <div class="chart-wrap chart-wrap-small"><canvas id="annotatorChart" role="img" aria-label="Annotator daily output"></canvas><div class="empty-chart" id="annotatorChartEmpty" hidden>No activity in this period.</div></div>
-            </article>
-            <article class="panel">
-              <div class="panel-heading"><div><h3>Label mix</h3><p>Annotated and skipped tasks</p></div></div>
-              <div class="bar-list bar-list-spaced" id="annotatorLabelMix"></div>
-            </article>
-          </div>
-
-          <article class="panel table-panel">
-            <div class="table-toolbar">
-              <div>
-                <h3>Current annotations</h3>
-                <p id="annotationTableSummary">Select records to revoke in one transaction.</p>
-              </div>
-              <div class="table-actions">
-                <span class="selection-count" id="selectedTaskCount" hidden>0 selected</span>
-                <button class="button button-danger button-small" id="batchRevokeButton" type="button" disabled>Revoke selected</button>
-              </div>
-            </div>
-            <div class="table-scroll">
-              <table class="data-table">
-                <thead><tr>
-                  <th class="checkbox-cell"><input id="selectAllTasks" type="checkbox" aria-label="Select all visible annotations"></th>
-                  <th>Audio</th><th>Status</th><th>Duration</th><th>Segments</th><th>Submitted</th><th>Turnaround</th><th class="actions-cell"><span class="sr-only">Actions</span></th>
-                </tr></thead>
-                <tbody id="annotatorTaskBody"></tbody>
-              </table>
-              <div class="table-state" id="annotatorTaskState">Select an annotator to load annotations.</div>
-            </div>
-            <div class="pagination-row"><button class="button button-secondary button-small" id="loadMoreAnnotatorTasks" type="button" hidden>Load more</button></div>
-          </article>
         </div>
+        <article class="panel table-panel">
+          <div class="table-scroll">
+            <table class="data-table annotator-directory-table">
+              <thead><tr>
+                <th aria-sort="ascending"><button type="button" data-annotator-sort="username">Annotator <span aria-hidden="true">↑</span></button></th>
+                <th class="num" aria-sort="none"><button type="button" data-annotator-sort="currentCount">Current</button></th>
+                <th aria-sort="none"><button type="button" data-annotator-sort="lastActiveAt">Last active</button></th>
+                <th>Status</th>
+              </tr></thead>
+              <tbody id="sidebarAnnotatorList"></tbody>
+            </table>
+            <div class="table-state" id="annotatorEmptyState" role="status">Loading annotators…</div>
+          </div>
+          <div class="table-footer" id="annotatorDirectorySummary" role="status"></div>
+        </article>
       </section>
 
       <section class="page-section" id="corpusView" data-page="corpus" aria-labelledby="corpusHeading" hidden>
@@ -344,16 +286,19 @@
         </div>
         <article class="panel table-panel">
           <form class="filter-bar" id="corpusFilterForm">
-            <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search audio tasks</span><input id="corpusSearch" type="search" placeholder="Search filename, folder, or category"></label>
+            <label class="search-field search-field-wide"><span data-icon="search" aria-hidden="true"></span><span class="sr-only">Search audio tasks</span><input id="corpusSearch" type="search" placeholder="Search filename, folder, or category"></label>
             <label class="compact-field"><span class="sr-only">Task status</span><select id="corpusStatus"><option value="">All statuses</option><option value="annotated">Annotated</option><option value="skipped">Skipped</option><option value="pending">Pending</option><option value="assigned">Assigned</option></select></label>
             <label class="compact-field"><span>Source scene</span><select id="corpusSourceScene"><option value="">All source scenes</option></select></label>
             <label class="compact-field"><span>Source confidence</span><select id="corpusSourceConfidence"><option value="">All confidence</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="unknown">Unknown</option></select></label>
+            <details class="advanced-filters" id="corpusMoreFilters"><summary>More filters <span id="corpusMoreCount" class="count-pill" hidden></span></summary><div class="advanced-filter-fields">
             <label class="compact-field"><span>Source batch</span><select id="corpusBatch"><option value="">All batches</option></select></label>
             <label class="compact-field"><span>Human review status</span><select id="corpusReviewStatus"><option value="">All reviews</option><option value="pending">Pending (published)</option><option value="confirmed">Confirmed</option><option value="mixed">Multiple scenes</option><option value="out_of_scope">Outside the ten scenes</option><option value="uncertain">Cannot determine</option><option value="unreviewed_published">Published, not reviewed</option><option value="unreviewed_unpublished">Unpublished, not reviewed</option></select></label>
             <label class="compact-field"><span>Model classification</span><select id="corpusPredictionScene"><option value="">All model classifications</option><option value="unknown">No model classification</option></select></label>
             <label class="compact-field"><span>Human review scene</span><select id="corpusHumanScene"><option value="">All human scenes</option><option value="unknown">No human scene</option></select></label>
+            </div></details>
             <button class="button button-secondary button-small" type="submit">Apply filters</button>
           </form>
+          <div class="filter-chips" id="corpusFilterChips" aria-label="Active task filters" hidden></div>
           <div class="matched-stats" id="corpusMatchedStats" hidden></div>
           <div class="table-scroll">
             <table class="data-table">
@@ -378,7 +323,7 @@
         <article class="panel table-panel">
           <div class="table-toolbar"><div><h3>Quality review queue</h3><p>Signals are indicators only; they are not automatic quality judgments.</p></div></div>
           <form class="filter-bar" id="qualityFilterForm">
-            <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search quality review queue</span><input id="qualitySearch" type="search" placeholder="Search filename or path" autocomplete="off"></label>
+            <label class="search-field search-field-wide"><span data-icon="search" aria-hidden="true"></span><span class="sr-only">Search quality review queue</span><input id="qualitySearch" type="search" placeholder="Search filename or path" autocomplete="off"></label>
             <label class="compact-field"><span class="sr-only">Annotator</span><select id="qualityAnnotator"><option value="">All annotators</option></select></label>
             <label class="compact-field"><span class="sr-only">Quality signal</span><select id="qualitySignal"><option value="">All signals</option><option value="unusually_fast">Unusually fast</option><option value="stale_assignment">Stale assignment</option></select></label>
             <button class="button button-secondary button-small" type="submit">Apply filters</button>
@@ -404,19 +349,23 @@
           <p class="form-error" id="ccSummaryError" hidden></p>
           <button class="text-button" id="ccSummaryRetry" type="button" hidden>Retry summary</button>
           <div class="kpi-grid kpi-grid-compact">
-            <article class="metric-card"><div class="metric-label">In progress</div><strong class="metric-value" id="ccKpiInProgress">—</strong></article>
-            <article class="metric-card"><div class="metric-label">Awaiting review</div><strong class="metric-value" id="ccKpiPending">—</strong></article>
-            <article class="metric-card"><div class="metric-label">Passed</div><strong class="metric-value" id="ccKpiPassed">—</strong></article>
-            <article class="metric-card"><div class="metric-label">Adjudicated</div><strong class="metric-value" id="ccKpiAdjudicated">—</strong></article>
-            <article class="metric-card"><div class="metric-label">Training export on hold</div><strong class="metric-value" id="ccKpiBlocked">—</strong></article>
-            <article class="metric-card"><div class="metric-label">Oldest awaiting review created</div><strong class="metric-value metric-value-small" id="ccKpiOldest">—</strong></article>
-            <article class="metric-card"><div class="metric-label">Cross-check submissions</div><strong class="metric-value" id="ccKpiSubmitted">—</strong><p>Labor count, not published audio</p></article>
-            <article class="metric-card"><div class="metric-label">Cross-check audio labor</div><strong class="metric-value" id="ccKpiSubmittedAudio">—</strong><p>Not added to published annotated audio</p></article>
+            <article class="metric-card"><div class="metric-label">Awaiting review</div><strong class="metric-value danger-text" id="ccKpiPending">—</strong><p>Oldest created <span id="ccKpiOldest">—</span></p></article>
+            <article class="metric-card"><div class="metric-label">In progress</div><strong class="metric-value" id="ccKpiInProgress">—</strong><p>Independent annotation still open</p></article>
+            <article class="metric-card"><div class="metric-label">Training export on hold</div><strong class="metric-value" id="ccKpiBlocked">—</strong><p>Audio held by an open round</p></article>
+            <article class="metric-card"><div class="metric-label">Cross-check submissions</div><strong class="metric-value" id="ccKpiSubmitted">—</strong><p><span id="ccKpiSubmittedAudio">—</span> audio labor, not published audio</p></article>
           </div>
           <p class="overlap-note">Training exports exclude audio under cross-check or awaiting review. Audit exports may still include it.</p>
         </div>
 
         <div id="ccListPanel">
+          <div class="queue-tabs" id="ccQueueTabs" role="group" aria-label="Cross-check state">
+            <button type="button" data-cc-state="awaiting_review" aria-pressed="true">Awaiting review</button>
+            <button type="button" data-cc-state="in_progress" aria-pressed="false">In progress</button>
+            <button type="button" data-cc-state="passed" aria-pressed="false">Passed <span class="count-pill" id="ccKpiPassed">—</span></button>
+            <button type="button" data-cc-state="adjudicated" aria-pressed="false">Adjudicated <span class="count-pill" id="ccKpiAdjudicated">—</span></button>
+            <button type="button" data-cc-state="cancelled" aria-pressed="false">Cancelled</button>
+            <button type="button" data-cc-state="invalidated" aria-pressed="false">Invalidated</button>
+          </div>
           <article class="panel table-panel">
             <form class="filter-bar" id="ccFilterForm">
               <label class="compact-field"><span>State</span><select id="ccState"></select></label>
@@ -427,7 +376,7 @@
               <label class="compact-field"><span>Reason</span><select id="ccReason"><option value="">All reasons</option></select></label>
               <label class="compact-field"><span>Created from</span><input id="ccFrom" type="date"></label>
               <label class="compact-field"><span>Created to</span><input id="ccTo" type="date"></label>
-              <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search filename, path, or ID</span><input id="ccSearch" type="search" placeholder="Filename, path, or full audio/round ID" autocomplete="off"></label>
+              <label class="search-field search-field-wide"><span data-icon="search" aria-hidden="true"></span><span class="sr-only">Search filename, path, or ID</span><input id="ccSearch" type="search" placeholder="Filename, path, or full audio/round ID" autocomplete="off"></label>
               <button class="button button-secondary button-small" type="submit">Apply filters</button>
             </form>
             <p class="overlap-note" id="ccLoadedCount">0 loaded</p>
@@ -458,7 +407,7 @@
         <div class="page-heading"><div><h2 id="activityHeading">Activity log</h2><p>Security-sensitive and data-changing administrator actions.</p></div><button class="button button-secondary" id="exportAuditButton" type="button">Export visible CSV</button></div>
         <article class="panel table-panel">
           <form class="filter-bar" id="auditFilterForm">
-            <label class="search-field search-field-wide"><span aria-hidden="true">⌕</span><span class="sr-only">Search activity log</span><input id="auditSearch" type="search" placeholder="Search task, annotator, or key ID"></label>
+            <label class="search-field search-field-wide"><span data-icon="search" aria-hidden="true"></span><span class="sr-only">Search activity log</span><input id="auditSearch" type="search" placeholder="Search task, annotator, or key ID"></label>
             <label class="compact-field"><span class="sr-only">Action type</span><select id="auditAction"><option value="">All actions</option><option value="revoke_annotations">Revoke</option><option value="restore_annotations">Restore</option><option value="deactivate_annotator">Deactivate annotator</option><option value="release_assignment">Release assignment</option><option value="admin_auth">Admin login</option></select></label>
             <button class="button button-secondary button-small" type="submit">Apply filters</button>
           </form>
@@ -471,6 +420,83 @@
       </section>
     </main>
   </div>
+
+  <dialog class="modal detail-drawer" id="annotatorDialog" aria-labelledby="annotatorName">
+        <div id="annotatorDetail">
+          <header class="profile-header">
+            <div class="profile-identity">
+              <span class="avatar avatar-large" id="annotatorAvatar" aria-hidden="true">—</span>
+              <div><div class="profile-name-line"><h3 id="annotatorName">—</h3><span class="badge" id="annotatorStatus">—</span></div><p id="annotatorMeta">—</p></div>
+            </div>
+            <button class="icon-button" type="button" data-close-dialog="annotatorDialog" aria-label="Close annotator details"><span data-icon="close" aria-hidden="true"></span></button>
+          </header>
+          <div class="drawer-body">
+
+          <div class="kpi-grid kpi-grid-compact">
+            <article class="metric-card"><div class="metric-label">Current contributions</div><strong class="metric-value" id="annotatorCurrent">—</strong><p id="annotatorCurrentDuration">—</p></article>
+            <article class="metric-card"><div class="metric-label">Historical submissions</div><strong class="metric-value" id="annotatorSubmitted">—</strong><p><span id="annotatorActiveDays">—</span> active days</p></article>
+            <article class="metric-card"><div class="metric-label">Median turnaround</div><strong class="metric-value" id="annotatorMedian">—</strong><p>P90 <span id="annotatorP90">—</span></p></article>
+            <article class="metric-card"><div class="metric-label">Admin revoke rate</div><strong class="metric-value" id="annotatorRevokeRate">—</strong><p><span id="annotatorRevoked">—</span> revoked submissions</p></article>
+          </div>
+          <article class="panel" id="sceneScopePanel">
+            <div class="panel-heading"><div><h3>Scene scope</h3><p>Restrict which source scenes this annotator may claim. Existing assignments are not released.</p></div></div>
+            <form id="sceneScopeForm" class="scope-form" data-scope-ready="0" aria-busy="true">
+              <p id="scopeEditorStatus" class="scope-editor-status" role="status">Loading claim scope…</p>
+              <fieldset id="scopeEditorFields" disabled hidden>
+                <label>Scope mode <select id="scopeMode"><option value="all">All source scenes</option><option value="restricted">Restricted scenes</option><option value="none">Cannot claim</option></select></label>
+                <div class="scene-grid" id="scopeSceneGrid"></div>
+                <label>Reason <input id="scopeReason" type="text" required maxlength="4000" placeholder="Explain why this claim scope is changing"></label>
+                <p class="form-error" id="scopeError" role="alert" hidden></p>
+                <button class="button button-primary" type="submit">Save claim scope</button>
+              </fieldset>
+            </form>
+          </article>
+
+          <article class="panel table-panel">
+            <div class="table-toolbar">
+              <div>
+                <h3>Current annotations</h3>
+                <p id="annotationTableSummary">Select records to revoke in one transaction.</p>
+              </div>
+              <div class="table-actions">
+                <span class="selection-count" id="selectedTaskCount" hidden>0 selected</span>
+                <button class="button button-danger button-small" id="batchRevokeButton" type="button" disabled>Revoke selected</button>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr>
+                  <th class="checkbox-cell"><input id="selectAllTasks" type="checkbox" aria-label="Select all visible annotations"></th>
+                  <th>Audio</th><th>Status</th><th>Duration</th><th>Segments</th><th>Submitted</th><th>Turnaround</th><th class="actions-cell"><span class="sr-only">Actions</span></th>
+                </tr></thead>
+                <tbody id="annotatorTaskBody"></tbody>
+              </table>
+              <div class="table-state" id="annotatorTaskState">Select an annotator to load annotations.</div>
+            </div>
+            <div class="pagination-row"><button class="button button-secondary button-small" id="loadMoreAnnotatorTasks" type="button" hidden>Load more</button></div>
+          </article>
+          <details class="drawer-insights" id="annotatorInsights"><summary>Daily output and label mix</summary>
+          <div class="detail-grid">
+            <article class="panel panel-wide">
+              <div class="panel-heading"><div><h3>Daily output</h3><p>Tasks and submitted audio duration</p></div></div>
+              <div class="chart-wrap chart-wrap-small"><canvas id="annotatorChart" role="img" aria-label="Annotator daily output"></canvas><div class="empty-chart" id="annotatorChartEmpty" hidden>No activity in this period.</div></div>
+            </article>
+            <article class="panel">
+              <div class="panel-heading"><div><h3>Label mix</h3><p>Annotated and skipped tasks</p></div></div>
+              <div class="bar-list bar-list-spaced" id="annotatorLabelMix"></div>
+            </article>
+          </div>
+
+          </details>
+          </div>
+          <footer class="drawer-footer">
+            <div class="profile-actions">
+              <button class="button button-secondary" id="exportAnnotatorButton" type="button">Export visible CSV</button>
+              <button class="button button-danger" id="deactivateAnnotatorButton" type="button">Deactivate annotator</button>
+            </div>
+          </footer>
+        </div>
+  </dialog>
 
   <dialog class="modal" id="revokeDialog" aria-labelledby="revokeTitle">
     <form class="modal-card" id="revokeForm">
@@ -515,7 +541,7 @@
     </form>
   </dialog>
 
-  <dialog class="modal task-modal" id="taskDialog" aria-labelledby="taskDialogTitle">
+  <dialog class="modal task-modal detail-drawer" id="taskDialog" aria-labelledby="taskDialogTitle">
     <div class="modal-card modal-card-wide">
       <div class="modal-heading">
         <div><p class="eyebrow">Annotation record</p><h2 id="taskDialogTitle">Task details</h2></div>
@@ -531,7 +557,7 @@
         <div class="scene-grid" id="adminReviewScenes"></div>
         <label>Note <input id="adminReviewNote" maxlength="4000"></label>
         <label>Reason <input id="adminReviewReason" required maxlength="4000" placeholder="Explain why this review is being corrected"></label>
-        <button class="button button-secondary" type="submit">Save review correction</button>
+        <button class="button button-primary" type="submit">Save review correction</button>
       </form>
       <div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="taskDialog">Close</button><button class="button button-danger" id="revokeFromDetailButton" type="button" hidden>Revoke annotation</button></div>
     </div>
@@ -566,10 +592,9 @@
 
   <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
   <div class="sr-only" id="liveRegion" role="status" aria-live="polite"></div>
-  <link rel="stylesheet" href="/static/metadata.css?v=20260916-ui1">
   <script src="/static/metadata.js?v=20260916-ui1"></script>
   <script src="/static/cross-check.js?v=20260920-cc1"></script>
-  <script src="/static/admin-cross-check.js?v=20260920-cc2"></script>
-  <script type="module" src="/admin.js?v=20260920-cc2"></script>
+  <script src="/static/admin-cross-check.js?v=20260928-ui2"></script>
+  <script type="module" src="/admin.js?v=20260928-ui2"></script>
 </body>
 </html>

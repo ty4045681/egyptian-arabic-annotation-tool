@@ -17,7 +17,7 @@ from tests.test_api import login
 from tests.test_scene_claims import source
 
 SECRET_ORIGINAL = "ALPHA-ORIGINAL-TRANSCRIPT-SECRET"
-ACCEPT_DIR = Path("docs/plans/cross-annotation-quality-frontend-acceptance")
+ACCEPT_DIR = Path("output/admin-react-migration/cross-checks")
 
 
 def write_wavs_for_tasks(task_ids, seconds=10.0):
@@ -35,7 +35,7 @@ def screenshot(page, name: str, directory: Path | None = None):
     target = directory or ACCEPT_DIR
     target.mkdir(parents=True, exist_ok=True)
     path = target / name
-    page.screenshot(path=str(path), full_page=True)
+    page.screenshot(path=str(path), full_page=True, animations="disabled")
     return path
 
 
@@ -79,7 +79,7 @@ def open_cross_checks(page, state="awaiting_review"):
     page.locator('[data-view="cross-checks"]').click()
     expect(page.locator("#crossChecksView")).to_be_visible(timeout=15000)
     if state:
-        page.locator("#ccState").select_option(state)
+        page.get_by_role("tab", name=state.replace("_", " ").capitalize(), exact=True).click()
 
 
 def seed_originals(client, seed_tasks, count, text, *, duration=10.0):

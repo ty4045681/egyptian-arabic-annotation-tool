@@ -33,6 +33,9 @@ const state = {
   overview: null,
   timeseries: [],
   annotators: [],
+  annotatorFilter: "all",
+  annotatorSort: "username",
+  annotatorSortDirection: 1,
   selectedAnnotatorId: "",
   annotatorDetail: null,
   annotatorTasks: [],
@@ -113,6 +116,30 @@ function element(tag, options = {}, children = []) {
     else if (child !== null && child !== undefined) node.appendChild(document.createTextNode(String(child)));
   }
   return node;
+}
+
+function icon(name) {
+  const paths = {
+    home: "m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-8H9v8H4a1 1 0 0 1-1-1Z",
+    users: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
+    database: "M20 5c0 1.66-3.58 3-8 3S4 6.66 4 5s3.58-3 8-3 8 1.34 8 3ZM4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3",
+    shield: "m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Zm-4 9 3 3 5-6",
+    swap: "M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4",
+    clock: "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0M12 6v6l4 2",
+    logout: "M9 21H4V3h5m5 5 5 4-5 4M8 12h11",
+    menu: "M4 6h16M4 12h16M4 18h16",
+    refresh: "M20 7v5h-5M4 17v-5h5M6.1 6.1a8 8 0 0 1 13.2 2M4.7 15.9a8 8 0 0 0 13.2 2",
+    search: "M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
+    download: "M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5",
+    close: "m6 6 12 12M6 18 18 6",
+    alert: "m12 3 10 18H2ZM12 9v4m0 3v1",
+  };
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.7", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(key, value);
+  const path = document.createElementNS(svg.namespaceURI, "path");
+  path.setAttribute("d", paths[name] || paths.alert);
+  svg.appendChild(path);
+  return element("span", { dataset: { icon: name }, attrs: { "aria-hidden": "true" } }, svg);
 }
 
 function pathValue(source, path) {
@@ -300,6 +327,7 @@ function applyPreset(range) {
   }
   $("dateFrom").value = state.dateFrom;
   $("dateTo").value = state.dateTo;
+  for (const button of document.querySelectorAll("[data-range]")) button.setAttribute("aria-pressed", String(button.dataset.range === range));
 }
 
 function commonQuery(extra = {}) {
@@ -429,6 +457,8 @@ function enterLogin(message = "") {
   closeDialog($("revokeDialog"));
   closeDialog($("deactivateDialog"));
   closeDialog($("ccSettingsDialog"));
+  closeDialog($("annotatorDialog"));
+  closeDialog($("taskDialog"));
   $("bootScreen").hidden = true;
   $("adminApp").hidden = true;
   $("loginView").hidden = false;
@@ -478,6 +508,10 @@ function renderViewShell() {
   }
   text($("pageTitle"), VIEW_LABELS[state.view]);
   text($("breadcrumbView"), VIEW_LABELS[state.view]);
+  document.title = `${VIEW_LABELS[state.view]} · Admin Console`;
+  $(state.view === "overview" ? "activityRangeSlot" : "pageRangeSlot").appendChild($("dashboardDateToolbar"));
+  $(state.view === "overview" ? "overviewRefreshSlot" : "pageRangeSlot").appendChild($("refreshButton"));
+  if (state.view !== "annotators") closeDialog($("annotatorDialog"));
   $("dateRange").closest(".date-toolbar")?.classList.toggle("is-cross-check", state.view === "cross-checks");
   syncUrl();
   closeSidebar();
@@ -696,31 +730,60 @@ function initials(name) {
 }
 
 function renderAnnotatorDirectory() {
-  const query = $("sidebarAnnotatorSearch").value.trim().toLocaleLowerCase();
-  const items = state.annotators.filter((item) => item.username.toLocaleLowerCase().includes(query));
+  const items = visibleAnnotators();
   text($("annotatorCount"), state.annotators.length);
   clear($("sidebarAnnotatorList"));
-  if (!items.length) {
-    $("sidebarAnnotatorList").appendChild(element("div", { className: "sidebar-placeholder", text: query ? "No matching annotators." : "No annotators yet." }));
-    return;
-  }
+  $("annotatorEmptyState").hidden = items.length > 0;
+  text($("annotatorEmptyState"), state.annotators.length ? "No annotators match these filters." : "No annotators yet.");
+  text($("annotatorDirectorySummary"), `${formatInteger(items.length)} of ${formatInteger(state.annotators.length)} accounts`);
   const fragment = document.createDocumentFragment();
+  const names = new Map();
+  for (const item of state.annotators) {
+    const name = item.username.toLocaleLowerCase();
+    names.set(name, (names.get(name) || 0) + 1);
+  }
   for (const item of items) {
     const avatar = element("span", { className: `avatar${item.status !== "active" ? " is-deactivated" : ""}`, text: initials(item.username), attrs: { "aria-hidden": "true" } });
-    const copy = element("span", { className: "annotator-list-copy" }, [
-      element("strong", { text: item.username }),
-      element("small", { text: item.status !== "active" ? "Deactivated" : `${formatInteger(item.currentCount)} current · ${formatRelative(item.lastActiveAt)}` }),
-    ]);
-    const status = element("span", { className: `online-dot${item.online ? " is-online" : ""}`, attrs: { "aria-hidden": "true" } });
     const button = element("button", {
-      className: `annotator-list-button${item.id === state.selectedAnnotatorId ? " is-selected" : ""}`,
       type: "button",
-      dataset: { annotatorId: item.id },
-      attrs: { "aria-label": `View ${item.username}` },
-    }, [avatar, copy, status]);
-    fragment.appendChild(button);
+      text: item.username,
+      attrs: { "aria-label": `View ${item.username}`, dir: "auto", "aria-haspopup": "dialog" },
+    });
+    const person = element("div", { className: "annotator-person" }, [avatar, button]);
+    if (names.get(item.username.toLocaleLowerCase()) > 1) person.appendChild(element("span", { className: "badge badge-warning", text: "Case duplicate", title: "Another account has the same name with different letter case." }));
+    const activity = annotatorActivity(item);
+    const labels = { recent: "Active", idle: "Idle", never: "Never active", deactivated: "Deactivated" };
+    const row = element("tr", { dataset: { annotatorId: item.id } }, [
+      element("td", {}, person),
+      element("td", { className: "num", text: formatInteger(item.currentCount) }),
+      element("td", { text: item.lastActiveAt ? formatRelative(item.lastActiveAt) : "Never", title: item.lastActiveAt ? formatDateTime(item.lastActiveAt) : "No recorded activity" }),
+      element("td", {}, element("span", { className: `badge${activity === "recent" ? "" : activity === "deactivated" ? " badge-danger" : " badge-neutral"}`, text: labels[activity] })),
+    ]);
+    fragment.appendChild(row);
   }
   $("sidebarAnnotatorList").appendChild(fragment);
+  for (const button of document.querySelectorAll("[data-annotator-sort]")) {
+    const selected = button.dataset.annotatorSort === state.annotatorSort;
+    button.closest("th").setAttribute("aria-sort", selected ? state.annotatorSortDirection === 1 ? "ascending" : "descending" : "none");
+    const labels = { username: "Annotator", currentCount: "Current", lastActiveAt: "Last active" };
+    button.textContent = `${labels[button.dataset.annotatorSort]}${selected ? state.annotatorSortDirection === 1 ? " ↑" : " ↓" : ""}`;
+  }
+}
+
+function annotatorActivity(item) {
+  if (item.status !== "active") return "deactivated";
+  if (!item.lastActiveAt) return "never";
+  return Date.now() - new Date(item.lastActiveAt).getTime() <= 7 * 86400000 ? "recent" : "idle";
+}
+
+function visibleAnnotators() {
+  const query = $("sidebarAnnotatorSearch").value.trim().toLocaleLowerCase();
+  return state.annotators.filter((item) => item.username.toLocaleLowerCase().includes(query) && (state.annotatorFilter === "all" || annotatorActivity(item) === state.annotatorFilter)).sort((a, b) => {
+    const difference = state.annotatorSort === "username" ? a.username.localeCompare(b.username)
+      : state.annotatorSort === "currentCount" ? a.currentCount - b.currentCount
+      : new Date(a.lastActiveAt || 0).getTime() - new Date(b.lastActiveAt || 0).getTime();
+    return difference * state.annotatorSortDirection || a.username.localeCompare(b.username);
+  });
 }
 
 async function selectAnnotator(id) {
@@ -806,15 +869,54 @@ function renderOverview(data) {
   text($("completionRate"), `${completionPercent.toFixed(1)}%`);
   $("completionProgress").setAttribute("aria-valuenow", String(Math.round(completionPercent)));
   $("completionProgress").dataset.level = String(Math.round(completionPercent / 5) * 5);
+  text($("completionAnnotated"), formatInteger(annotated));
+  text($("completionSkipped"), formatInteger(skipped));
+  text($("completionPending"), formatInteger(pending));
   text($("oldestPending"), formatRelative(pick(stats, ["oldest_pending_at", "queue.oldest_pending_at", "pending.oldest_created_at"], null)));
   text($("staleAssignments"), formatInteger(pick(stats, ["stale_assignments", "queue_health.stale_assignments", "long_held_assignments"], 0)));
-  text($("estimatedFinish"), formatDateTime(pick(stats, ["estimated_finish_at", "estimated_completion_date"], null), true));
+  const estimated = pick(stats, ["estimated_finish_at", "estimated_completion_date"], null);
+  text($("estimatedFinish"), estimated ? formatDateTime(estimated, true) : "Not enough data");
 
   const distributions = pick(data, ["distributions"], {});
   renderDistribution($("categoryDistribution"), pick(distributions, ["categories", "category"], pick(data, ["categories"], [])));
   renderDistribution($("skipDistribution"), pick(distributions, ["skip_reasons", "skipReasons"], pick(data, ["skip_reasons"], [])));
   renderMetadataGroups(data);
   if (window.AdminCrossCheck) AdminCrossCheck.renderOverviewCards(data);
+  renderOverviewAlerts(data);
+  const filterCount = Object.values(state.metadataFilters).filter(Boolean).length;
+  text($("overviewFilterCount"), filterCount);
+  $("overviewFilterCount").hidden = !filterCount;
+}
+
+function renderOverviewAlerts(data) {
+  const container = $("overviewAlerts");
+  clear(container);
+  const cc = data.cross_check || {};
+  const stats = overviewStats(data);
+  const stale = numberValue(pick(stats, ["queue_health.stale_assignments", "stale_assignments"], 0));
+  const pending = numberValue(pick(stats, ["totals.pending_count", "pending_count"], 0));
+  const ineligible = numberValue(pick(stats, ["pending.ineligible_count", "pending_ineligible"], 0));
+  const alerts = [];
+  if (cc.pending_review_count) alerts.push({
+    title: `${formatInteger(cc.pending_review_count)} cross-check rounds awaiting review`,
+    description: `Oldest created ${formatDateTime(cc.oldest_pending_created_at)} · ${formatDuration(cc.blocked_audio_seconds)} held from training export`,
+    action: "Review queue →", danger: true,
+    open: () => $("overviewCrossCheckPanel").querySelector("[data-open-cross-checks]").click(),
+  });
+  if (stale) alerts.push({
+    title: `${formatInteger(stale)} long-held assignments`, description: "Held longer than the expected lease. Inspect the assignment activity.", action: "Inspect →",
+    open: () => { state.qualitySignal = "stale_assignment"; $("qualitySignal").value = "stale_assignment"; navigate("quality"); },
+  });
+  if (pending && ineligible) alerts.push({
+    title: `${Math.round(ineligible / pending * 100)}% of pending tasks are ineligible`, description: `${formatInteger(ineligible)} of ${formatInteger(pending)} pending tasks cannot currently be claimed.`, action: "View tasks →",
+    open: () => { $("corpusStatus").value = "pending"; $("corpusSearch").value = ""; navigate("corpus"); },
+  });
+  for (const alert of alerts) {
+    const button = element("button", { className: "text-button", type: "button", text: alert.action });
+    button.addEventListener("click", alert.open);
+    container.appendChild(element("article", { className: `attention-card${alert.danger ? " is-danger" : ""}` }, [icon("alert"), element("div", { className: "attention-copy" }, [element("strong", { text: alert.title }), element("p", { text: alert.description })]), button]));
+  }
+  container.hidden = !alerts.length;
 }
 
 function groupRows(items, labelFn) {
@@ -828,27 +930,25 @@ function groupRows(items, labelFn) {
 }
 
 function renderGroupTable(container, rows, emptyText) {
+  renderBars(container, rows.map((row) => ({ label: row.label, value: row.tasks, detail: formatDuration(row.duration, false) })), emptyText);
+}
+
+function renderBars(container, rows, emptyText = "No distribution data yet.") {
   clear(container);
   if (!rows.length) {
     container.appendChild(element("div", { className: "empty-inline", text: emptyText }));
     return;
   }
-  const table = element("table", { className: "metadata-group-table" });
-  table.appendChild(element("thead", {}, element("tr", {}, [
-    element("th", { text: "Group" }),
-    element("th", { className: "num", text: "Tasks" }),
-    element("th", { className: "num", text: "Source audio duration" }),
-  ])));
-  const body = element("tbody");
+  const maximum = Math.max(1, ...rows.map((row) => row.value));
   for (const row of rows) {
-    body.appendChild(element("tr", {}, [
-      element("td", { text: row.label }),
-      element("td", { className: "num", text: formatInteger(row.tasks) }),
-      element("td", { className: "num", text: formatDuration(row.duration, false) }),
+    container.appendChild(element("div", { className: "distribution-row" }, [
+      element("div", { className: "distribution-label" }, [
+        element("span", { text: row.label }),
+        element("span", { className: "distribution-value" }, [element("b", { text: formatInteger(row.value) }), element("small", { text: row.detail || "" })]),
+      ]),
+      element("meter", { className: "distribution-meter", attrs: { min: 0, max: maximum, value: row.value, "aria-label": row.label, "aria-valuetext": `${formatInteger(row.value)} tasks${row.detail ? `, ${row.detail}` : ""}` } }),
     ]));
   }
-  table.appendChild(body);
-  container.appendChild(table);
 }
 
 function renderMetadataGroups(data) {
@@ -907,23 +1007,9 @@ function normaliseDistribution(raw) {
 }
 
 function renderDistribution(container, raw) {
-  clear(container);
-  const items = normaliseDistribution(raw).sort((a, b) => b.value - a.value).slice(0, 8);
-  if (!items.length) {
-    container.appendChild(element("div", { className: "empty-inline", text: "No distribution data yet." }));
-    return;
-  }
-  const maximum = Math.max(...items.map((item) => item.value), 1);
-  for (const item of items) {
-    const fill = element("i");
-    const level = Math.max(5, Math.min(100, Math.round(item.value / maximum * 20) * 5));
-    const track = element("span", { className: "bar-track", attrs: { "aria-hidden": "true" } }, fill);
-    container.appendChild(element("div", { className: "bar-row", title: `${item.label}: ${formatInteger(item.value)}`, dataset: { level } }, [
-      element("span", { className: "bar-label", text: item.label }),
-      track,
-      element("span", { className: "bar-value", text: formatInteger(item.value) }),
-    ]));
-  }
+  const items = normaliseDistribution(raw).sort((a, b) => b.value - a.value);
+  const total = items.reduce((sum, item) => sum + item.value, 0);
+  renderBars(container, items.map((item) => ({ ...item, detail: total ? `${(item.value / total * 100).toFixed(1)}%` : "0%" })));
 }
 
 function normaliseTimeseries(data) {
@@ -969,69 +1055,37 @@ function canvasContext(canvas) {
 
 function drawSeriesChart(canvas, points, definitions, targetState = null) {
   const { context, width, height } = canvasContext(canvas);
-  const padding = { top: 15, right: 13, bottom: 29, left: 39 };
+  const palette = getComputedStyle(document.documentElement);
+  const padding = { top: 10, right: 5, bottom: 26, left: 5 };
   const chartWidth = Math.max(1, width - padding.left - padding.right);
   const chartHeight = Math.max(1, height - padding.top - padding.bottom);
-  const maximum = Math.max(1, ...points.flatMap((point) => definitions.map((definition) => numberValue(point[definition.key]))));
-  const niceMaximum = maximum <= 5 ? 5 : Math.ceil(maximum / 10) * 10;
-
-  context.strokeStyle = "#e8e9ea";
-  context.lineWidth = 1;
-  context.fillStyle = "#8b8f95";
-  context.font = "9px ui-sans-serif, sans-serif";
-  context.textAlign = "right";
-  context.textBaseline = "middle";
-  for (let line = 0; line <= 4; line += 1) {
-    const y = padding.top + chartHeight * line / 4;
-    context.beginPath();
-    context.moveTo(padding.left, y + .5);
-    context.lineTo(width - padding.right, y + .5);
-    context.stroke();
-    const label = Math.round(niceMaximum * (1 - line / 4));
-    context.fillText(String(label), padding.left - 7, y);
-  }
-
-  const xPositions = points.map((_, index) => padding.left + (points.length === 1 ? chartWidth / 2 : index * chartWidth / (points.length - 1)));
-  for (const definition of definitions) {
-    context.beginPath();
-    context.strokeStyle = definition.color;
-    context.lineWidth = 2;
-    context.lineJoin = "round";
-    context.lineCap = "round";
-    points.forEach((point, index) => {
-      const x = xPositions[index];
-      const y = padding.top + chartHeight - numberValue(point[definition.key]) / niceMaximum * chartHeight;
-      if (index === 0) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    });
-    context.stroke();
-    if (points.length <= 45) {
-      context.fillStyle = definition.color;
-      points.forEach((point, index) => {
-        const x = xPositions[index];
-        const y = padding.top + chartHeight - numberValue(point[definition.key]) / niceMaximum * chartHeight;
-        context.beginPath();
-        context.arc(x, y, 2.25, 0, Math.PI * 2);
-        context.fill();
-      });
+  const maximum = Math.max(1, ...points.map((point) => definitions.reduce((sum, definition) => sum + numberValue(point[definition.key]), 0)));
+  const columnWidth = chartWidth / Math.max(1, points.length);
+  const xPositions = points.map((_, index) => padding.left + (index + .5) * columnWidth);
+  context.strokeStyle = palette.getPropertyValue("--line").trim();
+  context.beginPath();
+  context.moveTo(padding.left, height - padding.bottom + .5);
+  context.lineTo(width - padding.right, height - padding.bottom + .5);
+  context.stroke();
+  points.forEach((point, index) => {
+    let bottom = padding.top + chartHeight;
+    for (const definition of definitions) {
+      const barHeight = numberValue(point[definition.key]) / maximum * chartHeight;
+      context.fillStyle = palette.getPropertyValue(definition.color).trim();
+      context.fillRect(padding.left + index * columnWidth, bottom - barHeight, Math.max(1, columnWidth - 2), barHeight);
+      bottom -= barHeight;
     }
-  }
-
-  context.fillStyle = "#8b8f95";
-  context.textAlign = "center";
+  });
+  context.fillStyle = palette.getPropertyValue("--muted").trim();
+  context.font = "11px -apple-system, BlinkMacSystemFont, sans-serif";
   context.textBaseline = "top";
-  const labelCount = Math.min(points.length, width < 500 ? 4 : 6);
-  const seen = new Set();
-  for (let index = 0; index < labelCount; index += 1) {
-    const pointIndex = labelCount === 1 ? 0 : Math.round(index * (points.length - 1) / (labelCount - 1));
-    if (seen.has(pointIndex)) continue;
-    seen.add(pointIndex);
-    const raw = points[pointIndex]?.date;
-    const parsed = raw ? new Date(raw) : null;
-    const label = parsed && !Number.isNaN(parsed.getTime())
-      ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: state.timezone }).format(parsed)
-      : String(raw || "");
-    context.fillText(label, xPositions[pointIndex], height - 18);
+  const indexes = [...new Set([0, Math.floor(points.length / 2), points.length - 1])].filter((index) => index >= 0 && index < points.length);
+  for (const [position, index] of indexes.entries()) {
+    const parsed = new Date(points[index].date);
+    const label = Number.isNaN(parsed.getTime()) ? points[index].date : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: state.timezone }).format(parsed);
+    context.textAlign = position === 0 ? "left" : position === indexes.length - 1 ? "right" : "center";
+    const x = position === 0 ? padding.left : position === indexes.length - 1 ? width - padding.right : xPositions[index];
+    context.fillText(label, x, height - 17);
   }
   if (targetState) {
     targetState.points = points;
@@ -1041,49 +1095,41 @@ function drawSeriesChart(canvas, points, definitions, targetState = null) {
 }
 
 function drawActivityChart(points) {
-  $("activityChartEmpty").hidden = points.length > 0;
+  $("activityChartEmpty").hidden = points.some((point) => point.annotated || point.skipped || point.revoked);
   drawSeriesChart($("activityChart"), points, [
-    { key: "annotated", color: "#10a37f" },
-    { key: "skipped", color: "#98a1ad" },
-    { key: "revoked", color: "#d66d75" },
+    { key: "annotated", color: "--accent" },
+    { key: "skipped", color: "--skip" },
+    { key: "revoked", color: "--danger" },
   ], charts.activity);
   const totals = points.reduce((sum, point) => ({ annotated: sum.annotated + point.annotated, skipped: sum.skipped + point.skipped, revoked: sum.revoked + point.revoked }), { annotated: 0, skipped: 0, revoked: 0 });
+  text($("activityAnnotated"), formatInteger(totals.annotated));
+  text($("activitySkipped"), formatInteger(totals.skipped));
+  text($("activityRevoked"), formatInteger(totals.revoked));
+  $("activityRangeSlot").closest(".panel-heading").querySelector(".panel-title-inline p").textContent = state.range === "90d" ? "Submissions per week" : "Submissions per day";
   $("activityChart").setAttribute("aria-label", `Daily annotation activity. ${formatInteger(totals.annotated)} annotated, ${formatInteger(totals.skipped)} skipped, and ${formatInteger(totals.revoked)} revoked in the selected period.`);
 }
 
 function drawQueueChart(queue, pendingTotal) {
   const canvas = $("queueChart");
   const { context, width, height } = canvasContext(canvas);
+  const palette = getComputedStyle(document.documentElement);
   const values = [
-    { label: "Available", value: queue.available, color: "#10a37f", className: "queue-available" },
-    { label: "Assigned", value: queue.assigned, color: "#5b72e7", className: "queue-assigned" },
-    { label: "Reserved", value: queue.reserved, color: "#d49a38", className: "queue-reserved" },
-    { label: "Ineligible", value: queue.blocked, color: "#9da1a6", className: "queue-ineligible" },
+    { label: "Available", value: queue.available, color: "--success", className: "queue-available" },
+    { label: "Assigned", value: queue.assigned, color: "--accent", className: "queue-assigned" },
+    { label: "Reserved", value: queue.reserved, color: "--blue", className: "queue-reserved" },
+    { label: "Ineligible", value: queue.blocked, color: "--line-strong", className: "queue-ineligible" },
   ];
   const sum = values.reduce((total, item) => total + item.value, 0);
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const radius = Math.min(width, height) * .38;
-  context.lineWidth = Math.max(12, radius * .22);
-  context.lineCap = "butt";
-  if (!sum) {
-    context.strokeStyle = "#e8eaea";
-    context.beginPath();
-    context.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    context.stroke();
-  } else {
-    let start = -Math.PI / 2;
-    for (const item of values) {
-      if (!item.value) continue;
-      const end = start + item.value / sum * Math.PI * 2;
-      context.strokeStyle = item.color;
-      context.beginPath();
-      context.arc(centerX, centerY, radius, start, end);
-      context.stroke();
-      start = end;
-    }
+  context.fillStyle = palette.getPropertyValue("--surface-subtle").trim();
+  context.fillRect(0, 0, width, height);
+  let left = 0;
+  for (const item of values) {
+    const size = sum ? item.value / sum * width : 0;
+    context.fillStyle = palette.getPropertyValue(item.color).trim();
+    context.fillRect(left, 0, size, height);
+    left += size;
   }
-  text($("queueTotal"), formatInteger(pendingTotal || sum));
+  text($("queueTotal"), formatInteger(pendingTotal));
   clear($("queueLegend"));
   for (const item of values) {
     const row = element("div");
@@ -1091,6 +1137,8 @@ function drawQueueChart(queue, pendingTotal) {
     row.append(swatch, element("dt", { text: item.label }), element("dd", { text: formatInteger(item.value) }));
     $("queueLegend").appendChild(row);
   }
+  $("queueOverlapNote").hidden = sum === pendingTotal;
+  text($("queueOverlapNote"), `Queue buckets total ${formatInteger(sum)}; pending contains ${formatInteger(pendingTotal)} tasks. Reserved and assigned buckets may overlap.`);
   canvas.setAttribute("aria-label", `Pending queue: ${values.map((item) => `${item.label} ${item.value}`).join(", ")}.`);
 }
 
@@ -1195,6 +1243,7 @@ function applySceneScopeFields(scope) {
   if (boolValue(pick(scope, ["allow_unknown"], false))) allowed.add("spoken_languages");
   for (const box of document.querySelectorAll("#scopeSceneGrid input[type=checkbox]")) {
     box.checked = allowed.has(box.value);
+    box.disabled = $("scopeMode").value !== "restricted";
   }
 }
 
@@ -1232,8 +1281,19 @@ function tryBindCurrentScopeEditor() {
 async function loadAnnotator(id, epoch = state.requestEpoch) {
   const token = ++state.scopeLoadToken;
   state.scopeEditorBound = null;
-  $("annotatorEmptyState").hidden = true;
-  $("annotatorDetail").hidden = false;
+  state.annotatorDetail = null;
+  state.annotatorTasks = [];
+  text($("annotatorName"), state.annotators.find((item) => item.id === id)?.username || "Annotator details");
+  text($("annotatorMeta"), "Loading contributions…");
+  for (const key of ["annotatorCurrent", "annotatorCurrentDuration", "annotatorSubmitted", "annotatorActiveDays", "annotatorMedian", "annotatorP90", "annotatorRevokeRate", "annotatorRevoked", "annotatorStatus"]) text($(key), "—");
+  $("deactivateAnnotatorButton").disabled = true;
+  $("exportAnnotatorButton").disabled = true;
+  $("batchRevokeButton").disabled = true;
+  clear($("annotatorTaskBody"));
+  clear($("annotatorLabelMix"));
+  openDialog($("annotatorDialog"));
+  drawSeriesChart($("annotatorChart"), [], []);
+  $("annotatorChartEmpty").hidden = false;
   setScopeEditorUnavailable("Loading claim scope…");
   resetScopeEditorFields();
   setTaskTableState("annotator", "Loading annotations…");
@@ -1286,7 +1346,7 @@ function renderAnnotatorDetail(data) {
   const series = normaliseTimeseries({ items: listValue(data, ["timeseries", "series", "daily"]) });
   charts.annotator.points = series;
   $("annotatorChartEmpty").hidden = series.length > 0;
-  drawSeriesChart($("annotatorChart"), series, [{ key: "annotated", color: "#10a37f" }, { key: "skipped", color: "#98a1ad" }]);
+  drawSeriesChart($("annotatorChart"), series, [{ key: "annotated", color: "--accent" }, { key: "skipped", color: "--skip" }]);
   const distributions = pick(data, ["distributions"], {});
   const labelMix = pick(distributions, ["labels", "statuses", "label_mix"], {
     Annotated: pick(stats, ["annotated"], 0),
@@ -1294,6 +1354,7 @@ function renderAnnotatorDetail(data) {
     Revoked: pick(stats, ["revoked"], 0),
   });
   renderDistribution($("annotatorLabelMix"), labelMix);
+  $("exportAnnotatorButton").disabled = false;
 }
 
 function statusBadge(status) {
@@ -1336,8 +1397,8 @@ function renderAnnotatorTasks() {
     row.appendChild(element("td", { text: formatDateTime(item.submittedAt) }));
     row.appendChild(element("td", { className: "mono-cell", text: formatSecondsAsTurnaround(item.turnaroundSeconds) }));
     const actionCell = element("td", { className: "actions-cell" });
-    actionCell.appendChild(element("button", { className: "table-action", type: "button", text: "View", dataset: { taskAction: "view", taskId: item.taskId } }));
-    if (item.revocable) actionCell.appendChild(element("button", { className: "table-action", type: "button", text: "Revoke", dataset: { taskAction: "revoke", taskId: item.taskId } }));
+    actionCell.appendChild(element("button", { className: "button button-secondary button-small", type: "button", text: "View", dataset: { taskAction: "view", taskId: item.taskId } }));
+    if (item.revocable) actionCell.appendChild(element("button", { className: "button button-danger button-small", type: "button", text: "Revoke", dataset: { taskAction: "revoke", taskId: item.taskId } }));
     row.appendChild(actionCell);
     body.appendChild(row);
   }
@@ -1383,6 +1444,7 @@ async function loadCorpus(append = false, epoch = state.requestEpoch) {
   if (!append) writeNamedFilters("corpus", state.metadataFilters);
   const metadata = readNamedFilters("corpus");
   state.metadataFilters = metadata;
+  renderCorpusFilterChips();
   writeNamedFilters("overview", metadata);
   const extra = {
     limit: 50,
@@ -1446,12 +1508,44 @@ function renderCorpusTasks() {
     row.appendChild(element("td", { text: item.prediction_label || item.predictionLabel || sceneLabel(item.prediction_scene) || "—" }));
     row.appendChild(element("td", { text: formatDateTime(item.submittedAt || item.updated_at) }));
     const actions = element("td", { className: "actions-cell" });
-    actions.appendChild(element("button", { className: "table-action", text: "View", type: "button", dataset: { taskAction: "view-corpus", taskId: item.taskId } }));
-    if (item.revocable) actions.appendChild(element("button", { className: "table-action", text: "Revoke", type: "button", dataset: { taskAction: "revoke-corpus", taskId: item.taskId } }));
+    actions.appendChild(element("button", { className: "button button-secondary button-small", text: "View", type: "button", dataset: { taskAction: "view-corpus", taskId: item.taskId } }));
+    if (item.revocable) actions.appendChild(element("button", { className: "button button-danger button-small", text: "Revoke", type: "button", dataset: { taskAction: "revoke-corpus", taskId: item.taskId } }));
     row.appendChild(actions);
     body.appendChild(row);
   }
   $("loadMoreCorpusTasks").hidden = !state.corpusTaskCursor;
+}
+
+function renderCorpusFilterChips() {
+  const container = $("corpusFilterChips");
+  clear(container);
+  const fields = [
+    ["corpusSearch", "Search"], ["corpusStatus", "Status"],
+    ["corpusSourceScene", "Source scene"], ["corpusSourceConfidence", "Confidence"],
+    ["corpusBatch", "Batch"], ["corpusReviewStatus", "Human review"],
+    ["corpusPredictionScene", "Model classification"], ["corpusHumanScene", "Human scene"],
+  ];
+  let moreCount = 0;
+  for (const [id, label] of fields) {
+    const input = $(id);
+    if (!input.value) continue;
+    const value = input instanceof HTMLSelectElement ? input.selectedOptions[0]?.textContent : input.value;
+    const button = element("button", { className: "filter-chip", type: "button", attrs: { "aria-label": `Remove ${label}: ${value}` } }, [`${label}: ${value}`, icon("close")]);
+    button.addEventListener("click", () => { input.value = ""; $("corpusFilterForm").requestSubmit(); });
+    container.appendChild(button);
+    if (input.closest(".advanced-filters")) moreCount += 1;
+  }
+  container.hidden = !container.childElementCount;
+  if (container.childElementCount) {
+    const reset = element("button", { className: "text-button", type: "button", text: "Clear all" });
+    reset.addEventListener("click", () => {
+      for (const [id] of fields) $(id).value = "";
+      $("corpusFilterForm").requestSubmit();
+    });
+    container.appendChild(reset);
+  }
+  text($("corpusMoreCount"), moreCount);
+  $("corpusMoreCount").hidden = !moreCount;
 }
 
 async function loadQuality(epoch = state.requestEpoch) {
@@ -1503,7 +1597,7 @@ function renderQuality(data) {
     row.appendChild(element("td", {}, statusBadge(signal)));
     row.appendChild(element("td", { text: signalValue }));
     row.appendChild(element("td", { text: formatDateTime(task.submittedAt) }));
-    row.appendChild(element("td", { className: "actions-cell" }, element("button", { className: "table-action", text: "View", type: "button", dataset: { taskAction: "view-quality", taskId: task.taskId } })));
+    row.appendChild(element("td", { className: "actions-cell" }, element("button", { className: "button button-secondary button-small", text: "View", type: "button", dataset: { taskAction: "view-quality", taskId: task.taskId } })));
     body.appendChild(row);
   }
   if (window.AdminCrossCheck) AdminCrossCheck.renderQualityCard(data);
@@ -1985,14 +2079,15 @@ function redrawVisibleCharts() {
         assigned: numberValue(pick(stats, ["pending_assigned", "assigned", "pending.assigned_count"], 0)),
         reserved: numberValue(pick(stats, ["pending_reserved", "reserved", "pending.reserved_count"], 0)),
         blocked: numberValue(pick(stats, ["pending_ineligible", "ineligible", "pending.ineligible_count"], 0)),
-      }, numberValue(pick(stats, ["pending", "pending_count", "totals.pending_count"], 0)));
+      }, numberValue(pick(stats, ["pending_count", "totals.pending_count", "pending.total_count"], 0)));
     }
   } else if (state.view === "annotators" && charts.annotator.points.length) {
-    drawSeriesChart($("annotatorChart"), charts.annotator.points, [{ key: "annotated", color: "#10a37f" }, { key: "skipped", color: "#98a1ad" }]);
+    drawSeriesChart($("annotatorChart"), charts.annotator.points, [{ key: "annotated", color: "--accent" }, { key: "skipped", color: "--skip" }]);
   }
 }
 
 function setupEvents() {
+  for (const node of document.querySelectorAll("[data-icon]")) node.replaceChildren(icon(node.dataset.icon).firstChild);
   $("loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const key = $("adminKey").value;
@@ -2030,10 +2125,36 @@ function setupEvents() {
   $("openSidebarButton").addEventListener("click", openSidebar);
   $("closeSidebarButton").addEventListener("click", () => closeSidebar(true));
   $("sidebarScrim").addEventListener("click", () => closeSidebar(true));
+  $("staleAssignments").addEventListener("click", () => {
+    state.qualitySignal = "stale_assignment";
+    $("qualitySignal").value = "stale_assignment";
+    navigate("quality");
+  });
   $("sidebarAnnotatorSearch").addEventListener("input", renderAnnotatorDirectory);
   $("sidebarAnnotatorList").addEventListener("click", (event) => {
     const button = event.target.closest("[data-annotator-id]");
     if (button) selectAnnotator(button.dataset.annotatorId);
+  });
+
+  $("annotatorStatusFilters").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-status]");
+    if (!button) return;
+    state.annotatorFilter = button.dataset.status;
+    for (const item of $("annotatorStatusFilters").querySelectorAll("button")) item.setAttribute("aria-pressed", String(item === button));
+    renderAnnotatorDirectory();
+  });
+  for (const button of document.querySelectorAll("[data-annotator-sort]")) button.addEventListener("click", () => {
+    const key = button.dataset.annotatorSort;
+    state.annotatorSortDirection = state.annotatorSort === key ? -state.annotatorSortDirection : key === "username" ? 1 : -1;
+    state.annotatorSort = key;
+    renderAnnotatorDirectory();
+  });
+  $("exportAnnotatorsButton").addEventListener("click", () => downloadCsv(`annotators-${localDateString(new Date())}.csv`, ["annotator", "current", "last_active", "status"], visibleAnnotators().map((item) => [item.username, item.currentCount, item.lastActiveAt, annotatorActivity(item)])));
+  $("activityRangeButtons").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-range]");
+    if (!button) return;
+    $("dateRange").value = button.dataset.range;
+    $("dateRange").dispatchEvent(new Event("change"));
   });
 
   $("dateRange").addEventListener("change", async () => {
@@ -2123,6 +2244,9 @@ function setupEvents() {
     setButtonBusy($("loadMoreCorpusTasks"), false);
   });
   $("exportCorpusButton").addEventListener("click", () => exportTasks(state.corpusTasks, "corpus-tasks"));
+  $("scopeMode").addEventListener("change", () => {
+    for (const box of $("scopeSceneGrid").querySelectorAll("input")) box.disabled = $("scopeMode").value !== "restricted";
+  });
   $("sceneScopeForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = $("sceneScopeForm");
@@ -2258,6 +2382,17 @@ function setupEvents() {
   for (const dialog of document.querySelectorAll("dialog")) {
     dialog.addEventListener("click", (event) => { if (event.target === dialog) closeDialog(dialog); });
     dialog.addEventListener("close", () => {
+      if (dialog === $("annotatorDialog") && !dialog.open) {
+        const selectedId = state.selectedAnnotatorId;
+        state.selectedAnnotatorId = "";
+        state.scopeEditorBound = null;
+        state.scopeLoadToken += 1;
+        syncUrl();
+        if (state.view === "annotators") {
+          const row = Array.from($("sidebarAnnotatorList").querySelectorAll("[data-annotator-id]")).find((item) => item.dataset.annotatorId === selectedId);
+          (row?.querySelector("button") || $("sidebarAnnotatorSearch")).focus({ preventScroll: true });
+        }
+      }
       if (dialog === $("revokeDialog")) {
         state.pendingRevoke = null;
         $("revokeAdminKey").value = "";
@@ -2279,6 +2414,8 @@ function setupEvents() {
     cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(redrawVisibleCharts);
   });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawVisibleCharts);
+  $("annotatorInsights").addEventListener("toggle", () => { if ($("annotatorInsights").open) redrawVisibleCharts(); });
   updateSidebarAccessibility();
   window.addEventListener("popstate", async () => {
     restoreUrlState();

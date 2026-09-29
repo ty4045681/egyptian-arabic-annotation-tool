@@ -101,18 +101,15 @@ def load_scope(cur, user_id) -> SceneScope:
 
 
 def _source_row_clauses(filters: TaskFilter, *, src_alias: str = "src") -> tuple[list[str], list]:
-    scene = filters.source_scene_value()
+    scenes = filters.source_scene_values()
     clauses: list[str] = [f"{src_alias}.is_current"]
     params: list = []
-    if is_source_fallback_filter(scene):
-        # Spoken languages: explicit rows, plus NULL scene_code on a source row.
-        clauses.append(
-            f"({src_alias}.scene_code IS NULL OR {src_alias}.scene_code = %s)"
-        )
-        params.append(FALLBACK_SOURCE_SCENE)
-    elif scene:
-        clauses.append(f"{src_alias}.scene_code = %s")
-        params.append(scene)
+    if scenes:
+        match = f"{src_alias}.scene_code = ANY(%s)"
+        if any(is_source_fallback_filter(scene) for scene in scenes):
+            match = f"({match} OR {src_alias}.scene_code IS NULL)"
+        clauses.append(match)
+        params.append(list(scenes))
     if filters.source_confidence:
         clauses.append(f"{src_alias}.confidence = %s")
         params.append(filters.source_confidence)
@@ -158,8 +155,7 @@ def source_exists_sql(filters: TaskFilter, *, task_alias: str = "t") -> tuple[st
     rows. A batch filter never matches a virtual (no-row) task, because
     that task has no batch evidence.
     """
-    scene = filters.source_scene_value()
-    if not scene and not filters.source_confidence and not filters.batch_code:
+    if not filters.source_scene_values() and not filters.source_confidence and not filters.batch_code:
         return "true", []
     clauses, params = _source_row_clauses(filters, src_alias="src")
     exists_row = (

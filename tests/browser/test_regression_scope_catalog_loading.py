@@ -3,6 +3,7 @@ from playwright.sync_api import expect, sync_playwright
 
 import db
 from tests.test_admin_repository import _make_user
+from tests.browser.admin_helpers import choose, expect_choice, open_annotator, close_annotator
 
 
 def test_scope_editor_waits_for_catalog_and_preserves_existing_access(provenance_site):
@@ -22,9 +23,8 @@ def test_scope_editor_waits_for_catalog_and_preserves_existing_access(provenance
             page.locator('#adminKey').fill(site['admin_key'])
             page.locator('#loginButton').click()
             expect(page.locator('#adminApp')).to_be_visible(timeout=15000)
-            button = page.locator(f'#sidebarAnnotatorList [data-annotator-id="{uid}"]')
-            expect(button).to_be_visible(timeout=10000)
-            button.click()
+            page.locator('[data-view="annotators"]').click()
+            open_annotator(page, uid)
             expect(page.locator('#annotatorName')).to_have_text('scope-catalog-loading', timeout=10000)
             assert held, 'The independent facet response should still be pending'
             mode = page.locator('#scopeMode')
@@ -32,7 +32,7 @@ def test_scope_editor_waits_for_catalog_and_preserves_existing_access(provenance
             held.pop().continue_()
             expect(mode).to_be_visible(timeout=10000)
             expect(mode).to_be_enabled(timeout=10000)
-            expect(mode).to_have_value('restricted')
+            expect_choice(page, "#scopeMode", "Restricted scenes")
             expect(page.locator('#scopeSceneGrid input[value="airport"]')).to_be_checked()
             page.locator('#scopeSceneGrid input[value="spoken_languages"]').check()
             page.locator('#scopeReason').fill('Add Spoken languages while preserving Airport')

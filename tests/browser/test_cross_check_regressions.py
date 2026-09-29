@@ -21,8 +21,7 @@ def open_editor(page, site):
     expect(page.locator("[data-cc-round]").first).to_be_visible(timeout=15000)
     page.locator("[data-cc-round]").first.click()
     expect(page.locator("#ccDecisionForm")).to_be_visible(timeout=15000)
-    page.locator("#ccDecision-edited").check()
-    page.locator('input[name="ccEditBase"][value="original"]').check()
+    page.locator('[data-review-segment="1"]').get_by_role("button", name="Edit", exact=False).click()
     page.locator("[data-editor-index='0']").fill("Local corrected manuscript")
     page.locator("#ccDecisionReason").fill("My local adjudication reason")
 
@@ -36,8 +35,8 @@ def published_text(task_id):
         ).fetchone()[0]
 
 
-@pytest.mark.parametrize("server_accepted", [False, True], ids=["request-lost", "response-lost"])
-def test_uncertain_decision_locks_form_and_retries_same_body(cross_check_site, server_accepted):
+@pytest.mark.parametrize("delivery", ["request-lost", "response-lost", "unreadable-response"])
+def test_uncertain_decision_locks_form_and_retries_same_body(cross_check_site, delivery):
     site = cross_check_site
     task_id = queue_awaiting(site["client"], site["seed_tasks"], 1)[0]["task_id"]
     posted = []
@@ -50,9 +49,12 @@ def test_uncertain_decision_locks_form_and_retries_same_body(cross_check_site, s
         def drop_first(route):
             posted.append(route.request.post_data_json)
             if len(posted) == 1:
-                if server_accepted:
+                if delivery != "request-lost":
                     assert route.fetch().status == 200
-                route.abort("connectionreset")
+                if delivery == "unreadable-response":
+                    route.fulfill(status=200, json={})
+                else:
+                    route.abort("connectionreset")
             else:
                 route.continue_()
 
@@ -60,16 +62,23 @@ def test_uncertain_decision_locks_form_and_retries_same_body(cross_check_site, s
         open_editor(page, site)
         page.locator("#ccConfirmDecision").click()
         page.locator("#ccConfirmDecision").click()
-        expect(page.locator("#ccDecisionError")).to_contain_text("Retry will resend", timeout=10000)
-        for selector in ["[data-editor-index='0']", "#ccDecisionReason", "#ccDecision-secondary", "#ccSceneOverride"]:
+        expect(page.locator("#ccDecisionError")).to_contain_text("Retry will send the same request", timeout=10000)
+        for selector in ["[data-editor-index='0']", "#ccDecisionReason", "#ccSceneOverride"]:
             expect(page.locator(selector)).to_be_disabled()
+        expect(page.locator('[data-review-segment="1"]').get_by_role("button", name="Use B", exact=False)).to_be_disabled()
         expect(page.locator("#ccCopyDraft")).to_be_enabled()
         expect(page.locator("#ccConfirmDecision")).to_have_text("Retry same decision")
         page.locator("#ccBackToList").click()
+        expect(page.get_by_role("dialog", name="Confirm the pending request first")).to_be_visible()
+        expect(page.get_by_role("button", name="Discard and leave")).to_be_disabled()
+        page.get_by_role("button", name="Keep editing").click()
         expect(page.locator("#ccReviewPanel")).to_be_visible()
-        page.locator('[data-view="overview"]').click()
-        expect(page.locator("#crossChecksView")).to_be_visible()
-        page.locator("#refreshButton").click()
+        expect(page.get_by_role("dialog", name="Confirm the pending request first")).not_to_be_visible()
+        page.keyboard.press("Escape")
+        expect(page.get_by_role("dialog", name="Confirm the pending request first")).to_be_visible()
+        page.get_by_role("button", name="Keep editing").click()
+        expect(page.locator("#ccReviewPanel")).to_be_visible()
+        page.get_by_role("button", name="Refresh review", exact=True).click()
         expect(page.locator("[data-editor-index='0']")).to_have_value("Local corrected manuscript")
         expect(page.locator("[data-editor-index='0']")).to_be_disabled()
         page.locator("#ccConfirmDecision").click()
@@ -131,13 +140,15 @@ def test_conflicting_edited_draft_remains_copyable(cross_check_site, refresh_fai
         )
         assert other.status_code == 200
         if refresh_fails:
-            page.route(f"**/api/admin/cross-checks/{round_id}", lambda route: route.fulfill(status=500, json={"error": "Read temporarily failed"}), times=1)
+            page.route(f"**/api/admin/cross-checks/{round_id}", lambda route: route.fulfill(status=500, json={"error": "Read temporarily failed"}))
         page.locator("#ccConfirmDecision").click()
         page.locator("#ccConfirmDecision").click()
-        expect(page.locator("#ccRetainedDraft")).to_contain_text("Local corrected manuscript", timeout=15000)
-        expect(page.locator("#ccRetainedDraft")).to_contain_text("My local adjudication reason")
+        expect(page.locator("#ccRetainedDraft")).to_be_visible(timeout=15000)
+        retained = page.get_by_role("textbox", name="Retained decision draft").input_value()
+        assert "Local corrected manuscript" in retained
+        assert "My local adjudication reason" in retained
         page.locator("#ccCopyRetainedDraft").click()
-        expect(page.locator("#toastRegion")).to_contain_text("draft copied")
+        expect(page.locator(".ant-message")).to_contain_text("draft copied")
         copied = json.loads(page.evaluate("() => navigator.clipboard.readText()"))
         assert copied["round_id"] == round_id
         assert copied["decision"] == "edited"
@@ -146,11 +157,15 @@ def test_conflicting_edited_draft_remains_copyable(cross_check_site, refresh_fai
         assert copied["segments"][0]["text"] == "Local corrected manuscript"
         assert len(copied["segments"]) == 2
         if refresh_fails:
-            page.locator("[data-cc-retry-round]").click()
+            expect(page.get_by_role("button", name="Retry", exact=True)).to_be_visible(timeout=15000)
+            page.unroute(f"**/api/admin/cross-checks/{round_id}")
+            page.get_by_role("button", name="Retry", exact=True).click()
         expect(page.locator("#ccReviewBody")).to_contain_text("Adjudication is complete", timeout=10000)
         expect(page.locator("#ccRetainedDraft")).to_be_visible()
         page.on("dialog", lambda dialog: dialog.dismiss())
         page.locator("#ccBackToList").click()
+        expect(page.get_by_role("dialog", name="Discard unsaved changes?")).to_be_visible()
+        page.get_by_role("button", name="Keep editing").click()
         expect(page.locator("#ccRetainedDraft")).to_be_visible()
         browser.close()
 
@@ -164,15 +179,12 @@ def test_declining_refresh_discard_keeps_editable_draft(cross_check_site):
         open_editor(page, site)
         dialogs = []
         page.on("dialog", lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
-        page.locator("#refreshButton").click()
-        expect(page.locator("#refreshButton")).to_be_enabled(timeout=10000)
+        page.get_by_role("button", name="Refresh review", exact=True).click()
+        expect(page.get_by_role("button", name="Refresh review", exact=True)).to_be_enabled(timeout=10000)
         assert dialogs
         expect(page.locator("[data-editor-index='0']")).to_have_value("Local corrected manuscript")
         expect(page.locator("[data-editor-index='0']")).to_be_enabled()
         expect(page.locator("#ccDecisionReason")).to_have_value("My local adjudication reason")
-        page.locator("#ccDecision-original").click()
-        expect(page.locator("#ccDecision-edited")).to_be_checked()
-        expect(page.locator("[data-editor-index='0']")).to_have_value("Local corrected manuscript")
         browser.close()
 
 
@@ -188,7 +200,7 @@ def test_settings_conflict_preserves_inputs_until_explicit_resave(cross_check_si
         login_admin(page, site["url"])
         open_cross_checks(page)
         page.locator("#ccSamplingButton").click()
-        expect(page.locator("#ccSettingsSave")).to_be_enabled(timeout=10000)
+        expect(page.locator("#ccSamplingPercent")).to_be_visible(timeout=10000)
         page.locator("#ccSamplingEnabled").check()
         page.locator("#ccSamplingPercent").fill("10.00")
         page.locator("#ccSamplingReason").fill("Keep my sampling reason")
@@ -206,20 +218,20 @@ def test_settings_conflict_preserves_inputs_until_explicit_resave(cross_check_si
             if route.request.method == "PUT":
                 posted.append(route.request.post_data_json)
             elif fail_next_read:
-                fail_next_read = False
                 route.fulfill(status=500, json={"error": "Settings read failed"})
                 return
             route.continue_()
 
         page.route("**/api/admin/cross-check-settings", observe)
         page.locator("#ccSettingsSave").click()
-        expect(page.locator("#ccSettingsError")).to_contain_text("changed elsewhere")
+        expect(page.locator("#ccSettingsError")).to_contain_text("settings revision changed")
         if refresh_fails:
             expect(page.locator("#ccSettingsSave")).to_be_disabled()
             page.locator("#ccSamplingPercent").fill(expected_percent)
             page.locator("#ccSamplingReason").fill(expected_reason)
-            page.locator('#ccSettingsDialog [data-close-dialog]').first.click()
-            page.locator("#ccSamplingButton").click()
+            expect(page.get_by_role("button", name="Retry loading settings")).to_be_visible(timeout=15000)
+            fail_next_read = False
+            page.get_by_role("button", name="Retry loading settings").click()
         expect(page.locator("#ccSettingsStale")).to_contain_text("Server: disabled, 25%")
         expect(page.locator("#ccSettingsStale")).to_contain_text(f"Your draft: enabled, {expected_percent}%")
         expect(page.locator("#ccSamplingPercent")).to_have_value(expected_percent)
@@ -227,7 +239,7 @@ def test_settings_conflict_preserves_inputs_until_explicit_resave(cross_check_si
         expect(page.locator("#ccSamplingEnabled")).to_be_checked()
         assert len(posted) == 1
         page.locator("#ccSettingsSave").click()
-        expect(page.locator("#ccSettingsDialog")).not_to_be_visible(timeout=10000)
+        expect(page.get_by_role("dialog", name="Cross-check sampling")).not_to_be_visible(timeout=10000)
         browser.close()
     assert len(posted) == 2
     assert posted[0]["operation_id"] != posted[1]["operation_id"]

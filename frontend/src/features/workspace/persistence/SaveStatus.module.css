@@ -1,0 +1,39 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-aux);
+  line-height: 20px;
+  padding: 2px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid currentcolor;
+  white-space: nowrap;
+}
+
+.icon {
+  font-style: normal;
+}
+
+.synced {
+  color: var(--app-success);
+}
+
+.local {
+  color: var(--app-warning);
+}
+
+.syncing {
+  color: var(--app-info);
+}
+
+.offline,
+.conflict,
+.storage-error {
+  color: var(--app-danger);
+}
+
+.frozen,
+.terminal-unsupported,
+.idle {
+  color: var(--app-text-secondary);
+}

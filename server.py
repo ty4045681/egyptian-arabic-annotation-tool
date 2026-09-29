@@ -31,15 +31,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import annotation_repository as repo
 from db import assert_schema_current, db_conn
+import frontend_delivery as frontend_delivery
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 CONFIG_PATH = SCRIPT_DIR / "config.json"
 INDEX_PATH = SCRIPT_DIR / "index.html"
 LOGIN_PATH = SCRIPT_DIR / "login.html"
 COMPLETED_PATH = SCRIPT_DIR / "completed.html"
-ADMIN_PATH = SCRIPT_DIR / "admin.html"
-ADMIN_CSS_PATH = SCRIPT_DIR / "admin.css"
-ADMIN_JS_PATH = SCRIPT_DIR / "admin.js"
 
 SESSION_TIMEOUT_MINUTES = 30  # idle lifetime; assignments never expire
 SESSION_ABSOLUTE_TIMEOUT_HOURS = 20
@@ -472,7 +470,7 @@ def audit_admin_write_failures(action_type: str):
 
 def admin_query_filters() -> dict:
     allowed = (
-        "from", "to", "timezone", "bucket", "annotator_id", "status",
+        "from", "to", "timezone", "bucket", "annotator_id", "assignee_id", "status",
         "folder", "category", "q", "include_deactivated",
         "annotator_status", "action_type", "lifecycle", "signal",
         "source_scene", "source_confidence", "batch_code", "review_status",
@@ -630,35 +628,149 @@ def serve_completed():
 @app.route("/admin/")
 @app.route("/admin/login")
 def serve_admin():
-    return send_file(str(ADMIN_PATH), mimetype="text/html")
+    try:
+        dist_dir = frontend_delivery.selected_dist_dir(app)
+        if frontend_delivery.verify_build_complete(dist_dir):
+            return jsonify({"error": "Admin frontend build missing or incomplete. Run npm --prefix frontend run build."}), 503
+        return frontend_delivery.render_preview_html(
+            dist_dir, frontend_delivery.new_csp_nonce(),
+        )
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
-@app.route("/admin.css")
-def serve_admin_css():
-    return send_file(str(ADMIN_CSS_PATH), mimetype="text/css")
+# ============================================================
+# P1 frontend preview (gated, no SPA fallback)
+# ============================================================
+def _frontend_preview_guard():
+    """Return None when preview HTML may be served, else an error response."""
+    if not frontend_delivery.is_preview_enabled(app):
+        return jsonify({"error": "Not found"}), 404
+    try:
+        dist_dir = frontend_delivery.selected_dist_dir(app)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    problems = frontend_delivery.verify_build_complete(dist_dir)
+    if problems:
+        return jsonify({"error": "Frontend build incomplete"}), 500
+    return None
 
 
-@app.route("/admin.js")
-def serve_admin_js():
-    return send_file(str(ADMIN_JS_PATH), mimetype="text/javascript")
+def _serve_preview_html():
+    guard = _frontend_preview_guard()
+    if guard is not None:
+        return guard
+    dist_dir = frontend_delivery.selected_dist_dir(app)
+    try:
+        return frontend_delivery.render_preview_html(
+            dist_dir, frontend_delivery.new_csp_nonce()
+        )
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/admin/preview")
+def serve_frontend_admin_preview():
+    if not frontend_delivery.is_preview_enabled(app):
+        return jsonify({"error": "Not found"}), 404
+    view = (request.args.get("view") or "").strip()
+    if view == "":
+        return redirect("/admin/preview?view=corpus")
+    if view != "corpus":
+        return redirect(f"/admin?view={quote(view, safe='')}")
+    if current_admin() is None:
+        return redirect("/admin/login")
+    return _serve_preview_html()
+
+
+@app.route("/frontend-preview/workspace")
+def serve_frontend_workspace_preview():
+    if not frontend_delivery.is_preview_enabled(app):
+        return jsonify({"error": "Not found"}), 404
+    state = inspect_request_session()
+    if state.status != "valid":
+        code = (
+            "not_authenticated"
+            if state.status in ("logged_out", "not_authenticated")
+            else state.status
+        )
+        return redirect(_session_reason_redirect(code))
+    return _serve_preview_html()
+
+
+@app.route("/frontend-preview/components")
+def serve_frontend_components_preview():
+    if not frontend_delivery.is_preview_enabled(app):
+        return jsonify({"error": "Not found"}), 404
+    try:
+        build = frontend_delivery.selected_build(app)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    if build != "p1":
+        return jsonify({"error": "Not found"}), 404
+    if current_admin() is None:
+        return redirect("/admin/login")
+    return _serve_preview_html()
+
+
+@app.route("/frontend/assets/<path:filename>")
+def serve_frontend_asset(filename: str):
+    reason = frontend_delivery.validate_asset_filename(filename)
+    if reason is not None:
+        return jsonify({"error": "Not found"}), 404
+    try:
+        dist_dir = frontend_delivery.selected_dist_dir(app)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    assets_root = (dist_dir / "assets").resolve()
+    candidate = (assets_root / filename).resolve()
+    try:
+        candidate.relative_to(assets_root)
+    except ValueError:
+        return jsonify({"error": "Not found"}), 404
+    if not candidate.is_file():
+        return jsonify({"error": "Not found"}), 404
+    # Explicit preflight: a missing build must fail loudly, never fall
+    # back to legacy HTML or an HTML error page.
+    problems = frontend_delivery.verify_build_complete(dist_dir)
+    if problems:
+        return jsonify({"error": "Frontend build incomplete"}), 500
+    response = send_file(
+        str(candidate),
+        mimetype=frontend_delivery.asset_mimetype(filename),
+    )
+    frontend_delivery.apply_preview_asset_headers(response)
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
 
 
 @app.after_request
 def secure_admin_responses(response):
+    is_preview = (
+        request.path == "/admin/preview"
+        or request.path.startswith("/frontend-preview/")
+        or request.path.startswith("/frontend/assets/")
+    )
     if request.path == "/admin" or request.path.startswith("/admin/") \
             or request.path.startswith("/api/admin") \
-            or request.path in ("/admin.css", "/admin.js"):
-        response.headers["Cache-Control"] = "no-store"
+            or request.path in ("/admin.css", "/admin.js") \
+            or is_preview:
+        # Unified helper: preview HTML shares the admin CSP/security set.
+        # Never overwrite a per-response nonce already set by the view.
+        existing_csp = response.headers.get("Content-Security-Policy", "")
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable"
+            if request.path.startswith("/frontend/assets/") and response.status_code == 200
+            else "no-store"
+        )
         response.headers["Pragma"] = "no-cache"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; media-src 'self'; connect-src 'self'; "
-            "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
-            "form-action 'self'"
-        )
+        if "nonce-" not in existing_csp:
+            response.headers["Content-Security-Policy"] = (
+                frontend_delivery.preview_csp_value()
+            )
     session_paths = {
         "/", "/index.html", "/login.html", "/completed.html",
         "/api/login", "/api/login/takeover", "/api/logout",
@@ -1705,6 +1817,7 @@ def _init_app_config() -> dict:
         raise RuntimeError(
             "ANNOTATION_ADMIN_TRUSTED_PROXIES must contain IP addresses"
         ) from exc
+    frontend_delivery.init_frontend_config(app, config)
     return config
 
 

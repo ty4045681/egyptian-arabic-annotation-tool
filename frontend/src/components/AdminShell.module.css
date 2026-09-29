@@ -1,0 +1,65 @@
+.shell {
+  min-height: 100vh;
+  background: var(--app-background);
+  color: var(--app-text);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: 0 var(--page-gutter);
+  height: 48px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.brand {
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.navLink {
+  white-space: nowrap;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-control);
+  color: var(--app-text-secondary);
+  text-decoration: none;
+}
+
+.navLink[aria-current="page"] {
+  color: var(--app-primary);
+  font-weight: 600;
+}
+
+.userSlot {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--app-text-secondary);
+  font-size: var(--font-size-aux);
+}
+
+.content {
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-lg) var(--page-gutter) var(--space-xxl);
+}
+
+@media (max-width: 768px) {
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding-top: var(--space-sm);
+    padding-bottom: var(--space-sm);
+  }
+}

@@ -29,11 +29,11 @@ def test_overview_opens_all_time_awaiting_queue(cross_check_site):
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         login_admin(page, url)
-        expect(page.locator("#overviewCrossCheckPanel")).to_contain_text("All-time, all scenes", timeout=10000)
-        expect(page.locator("#kpiAnnotatedDuration").locator("xpath=..")).to_contain_text("published annotated audio")
-        page.locator('[data-open-cross-checks="awaiting_review"]').first.click()
+        expect(page.locator("#overviewAlerts")).to_contain_text("1 cross-check rounds awaiting review", timeout=10000)
+        expect(page.locator(".admin-metrics")).to_contain_text("published audio")
+        page.get_by_role("button", name="Review queue", exact=True).click()
         expect(page.locator("#crossChecksView")).to_be_visible(timeout=15000)
-        expect(page.locator("#ccListBody")).to_contain_text(str(rounds[0]["task_id"])[:8], timeout=15000)
+        expect(page.locator(f'[data-cc-round="{round_id}"]')).to_be_visible(timeout=15000)
         expect(page.locator("#ccSummaryScope")).to_contain_text("All-time, all scenes")
         screenshot(page, "admin-awaiting-queue.png")
         browser.close()
@@ -47,18 +47,20 @@ def test_sampling_settings_percent_to_bps(cross_check_site):
         login_admin(page, url)
         open_cross_checks(page)
         page.locator("#ccSamplingButton").click()
-        expect(page.locator("#ccSettingsDialog")).to_be_visible()
+        expect(page.get_by_role("dialog", name="Cross-check sampling")).to_be_visible()
         page.locator("#ccSamplingEnabled").check()
         page.locator("#ccSamplingPercent").fill("0.01")
+        expect(page.locator("#ccSamplingHint")).to_have_text("≈ 1 in 10000 claims")
         page.locator("#ccSamplingReason").fill("Enable one basis point for tests")
         page.locator("#ccSettingsSave").click()
-        expect(page.locator("#toastRegion")).to_contain_text("Sampling settings saved", timeout=10000)
+        expect(page.locator(".ant-message")).to_contain_text("Sampling settings saved", timeout=10000)
+        expect(page.locator(".cc-heading-actions")).to_contain_text("Sampling 0.01%")
         page.locator("#ccSamplingButton").click()
         expect(page.locator("#ccSamplingPercent")).to_have_value("0.01", timeout=5000)
         page.locator("#ccSamplingPercent").fill("10")
         page.locator("#ccSamplingReason").fill("Set ten percent")
         page.locator("#ccSettingsSave").click()
-        expect(page.locator("#toastRegion")).to_contain_text("Sampling settings saved", timeout=10000)
+        expect(page.locator(".ant-message")).to_contain_text("Sampling settings saved", timeout=10000)
         browser.close()
     with db.db_conn() as conn:
         enabled, bps = conn.execute(
@@ -68,7 +70,7 @@ def test_sampling_settings_percent_to_bps(cross_check_site):
     assert bps == 1000
 
 
-def test_use_cross_check_decision(cross_check_site):
+def test_use_cross_check_segment_decision(cross_check_site):
     client = cross_check_site["client"]
     url = cross_check_site["url"]
     rounds = queue_awaiting(client, cross_check_site["seed_tasks"], 1)
@@ -80,12 +82,12 @@ def test_use_cross_check_decision(cross_check_site):
         expect(page.locator("[data-cc-round]")).to_be_visible(timeout=15000)
         page.locator("[data-cc-round]").first.click()
         expect(page.locator("#ccReviewTitle")).to_be_visible(timeout=15000)
-        page.locator("#ccDecision-secondary").check()
+        page.locator('[data-review-segment="1"]').get_by_role("button", name="Use B", exact=False).click()
         page.locator("#ccDecisionReason").fill("The second submission matches the audio")
         page.locator("#ccConfirmDecision").click()
         expect(page.locator("#ccDecisionSummary")).to_be_visible()
         page.locator("#ccConfirmDecision").click()
-        expect(page.locator("body")).to_contain_text("Adjudicated", timeout=15000)
+        expect(page.locator("#ccReviewBody")).to_contain_text("Adjudicated", timeout=15000)
         screenshot(page, "admin-decision-secondary.png")
         browser.close()
 
@@ -111,15 +113,14 @@ def test_edit_and_publish_sends_full_segments(cross_check_site):
         page.locator("[data-cc-round]").first.click()
         expect(page.locator("#ccReviewTitle")).to_be_visible(timeout=15000)
         expect(page.locator("#ccDecisionForm")).to_be_visible(timeout=15000)
-        page.locator("#ccDecision-edited").check()
-        page.locator('input[name="ccEditBase"][value="original"]').check()
+        page.locator('[data-review-segment="1"]').get_by_role("button", name="Edit", exact=False).click()
         expect(page.locator("#ccEditorFields")).to_be_visible()
         page.locator("[data-editor-index='0']").fill("Administrator corrected transcript")
         page.locator("#ccDecisionReason").fill("Corrected the wording after listening to the audio")
         page.locator("#ccConfirmDecision").click()
         expect(page.locator("#ccDecisionSummary")).to_contain_text("Edit and publish")
         page.locator("#ccConfirmDecision").click()
-        expect(page.locator("body")).to_contain_text("Adjudicated", timeout=15000)
+        expect(page.locator("#ccReviewBody")).to_contain_text("Adjudicated", timeout=15000)
         screenshot(page, "admin-decision-edited.png")
         browser.close()
     assert posted["body"]["decision"] == "edited"
@@ -153,7 +154,12 @@ def test_cancel_in_progress_and_not_awaiting(cross_check_site):
         expect(page.locator("#ccDecisionForm")).to_have_count(0)
         page.locator("#ccCancelReason").fill("Release an interrupted cross-check")
         page.locator("#ccCancelButton").click()
-        expect(page.locator("body")).to_contain_text("Cancelled", timeout=15000)
+        page.get_by_role("button", name="Confirm cancellation", exact=True).click()
+        expect(page.locator("#ccReviewBody")).to_contain_text("Cancelled", timeout=15000)
+        page.locator("#ccBackToList").click()
+        expect(page.get_by_role("tab", name="Cancelled", exact=True)).to_contain_text("1")
+        page.get_by_role("tab", name="Cancelled", exact=True).click()
+        expect(page.locator(f'[data-cc-round="{round_id}"]')).to_have_text("View")
         browser.close()
     queued = queue_awaiting(client, cross_check_site["seed_tasks"], 1)
     with sync_playwright() as playwright:
@@ -184,7 +190,7 @@ def test_decision_conflict_keeps_local_draft(cross_check_site):
         page.locator("[data-cc-round]").first.click()
         expect(page.locator("#ccReviewTitle")).to_be_visible(timeout=15000)
         expect(page.locator("#ccDecisionForm")).to_be_visible()
-        page.locator("#ccDecision-original").check()
+        page.locator('[data-review-segment="1"]').get_by_role("button", name="Use A", exact=False).click()
         page.locator("#ccDecisionReason").fill("Keep original after listening")
         from tests.test_admin_api import _admin_login
         from tests.test_cross_check_admin import decision_body
@@ -198,7 +204,8 @@ def test_decision_conflict_keeps_local_draft(cross_check_site):
         assert other.status_code == 200
         page.locator("#ccConfirmDecision").click()
         page.locator("#ccConfirmDecision").click()
-        expect(page.locator("body")).to_contain_text("Adjudicated", timeout=15000)
-        expect(page.locator("#toastRegion")).to_contain_text("changed", timeout=8000)
+        expect(page.locator("#ccReviewBody")).to_contain_text("Adjudicated", timeout=15000)
+        expect(page.locator("#ccRetainedDraft")).to_be_visible()
+        assert "Keep original after listening" in page.get_by_role("textbox", name="Retained decision draft").input_value()
         screenshot(page, "admin-decision-conflict.png")
         browser.close()

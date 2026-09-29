@@ -10,6 +10,7 @@ from playwright.sync_api import expect, sync_playwright
 
 import db
 from tests.test_admin_repository import _make_user
+from tests.browser.admin_helpers import choose, expect_choice, open_annotator
 
 _DETAIL_PATH = re.compile(r"^/api/admin/annotators/[0-9a-fA-F-]{36}$")
 
@@ -32,9 +33,7 @@ def _login_admin(page, site):
 
 
 def _open_annotator(page, user_id):
-    button = page.locator(f'#sidebarAnnotatorList [data-annotator-id="{user_id}"]')
-    expect(button).to_be_visible(timeout=10000)
-    button.click()
+    open_annotator(page, user_id)
 
 
 def _wait_until(page, predicate, *, timeout=10000, message="condition was not met"):
@@ -47,26 +46,16 @@ def _wait_until(page, predicate, *, timeout=10000, message="condition was not me
 
 
 def _assert_editor_unusable(page):
-    form = page.locator("#sceneScopeForm")
-    expect(form).to_be_visible()
-    expect(form).to_have_attribute("data-scope-ready", "0")
-    assert page.locator("#scopeEditorFields").evaluate("el => el.disabled && el.hidden") is True
-    mode = page.locator("#scopeMode")
-    assert not (mode.is_visible() and mode.is_enabled()), (
-        "Claim scope must not be editable before the matching annotator detail is applied"
-    )
-    try:
-        mode.select_option("restricted", timeout=1000)
-        raise AssertionError("scope mode must not be selectable before the matching annotator detail is applied")
-    except PlaywrightTimeout:
-        pass
+    expect(page.locator(".admin-annotator-drawer")).to_be_visible()
+    expect(page.locator("#scopeMode")).to_have_count(0)
+    expect(page.get_by_role("button", name="Save claim scope")).to_have_count(0)
     try:
         with page.expect_request(
-            lambda request: request.method == "PUT" and request.url.rstrip("/").endswith("/scene-scope"),
-            timeout=1500,
+            lambda request: request.method == "PUT" and request.url.endswith("/scene-scope"),
+            timeout=500,
         ):
-            page.evaluate("document.getElementById('sceneScopeForm').requestSubmit()")
-        raise AssertionError("claim-scope save must not run before the matching annotator detail is ready")
+            page.evaluate("document.getElementById('sceneScopeForm')?.requestSubmit()")
+        raise AssertionError("An unloaded editor must never write a scope")
     except PlaywrightTimeout:
         pass
 
@@ -114,19 +103,19 @@ def test_delayed_annotator_detail_blocks_scope_edit_then_saves_restricted_payloa
         try:
             _login_admin(page, site)
             _open_annotator(page, uid)
-            expect(page.locator("#annotatorDetail")).to_be_visible(timeout=10000)
+            expect(page.locator(".admin-annotator-drawer")).to_be_visible(timeout=10000)
             _wait_until(page, lambda: bool(held), message="The annotator detail GET should still be pending")
             _assert_editor_unusable(page)
 
             held.pop(0).continue_()
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-scope-ready", "1", timeout=10000)
             expect(page.locator("#scopeMode")).to_be_enabled()
-            expect(page.locator("#scopeMode")).to_have_value("all")
+            expect_choice(page, "#scopeMode", "All source scenes")
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-annotator-id", str(uid))
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-revision", "2")
             page.unroute("**/api/admin/annotators/*")
 
-            page.locator("#scopeMode").select_option("restricted")
+            choose(page, "#scopeMode", "Restricted scenes")
             for box in page.locator("#scopeSceneGrid input[type=checkbox]").all():
                 box.set_checked(box.get_attribute("value") in {"airport", "spoken_languages"})
             page.locator("#scopeReason").fill("Restrict claims to Spoken languages and Airport")
@@ -142,7 +131,7 @@ def test_delayed_annotator_detail_blocks_scope_edit_then_saves_restricted_payloa
             assert set(body["scene_codes"]) == {"airport", "spoken_languages"}
             assert body["allow_unknown"] is True
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-scope-ready", "1", timeout=10000)
-            expect(page.locator("#scopeMode")).to_have_value("restricted")
+            expect_choice(page, "#scopeMode", "Restricted scenes")
             expect(page.locator('#scopeSceneGrid input[value="airport"]')).to_be_checked()
             expect(page.locator('#scopeSceneGrid input[value="spoken_languages"]')).to_be_checked()
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-revision", "3")
@@ -192,7 +181,7 @@ def test_stale_annotator_detail_does_not_enable_or_overwrite_the_current_editor(
         try:
             _login_admin(page, site)
             _open_annotator(page, alice_id)
-            expect(page.locator("#annotatorDetail")).to_be_visible(timeout=10000)
+            expect(page.locator(".admin-annotator-drawer")).to_be_visible(timeout=10000)
             _wait_until(page, lambda: alice_id in held, message="Alice detail GET should still be pending")
             _open_annotator(page, bob_id)
             _wait_until(page, lambda: bob_id in held, message="Bob detail GET should still be pending")
@@ -200,13 +189,13 @@ def test_stale_annotator_detail_does_not_enable_or_overwrite_the_current_editor(
 
             held[alice_id].pop(0).continue_()
             _assert_editor_unusable(page)
-            expect(page.locator("#annotatorName")).not_to_have_text("scope-stale-alice")
+            expect(page.locator(".admin-annotator-drawer")).not_to_contain_text("scope-stale-alice")
 
             held[bob_id].pop(0).continue_()
             expect(page.locator("#annotatorName")).to_have_text("scope-stale-bob", timeout=10000)
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-scope-ready", "1", timeout=10000)
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-annotator-id", bob_id)
-            expect(page.locator("#scopeMode")).to_have_value("all")
+            expect_choice(page, "#scopeMode", "All source scenes")
             expect(page.locator("#sceneScopeForm")).to_have_attribute("data-revision", "1")
             row, codes = _persisted_scope(bob["id"])
             assert row[0] == "all"
@@ -241,7 +230,7 @@ def test_failed_annotator_detail_keeps_scope_editor_disabled(provenance_site):
         try:
             _login_admin(page, site)
             _open_annotator(page, uid)
-            expect(page.locator("#scopeEditorStatus")).to_contain_text("Could not load claim scope.", timeout=10000)
+            expect(page.locator(".admin-annotator-drawer")).to_contain_text("annotator detail failed", timeout=15000)
             _assert_editor_unusable(page)
             row, codes = _persisted_scope(uid)
             assert row[0] == "all"

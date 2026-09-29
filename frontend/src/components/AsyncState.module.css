@@ -1,0 +1,29 @@
+.state {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-container);
+  padding: var(--space-xl);
+  text-align: center;
+  color: var(--app-text-secondary);
+}
+
+.stateTitle {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-ui);
+  color: var(--app-text);
+}
+
+.retry {
+  margin-top: var(--space-md);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-aux);
+}
+
+.badgeIcon[aria-hidden="true"] {
+  font-style: normal;
+}

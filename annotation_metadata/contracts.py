@@ -261,11 +261,15 @@ class TaskFilter(StrictModel):
     def source_scene_value(self) -> str | None:
         return self.selected_scene or self.source_scene
 
-    def requires_source_row(self) -> bool:
+    def source_scene_values(self) -> tuple[str, ...]:
         scene = self.source_scene_value()
+        return (scene,) if scene else ()
+
+    def requires_source_row(self) -> bool:
+        scenes = self.source_scene_values()
         if self.batch_code:
             return True
-        if scene and not is_source_fallback_filter(scene):
+        if scenes and not any(is_source_fallback_filter(scene) for scene in scenes):
             return True
         if self.source_confidence and self.source_confidence != "unknown":
             return True
@@ -275,12 +279,37 @@ class TaskFilter(StrictModel):
         """No-source tasks match Spoken languages when confidence/batch allow it."""
         if self.batch_code:
             return False
-        scene = self.source_scene_value()
-        if scene and not is_source_fallback_filter(scene):
+        scenes = self.source_scene_values()
+        if scenes and not any(is_source_fallback_filter(scene) for scene in scenes):
             return False
         if self.source_confidence and self.source_confidence != "unknown":
             return False
         return True
+
+
+class AdminTaskFilter(TaskFilter):
+    """Admin scene chips use OR within scenes and AND with other evidence fields."""
+
+    source_scenes: tuple[str, ...] = ()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _scene_selection(cls, value):
+        if isinstance(value, dict):
+            scene = value.get("source_scene")
+            if isinstance(scene, str) and "," in scene:
+                value = {**value, "source_scene": None,
+                         "source_scenes": scene.split(",")}
+        return value
+
+    @field_validator("source_scenes")
+    @classmethod
+    def _scenes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted({normalize_source_scene_filter(value.strip())
+                             for value in values if value.strip()}))
+
+    def source_scene_values(self) -> tuple[str, ...]:
+        return self.source_scenes or super().source_scene_values()
 
 
 class MediaIdentity(StrictModel):

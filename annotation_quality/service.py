@@ -624,12 +624,21 @@ def list_cross_checks(query: CrossCheckListQuery, *, timezone_name: str) -> dict
         params.extend([created_at, cursor_id])
     limit = int(query.limit)
     with db_tx() as conn, conn.cursor() as cur:
+        cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        counts_where, counts_params = list_where_sql(query.model_copy(update={"state": "all"}))
+        count_rows = cur.execute(
+            f"""SELECT r.state, count(*), COALESCE(sum(t.duration), 0)
+                FROM cross_check_rounds r JOIN annotation_tasks t ON t.id = r.task_id
+                WHERE {counts_where} GROUP BY r.state""", counts_params,
+        ).fetchall()
+        state_counts = {state: int(count) for state, count, _ in count_rows}
+        matched = [row for row in count_rows if query.state == "all" or row[0] == query.state]
         rows = cur.execute(
             f"""SELECT r.id, r.task_id, r.state,
                        r.original_annotator_id, r.secondary_annotator_id,
                        t.duration, r.original_word_count, r.secondary_word_count,
                        r.edit_distance, r.reason_codes, r.created_at,
-                       r.submitted_at, r.resolved_at, r.claim_filters
+                       r.submitted_at, r.resolved_at, r.claim_filters, t.filename
                 FROM cross_check_rounds r
                 JOIN annotation_tasks t ON t.id = r.task_id
                 WHERE {where_sql}
@@ -658,13 +667,15 @@ def list_cross_checks(query: CrossCheckListQuery, *, timezone_name: str) -> dict
                 "submitted_at": row[11],
                 "resolved_at": row[12],
                 "claim_filters": row[13] or {},
+                "filename": row[14],
             })
         summaries = {}
         if items_raw:
-            from annotation_metadata.contracts import TaskFilter, parse_strict
+            from annotation_metadata.contracts import AdminTaskFilter, parse_strict
             from annotation_metadata.repository import metadata_summaries
-            meta = parse_strict(TaskFilter, {
+            meta = parse_strict(AdminTaskFilter, {
                 "source_scene": query.source_scene,
+                "source_confidence": query.source_confidence,
                 "batch_code": query.batch_code,
             })
             summaries = metadata_summaries(
@@ -685,6 +696,9 @@ def list_cross_checks(query: CrossCheckListQuery, *, timezone_name: str) -> dict
     return {
         "items": items,
         "next_cursor": next_cursor,
+        "matched_count": sum(int(row[1]) for row in matched),
+        "matched_duration_seconds": sum(float(row[2]) for row in matched),
+        "state_counts": state_counts,
         "applied_filters": applied_list_filters(
             query, timezone_name=timezone_name,
         ),

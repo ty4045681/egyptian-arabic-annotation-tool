@@ -5,9 +5,68 @@ on:
   pull_request:
 
 jobs:
+  frontend:
+    name: Frontend P1 (Node 24.21.0 / npm 11.19.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.21.0"
+      - name: Pin npm 11.19.0
+        run: |
+          set -euo pipefail
+          npm install -g "npm@11.19.0"
+          node --version
+          npm --version
+          test "$(node --version)" = "v24.21.0"
+          test "$(npm --version)" = "11.19.0"
+      - name: Verify frontend workspace exists (fail, do not skip)
+        run: |
+          set -euo pipefail
+          if [ ! -f frontend/package.json ]; then
+            echo "ERROR: frontend/package.json missing; work packages A-F have not landed. Failing explicitly, not skipping." >&2
+            exit 1
+          fi
+      - name: Install locked dependencies
+        run: npm --prefix frontend ci
+      - name: Typecheck
+        run: npm --prefix frontend run typecheck
+      - name: Lint
+        run: npm --prefix frontend run lint
+      - name: Unit tests (Vitest, single run)
+        run: npm --prefix frontend test
+      - name: Build standard and P1 verification bundles
+        run: |
+          set -euo pipefail
+          npm --prefix frontend run build
+          npm --prefix frontend run build:p1
+      - name: Verify generated tokens match the source
+        run: npm --prefix frontend run check:tokens
+      - name: Verify dist manifests and chunks
+        run: npm --prefix frontend run check:dist
+      - name: Upload standard build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+          # R05: the action excludes hidden files by default, which would
+          # drop frontend/dist/.vite/manifest.json and break the startup
+          # preflight + integrity checks downstream.
+          include-hidden-files: true
+      - name: Upload P1 verification build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-p1
+          path: frontend/dist-p1
+          if-no-files-found: error
+          include-hidden-files: true
+
   postgres:
     name: PostgreSQL ${{ matrix.postgres }} (pytest + Playwright)
     runs-on: ubuntu-latest
+    needs: [frontend]
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +126,54 @@ jobs:
         run: uv sync --frozen --group dev
       - name: Install Chromium for required Playwright tests
         run: uv run playwright install --with-deps chromium
+      - name: Download standard frontend build (fail when missing in CI)
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Download P1 verification frontend build (fail when missing in CI)
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist-p1
+          path: frontend/dist-p1
+      - name: Stage dist outputs before tests (fail, do not skip)
+        run: |
+          set -euo pipefail
+          test -f frontend/dist/index.html
+          test -f frontend/dist-p1/index.html
+          echo "--- frontend/dist ---"
+          ls frontend/dist
+          echo "--- frontend/dist-p1 ---"
+          ls frontend/dist-p1
+          python3 - <<'PY'
+          # R05: verify the downloaded artifacts are complete builds
+          # (manifest + chunks), not just index.html shells.
+          import json, sys
+          from pathlib import Path
+          problems = []
+          for which in ("frontend/dist", "frontend/dist-p1"):
+              root = Path(which)
+              manifest = root / ".vite" / "manifest.json"
+              if not manifest.is_file():
+                  problems.append(f"{which}: missing .vite/manifest.json")
+                  continue
+              try:
+                  data = json.loads(manifest.read_text(encoding="utf-8"))
+              except Exception as exc:
+                  problems.append(f"{which}: manifest is not valid JSON: {exc}")
+                  continue
+              if not data:
+                  problems.append(f"{which}: manifest is empty")
+                  continue
+              for key, entry in data.items():
+                  for rel in [entry.get("file"), *(entry.get("css") or []), *(entry.get("assets") or [])]:
+                      if rel and not (root / str(rel)).is_file():
+                          problems.append(f"{which}: manifest file missing: {rel}")
+          if problems:
+              print("\n".join(problems), file=sys.stderr)
+              sys.exit(1)
+          print("dist artifacts complete: manifests + chunks verified")
+          PY
       - name: Full suite including browser, restore, migrations, flags
         run: |
           uv run python scripts/run_pytest_with_postgres.py \

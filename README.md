@@ -56,7 +56,8 @@ completed.html              本人完成/跳过页面
 login.html                  登录页、28 日速度图和排行榜
 static/login-dashboard.js    登录页图表与排行榜（Chart.js）
 static/vendor/               固定版本 Chart.js / annotation 插件（无 CDN）
-admin.html/css/js           独立 Admin Dashboard 与管理交互
+frontend/                   Vite + React + TypeScript + Ant Design 管理员前端
+frontend_delivery.py        Flask 构建产物分发、CSP nonce 与预览入口
 deploy/                     Nginx、备份、systemd、PostgreSQL 配置模板
 tests/                      PostgreSQL/API/迁移/并发自动化测试
 pyproject.toml + uv.lock     uv 环境与锁定依赖
@@ -69,6 +70,7 @@ pyproject.toml + uv.lock     uv 环境与锁定依赖
 - PostgreSQL 16+
 - Nginx
 - uv 0.12+
+- Node.js 24.21.0 / npm 11.19.0（构建管理员前端）
 - CPU 版 PyTorch（仅预处理 dependency group）
 
 ## Python 环境（必须使用 uv）
@@ -142,7 +144,16 @@ export ANNOTATION_ADMIN_KEY_SHA256='64 位小写十六进制摘要'
 export ANNOTATION_ADMIN_COOKIE_SECURE=false  # 本地 HTTP；生产必须为 true
 ```
 
-执行 migration 并启动服务后访问 `/admin`。控制台提供：
+执行 migration，构建前端并启动服务后访问 `/admin`：
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run build
+```
+
+`/admin` 使用 React 工程，Flask 提供原有管理 API 和 `frontend/dist` 构建产物。
+部署时需包含 `frontend/dist/.vite/manifest.json`。缺少构建时，入口返回 503 并提示构建命令。
+开发热更新、SSH 访问和验证命令见 [前端说明](frontend/README.md)。控制台提供：
 
 - 当前全量语料、pending/assigned 队列、音频和可训练时长快照。
 - 按日期与时区查看历史 annotated/skipped/revoked 趋势。
