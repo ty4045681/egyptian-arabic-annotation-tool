@@ -86,13 +86,18 @@ def _insert_version(conn, task_id, version_no, lifecycle, target_status,
             """INSERT INTO annotation_versions
                    (id, task_id, version_no, lifecycle, target_status,
                     purpose, created_by_user_id, modified_by_user_id,
-                    submitted_by_user_id, submitted_at, human_modified)
+                    submitted_by_user_id, submitted_at, human_modified,
+                    annotation_duration_seconds, annotation_duration_basis)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                        CASE WHEN %s::uuid IS NULL THEN NULL ELSE now() END,
-                       %s)""",
+                       %s, %s, %s)""",
             (version_id, task_id, version_no, lifecycle, target_status, purpose,
              created_by, modified_by, submitted_by, submitted_by,
-             submitted_by is not None),
+             submitted_by is not None,
+             (10 if target_status == "annotated" else 0)
+             if lifecycle in ("published", "superseded", "revoked", "cross_check_submitted") else None,
+             "trainable_segments_v1"
+             if lifecycle in ("published", "superseded", "revoked", "cross_check_submitted") else None),
         )
     return version_id
 
@@ -332,14 +337,14 @@ def database_at_007(pg_server, monkeypatch):
 
 def test_008_upgrades_historical_rows_without_changing_content(database_at_007):
     with psycopg.connect(database_at_007["dsn"]) as conn:
-        assert db.apply_migrations(conn) == [8]
+        assert db.apply_migrations(conn) == [8, 9]
         after = _snapshot(conn)
         assert after == database_at_007["before"]
         assert after["task_count"] == 7
         assert after["total_duration"] == 11 + 13 + 17 + 19 + 23 + 29 + 31
         assert after["published_texts"]["published.wav"] == [(PUBLISHED_TEXT,)]
         assert db.apply_migrations(conn) == []
-        assert db.applied_versions(conn) == [1, 2, 3, 4, 5, 6, 7, 8]
+        assert db.applied_versions(conn) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 
 def test_008_backfills_participants_without_inventing_credited_or_system(
@@ -424,10 +429,10 @@ def test_008_inserts_disabled_settings_row(database_at_007):
         assert row == [(1, False, 1000, 0)]
 
 
-def test_fresh_database_includes_version_8(database):
+def test_fresh_database_includes_version_9(database):
     with db.db_conn() as conn:
         assert db.applied_versions(conn) == db.expected_versions() == [
-            1, 2, 3, 4, 5, 6, 7, 8,
+            1, 2, 3, 4, 5, 6, 7, 8, 9,
         ]
         assert db.apply_migrations(conn) == []
         settings = conn.execute(

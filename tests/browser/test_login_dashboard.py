@@ -73,7 +73,8 @@ def _seed_chart_rows(*, today_duration=10.0):
     if today_duration != 10.0:
         with db.db_conn() as conn:
             conn.execute(
-                "UPDATE annotation_tasks SET duration = %s WHERE id = %s",
+                "UPDATE annotation_versions SET annotation_duration_seconds = %s "
+                "WHERE id = (SELECT current_published_version_id FROM annotation_tasks WHERE id = %s)",
                 (today_duration, today_id),
             )
             conn.commit()
@@ -185,8 +186,10 @@ def test_login_dashboard_desktop_and_mobile_chart(provenance_site):
         ]
         assert filter_layout["subtitle"] == "All scenes · Last 28 days"
         assert "h" in filter_layout["totalText"] and "min" in filter_layout["totalText"]
-        assert filter_layout["totalTitle"] == "Excludes audio marked abnormal"
-        assert "excluding audio marked abnormal" in filter_layout["totalAria"].lower()
+        assert filter_layout["totalTitle"] == (
+            "New annotations count trainable segments. Historical credit is preserved."
+        )
+        assert "credited annotation time" in filter_layout["totalAria"].lower()
         assert "hours" in filter_layout["totalAria"].lower()
 
         chart = page.evaluate(
@@ -397,7 +400,8 @@ def test_tooltip_follows_successful_refresh(provenance_site):
         assert "1 h 00 min" in first_text
         with db.db_conn() as conn:
             conn.execute(
-                "UPDATE annotation_tasks SET duration = %s WHERE id = %s",
+                "UPDATE annotation_versions SET annotation_duration_seconds = %s "
+                "WHERE id = (SELECT current_published_version_id FROM annotation_tasks WHERE id = %s)",
                 (7200, today_id),
             )
             conn.commit()

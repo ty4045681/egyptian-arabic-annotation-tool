@@ -185,7 +185,7 @@ def test_identical_texts_auto_pass_keeps_original_and_duration(client, seed_task
     dash = client.get("/api/dashboard")
     assert dash.status_code == 200
     assert dash.json["stats"]["annotated"] == 1
-    assert dash.json["stats"]["annotated_duration_seconds"] == 10.0
+    assert dash.json["stats"]["annotated_duration_seconds"] == 5.0
 
     types = event_types(task_id)
     names = [row[0] for row in types]

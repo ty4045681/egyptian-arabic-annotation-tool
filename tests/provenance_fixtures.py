@@ -97,7 +97,7 @@ def clone_annotation_skeleton(src_dsn: str, dest_dsn: str, *, id_map: dict | Non
                           revision, human_modified, created_by_user_id,
                           modified_by_user_id, submitted_by_user_id, skip_reasons,
                           created_at, updated_at, submitted_at, extra, revoked_at,
-                          revoked_reason
+                          revoked_reason, annotation_duration_seconds, annotation_duration_basis
                    FROM annotation_versions ORDER BY task_id, version_no"""
             ):
                 dest.execute(
@@ -107,9 +107,9 @@ def clone_annotation_skeleton(src_dsn: str, dest_dsn: str, *, id_map: dict | Non
                             created_by_user_id, modified_by_user_id,
                             submitted_by_user_id, skip_reasons, created_at,
                             updated_at, submitted_at, extra, revoked_at,
-                            revoked_reason)
+                            revoked_reason, annotation_duration_seconds, annotation_duration_basis)
                        VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, %s,
-                               %s, %s, %s, %s, %s, %s)""",
+                               %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         _mapped(row[0], "versions", id_map),
                         _mapped(row[1], "tasks", id_map),
@@ -118,7 +118,7 @@ def clone_annotation_skeleton(src_dsn: str, dest_dsn: str, *, id_map: dict | Non
                         _mapped(row[8], "users", id_map),
                         _mapped(row[9], "users", id_map),
                         row[10], row[11], row[12], row[13], Json(row[14] or {}),
-                        row[15], row[16],
+                        row[15], row[16], row[17], row[18],
                     ),
                 )
             for row in src.execute(

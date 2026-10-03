@@ -251,9 +251,15 @@ UV_PYTHON_INSTALL_DIR=/opt/annotation-python uv run python \
 
 公开 `GET /api/leaderboard` 仍返回原有 `leaderboard`，并增加 `annotation_speed`。该接口无需登录，只返回聚合结果，不含任务、事件或内部用户 ID。浏览器使用 `Cache-Control: no-cache, must-revalidate` 且登录页 `fetch(..., { cache: "no-store" })`，每 60 秒强制重新验证；源站用 60 秒进程内 TTL 合并查询，不依赖 Nginx `proxy_cache`。
 
-速度图统计的是**当前仍然有效**的 `annotated` 任务音频时长（`annotation_tasks.duration`），按当前 published 版本的 `submitted_at` 在 `public_dashboard_timezone`（IANA 名称，默认 `Asia/Shanghai`）下的日历日分桶。`skipped`、已撤销、以及已被新版本取代的记录不计入；重新标注只计入新的当前版本及其提交日期。后端完成分桶，浏览器不得再用本地时区换算。没有标注的日期补零；今天标记为 `is_partial`。28 天按数组顺序分成四组，每组七日平均值是七天时长之和除以 7（零值日也参与分母）。非法时区会在进程启动时失败，不会静默回退。
+标注时长取当前有效版本的记账快照 `annotation_versions.annotation_duration_seconds`。迁移 `009` 将已提交的历史版本按原音频时长记账，标记为 `legacy_audio_v1`，保留既有统计值。迁移后的新提交按最终保存且未排除训练的片段时长之和记账，标记为 `trainable_segments_v1`。VAD 未保留的区间、Bad quality 片段不计入，全排除时为零。原音频字段 `annotation_tasks.duration` 继续用于播放、音频容量和独立复核工作量统计。
 
-图表由仓库内固定版本的 Chart.js 4.5.1 与 chartjs-plugin-annotation 3.1.0 绘制（见 `static/vendor/README.md` 的来源、MIT License 和 SHA-256）。运行时不访问 CDN。选择性窗口上的 `EXPLAIN` 必须使用 `007_annotation_speed_indexes.sql` 的两个部分索引；健康检查 schema 版本为 `[1, 2, 3, 4, 5, 6, 7, 8]`。
+本人纠正历史版本时保留旧记账值，包括先跳过再恢复标注；历史跳过任务首次完成标注则使用新规则。新规则下的纠正用新片段时长替换该任务原贡献，重复提交不会重复累加。撤销后重新分配的任务使用新规则，撤销恢复则恢复原版本快照。复核采纳哪一版就使用哪一版快照，管理员编辑后的裁决版使用新规则。统计仍表示当前有效结果，跳过和撤销会移除对应贡献。
+
+速度图将上述记账时长按当前 published 版本的 `submitted_at` 在 `public_dashboard_timezone`（IANA 名称，默认 `Asia/Shanghai`）下的日历日分桶。`skipped`、已撤销、以及已被新版本取代的记录不计入；重新标注只计入新的当前版本及其提交日期。后端完成分桶，浏览器不得再用本地时区换算。没有标注的日期补零；今天标记为 `is_partial`。28 天按数组顺序分成四组，每组七日平均值是七天时长之和除以 7（零值日也参与分母）。非法时区会在进程启动时失败，不会静默回退。
+
+图表由仓库内固定版本的 Chart.js 4.5.1 与 chartjs-plugin-annotation 3.1.0 绘制（见 `static/vendor/README.md` 的来源、MIT License 和 SHA-256）。运行时不访问 CDN。选择性窗口上的 `EXPLAIN` 必须使用 `007_annotation_speed_indexes.sql` 的两个部分索引；健康检查 schema 版本为 `[1, 2, 3, 4, 5, 6, 7, 8, 9]`。
+
+部署 `009` 前停止所有写入进程，备份 PostgreSQL 并记录每位标注员的现有统计。使用新代码运行 `manage_state.py apply-migrations`，核对迁移前后的统计一致后启动新服务。完成迁移后旧代码不能继续提交版本，因为已提交版本必须有记账快照。JSON 导出会保留新快照；不含快照的旧 JSON 按历史规则导入，未标注的数据仍在今后完成时使用新规则。
 
 ## 标注员会话
 

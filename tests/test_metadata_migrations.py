@@ -138,7 +138,7 @@ def test_005_is_idempotent_and_preserves_null_source_rows(database, seed_tasks):
         assert after[1] == {"keep": "raw"}
         assert after[2] == "d" * 64
         assert pred_after == pred_before == (None, "Spoken languages")
-        assert db.applied_versions(conn) == db.expected_versions() == [1, 2, 3, 4, 5, 6, 7, 8]
+        assert db.applied_versions(conn) == db.expected_versions() == [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 
 def test_005_applies_after_004_without_rewriting_prior_migrations(
@@ -177,7 +177,7 @@ def test_005_applies_after_004_without_rewriting_prior_migrations(
                 row[0] for row in conn.execute("SELECT code FROM scenes").fetchall()
             }
             newly = db.apply_migrations(conn)
-            assert newly == [5, 6, 7, 8]
+            assert newly == [5, 6, 7, 8, 9]
             rows = conn.execute(
                 "SELECT code, label_en FROM scenes ORDER BY sort_order, code"
             ).fetchall()
@@ -199,7 +199,7 @@ def test_006_adds_session_columns_and_old_insert_shape_still_works(database):
     import annotation_repository as repo
 
     with db.db_conn() as conn:
-        assert db.applied_versions(conn) == [1, 2, 3, 4, 5, 6, 7, 8]
+        assert db.applied_versions(conn) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
         columns = {
             row[0]
             for row in conn.execute(
@@ -242,7 +242,7 @@ def test_006_adds_session_columns_and_old_insert_shape_still_works(database):
 def test_007_adds_annotation_speed_indexes(database):
     with db.db_conn() as conn:
         assert db.applied_versions(conn) == db.expected_versions() == [
-            1, 2, 3, 4, 5, 6, 7, 8,
+            1, 2, 3, 4, 5, 6, 7, 8, 9,
         ]
         names = {
             row[0]

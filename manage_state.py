@@ -35,6 +35,7 @@ KNOWN_TOP = {
     "annotated_by", "skipped_by", "last_modified", "last_modified_by",
     "preprocessed_at", "waveform_b64", "waveform", "segments",
     "quality_state", "training_eligible", "quality_round_id",
+    "annotation_duration_seconds", "annotation_duration_basis",
 }
 QUALITY_JSON_KEYS = ("quality_state", "training_eligible", "quality_round_id")
 KNOWN_SEG = {"id", "start", "end", "duration", "asr_text", "text", "exclude_from_training"}
@@ -166,6 +167,23 @@ def infer_rel_path(data: dict, source_rel: str, audio_paths: set[str]) -> tuple[
     return None, "cannot infer audio relative path"
 
 
+def annotation_credit_from_legacy(data: dict) -> tuple[float | None, str | None]:
+    status = data["status"]
+    keys = ("annotation_duration_seconds", "annotation_duration_basis")
+    if not any(key in data for key in keys):
+        if status == "pending":
+            return None, None
+        return (float(data["duration"]), "legacy_audio_v1") if status == "annotated" else (
+            0.0, "trainable_segments_v1")
+    seconds, basis = (data.get(key) for key in keys)
+    if (status == "pending" or isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or not math.isfinite(seconds) or seconds < 0
+            or basis not in ("legacy_audio_v1", "trainable_segments_v1")):
+        raise ValueError("Invalid annotation duration snapshot")
+    return float(seconds), basis
+
+
 def normalize_legacy(data: dict, rel_path: str) -> dict:
     result = dict(data)
     result["audio"] = str(data.get("audio") or Path(rel_path).name)
@@ -173,6 +191,7 @@ def normalize_legacy(data: dict, rel_path: str) -> dict:
     result["folder"] = "" if folder == "." else folder
     result["duration"] = float(data.get("duration") or 0)
     result["status"] = str(data.get("status") or "pending")
+    annotation_credit_from_legacy(result)
     reasons = data.get("skip_reasons") or []
     result["skip_reasons"] = list(reasons) if isinstance(reasons, list) else [str(reasons)]
     normalized_segments = []
@@ -384,7 +403,8 @@ def build_manifest(annotations: Path, audio_root: Path,
         if owner:
             user_counts[owner][status] += 1
             if status == "annotated":
-                user_counts[owner]["duration_seconds"] += normalized["duration"]
+                credit_seconds, _ = annotation_credit_from_legacy(normalized)
+                user_counts[owner]["duration_seconds"] += credit_seconds
 
     assignments_raw = read_assignments(annotations)
     assignments: list[dict] = []
@@ -573,6 +593,7 @@ def insert_task(cur, item: dict, data: dict, normalized: dict, user_cache: dict[
     submitted_at = parse_datetime(normalized.get("last_modified")) if status in {"annotated", "skipped"} else None
     preprocessed_at = parse_datetime(normalized.get("preprocessed_at"))
     lifecycle = "published" if status in {"annotated", "skipped"} else "draft"
+    credit_seconds, credit_basis = annotation_credit_from_legacy(normalized)
     cur.execute(
         """INSERT INTO annotation_tasks
                (id, rel_path, legacy_audio_key, filename, folder, duration,
@@ -586,13 +607,14 @@ def insert_task(cur, item: dict, data: dict, normalized: dict, user_cache: dict[
                (id, task_id, version_no, lifecycle, target_status, revision,
                 human_modified, created_by_user_id, modified_by_user_id,
                 submitted_by_user_id, skip_reasons,
-                created_at, updated_at, submitted_at, extra)
+                created_at, updated_at, submitted_at, extra,
+                annotation_duration_seconds, annotation_duration_basis)
            VALUES (%s, %s, 1, %s, %s, 0, %s, %s, %s, %s, %s,
-                   COALESCE(%s, now()), COALESCE(%s, now()), %s, %s)""",
+                   COALESCE(%s, now()), COALESCE(%s, now()), %s, %s, %s, %s)""",
         (version_id, task_id, lifecycle, status, item["human_modified"],
          last_editor_id, last_editor_id, owner_id, normalized["skip_reasons"],
          preprocessed_at, parse_datetime(normalized.get("last_modified")),
-         submitted_at, Json(version_extra)),
+         submitted_at, Json(version_extra), credit_seconds, credit_basis),
     )
     for seg in normalized["segments"]:
         extra = {key: value for key, value in seg.items() if key not in KNOWN_SEG}
@@ -808,6 +830,7 @@ def db_export_rows(conn) -> Iterable[dict]:
                t.category, t.preprocessed_at, t.extra AS task_extra,
                v.id AS version_id, v.version_no, v.revision, v.target_status,
                v.skip_reasons, v.submitted_at,
+               v.annotation_duration_seconds, v.annotation_duration_basis,
                v.updated_at, v.extra AS version_extra,
                u.username AS submitter, editor.username AS modifier,
                w.payload AS waveform_payload,
@@ -854,6 +877,16 @@ def row_to_legacy(row: dict) -> dict:
     result["folder"] = row["folder"]
     result["duration"] = float(row["duration"] or 0)
     result["status"] = row["status"]
+    seconds = row.get("annotation_duration_seconds")
+    basis = row.get("annotation_duration_basis")
+    implicit = (result["duration"], "legacy_audio_v1") if row["status"] == "annotated" else (
+        0.0, "trainable_segments_v1")
+    if seconds is not None and (
+        not legacy_top or "annotation_duration_seconds" in legacy_top
+        or (seconds, basis) != implicit
+    ):
+        result["annotation_duration_seconds"] = float(seconds)
+        result["annotation_duration_basis"] = basis
     result["skip_reasons"] = list(row["skip_reasons"] or [])
     if row.get("category") is not None:
         result["category"] = row["category"]

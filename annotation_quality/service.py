@@ -12,6 +12,7 @@ import hashlib
 import json
 import uuid
 
+from annotation_duration import snapshot_annotation_duration
 from annotation_quality.comparison import (
     COMPARISON_VERSION,
     ComparisonResult,
@@ -414,6 +415,7 @@ def _commit_cross_check_submit(
             actor_user_id=uid, operation_id=operation_id,
         )
 
+        snapshot_annotation_duration(cur, snapshot.version_id, target_status)
         frozen = freeze_cross_check_version(
             cur, version_id=snapshot.version_id, user_id=uid,
             target_status=target_status, skip_reasons=skip_reasons,
@@ -1157,6 +1159,7 @@ def _publish_edited(cur, *, task, original, secondary, command, action):
             "Original published version changed",
             code="cross_check_version_changed",
         )
+    snapshot_annotation_duration(cur, draft_id, target_status)
     if publish_adjudication_version(
         cur, version_id=draft_id, target_status=target_status,
         skip_reasons=skip_reasons, action_id=action["action_id"],

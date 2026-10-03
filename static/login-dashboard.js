@@ -488,7 +488,7 @@
     if (wrap) {
       wrap.setAttribute(
         "aria-label",
-        "Total annotated time, excluding audio marked abnormal: " +
+        "Total credited annotation time: " +
         formatHoursMinutesSpoken(n)
       );
     }
@@ -502,7 +502,7 @@
     if (wrap) {
       wrap.setAttribute(
         "aria-label",
-        "Total annotated time, excluding audio marked abnormal: Unavailable"
+        "Total credited annotation time: Unavailable"
       );
     }
   }

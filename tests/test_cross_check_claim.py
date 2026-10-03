@@ -441,9 +441,10 @@ def test_covered_original_and_final_versions_are_not_redrawn(database, seed_task
         conn.execute(
             """INSERT INTO annotation_versions
                    (id, task_id, version_no, lifecycle, target_status, purpose,
-                    created_by_user_id, submitted_by_user_id, submitted_at)
+                    created_by_user_id, submitted_by_user_id, submitted_at,
+                    annotation_duration_seconds, annotation_duration_basis)
                VALUES (%s, %s, 40, 'cross_check_submitted', 'annotated',
-                       'cross_check', %s, %s, now())""",
+                       'cross_check', %s, %s, now(), 10, 'trainable_segments_v1')""",
             (secondary, original_task, other, other),
         )
         conn.execute(
@@ -470,9 +471,9 @@ def test_covered_original_and_final_versions_are_not_redrawn(database, seed_task
         conn.execute(
             """INSERT INTO annotation_versions
                    (id, task_id, version_no, lifecycle, target_status, purpose,
-                    submitted_by_user_id, submitted_at)
+                    submitted_by_user_id, submitted_at, annotation_duration_seconds, annotation_duration_basis)
                VALUES (%s, %s, 50, 'published', 'annotated', 'annotation',
-                       %s, now())""",
+                       %s, now(), 10, 'trainable_segments_v1')""",
             (new_pub, later_task, alice),
         )
         conn.execute(
@@ -492,9 +493,10 @@ def test_covered_original_and_final_versions_are_not_redrawn(database, seed_task
         conn.execute(
             """INSERT INTO annotation_versions
                    (id, task_id, version_no, lifecycle, target_status, purpose,
-                    created_by_user_id, submitted_by_user_id, submitted_at)
+                    created_by_user_id, submitted_by_user_id, submitted_at,
+                    annotation_duration_seconds, annotation_duration_basis)
                VALUES (%s, %s, 41, 'cross_check_submitted', 'annotated',
-                       'cross_check', %s, %s, now())""",
+                       'cross_check', %s, %s, now(), 10, 'trainable_segments_v1')""",
             (secondary2, later_task, other, other),
         )
         conn.execute(
@@ -531,9 +533,9 @@ def test_covered_original_and_final_versions_are_not_redrawn(database, seed_task
         conn.execute(
             """INSERT INTO annotation_versions
                    (id, task_id, version_no, lifecycle, target_status, purpose,
-                    submitted_by_user_id, submitted_at)
+                    submitted_by_user_id, submitted_at, annotation_duration_seconds, annotation_duration_basis)
                VALUES (%s, %s, 51, 'published', 'annotated', 'annotation',
-                       %s, now())""",
+                       %s, now(), 10, 'trainable_segments_v1')""",
             (uncovered, later_task, alice),
         )
         conn.execute(
