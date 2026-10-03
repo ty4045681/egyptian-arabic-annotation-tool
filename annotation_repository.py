@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import psycopg
 from psycopg.types.json import Json
 
+from annotation_duration import snapshot_annotation_duration
 from annotation_metadata.taxonomy import (
     SCENE_DEFS,
     SCENE_ORDER,
@@ -1689,6 +1690,8 @@ def _complete_published_assignment(
                 + ", ".join(ids)
             )
 
+    snapshot_annotation_duration(cur, asg["version_id"], target_status)
+
     # Publish: supersede any previous published version, flip task state.
     cur.execute(
         """UPDATE annotation_versions
@@ -1841,7 +1844,8 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
         rows = cur.execute(
             f"""SELECT v.id, v.submitted_at, t.id, t.filename, t.folder,
                        {status_column}, t.duration, t.rel_path,
-                       (SELECT count(*) FROM segments s WHERE s.version_id = v.id)
+                       (SELECT count(*) FROM segments s WHERE s.version_id = v.id),
+                       v.annotation_duration_seconds
                 FROM {source_sql}
                 WHERE {' AND '.join(where)}
                 ORDER BY v.submitted_at DESC, v.id DESC
@@ -1861,6 +1865,7 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
                 "duration": r[6],
                 "rel_path": r[7],
                 "segment_count": r[8],
+                "annotation_duration_seconds": float(r[9]) if r[5] == "annotated" else 0.0,
                 "skip_reasons": [],
             }
             for r in rows
@@ -1880,7 +1885,7 @@ def completed_list(user_id: str, status: str = "all", q: str = "",
             f"""SELECT
                  count(*) FILTER (WHERE {status_column} = 'annotated'),
                  count(*) FILTER (WHERE {status_column} = 'skipped'),
-                 COALESCE(sum(t.duration) FILTER (WHERE {status_column} = 'annotated'), 0)
+                 COALESCE(sum(v.annotation_duration_seconds) FILTER (WHERE {status_column} = 'annotated'), 0)
                FROM {source_sql}
                WHERE {' AND '.join(base_where)}""",
             base_params,
@@ -1916,7 +1921,7 @@ def completed_detail(user_id: str, task_id: str, version_id: str | None = None) 
             f"""SELECT t.id, t.rel_path, t.filename, t.folder, t.duration,
                       {status_column}, t.category, t.preprocessed_at,
                       v.id, v.submitted_at, v.skip_reasons,
-                      t.current_published_version_id
+                      t.current_published_version_id, v.annotation_duration_seconds
                FROM annotation_tasks t
                JOIN annotation_versions v ON {version_join} AND v.task_id = t.id
                WHERE t.id = %s""",
@@ -1949,6 +1954,7 @@ def completed_detail(user_id: str, task_id: str, version_id: str | None = None) 
             "filename": row[2],
             "folder": row[3],
             "duration": row[4],
+            "annotation_duration_seconds": float(row[12]) if row[5] == "annotated" else 0.0,
             "status": row[5],
             "category": row[6],
             "preprocessed_at": row[7].isoformat() if row[7] else None,
@@ -2102,7 +2108,7 @@ def dashboard() -> dict:
                        count(*) FILTER (WHERE v.target_status = 'skipped')
                            AS skipped,
                        COALESCE(
-                           sum(t.duration) FILTER (
+                           sum(v.annotation_duration_seconds) FILTER (
                                WHERE v.target_status = 'annotated'
                            ),
                            0
@@ -2149,7 +2155,7 @@ PUBLIC_ANNOTATION_SPEED_SQL = f"""
 WITH eligible AS (
     SELECT t.id AS task_id,
            timezone(%s, v.submitted_at)::date AS day,
-           t.duration
+           v.annotation_duration_seconds AS duration
     FROM annotation_versions v
     JOIN annotation_tasks t
       ON t.current_published_version_id = v.id
@@ -2228,8 +2234,8 @@ def public_annotation_speed(
 
     Counts currently effective published/annotated versions, bucketed by the
     version's ``submitted_at`` calendar date in ``timezone_name``. Duration
-    comes from ``annotation_tasks.duration`` (the same "currently valid
-    annotated audio" definition as the leaderboard). Root ``days``/``weeks``
+    comes from ``annotation_versions.annotation_duration_seconds`` using the
+    same credited annotation time as the leaderboard. Root ``days``/``weeks``
     are the All-scenes series; ``by_scene`` repeats the window for each
     source scene. A task with several current source scenes appears in each
     of those filters, but only once in All scenes.
@@ -2701,7 +2707,7 @@ def admin_overview(filters: dict | None = None) -> dict:
         as_of = cur.execute("SELECT now()").fetchone()[0]
         cur.execute(
             f"""CREATE TEMP TABLE _overview_matched ON COMMIT DROP AS
-                SELECT t.id, t.duration, t.status, t.eligible,
+                SELECT t.id, t.duration, v.annotation_duration_seconds, t.status, t.eligible,
                        t.reserved_for_user_id, t.current_published_version_id,
                        t.baseline_version_id, t.category, t.created_at,
                        (d.id IS NOT NULL) AS has_draft,
@@ -2722,7 +2728,7 @@ def admin_overview(filters: dict | None = None) -> dict:
                    count(*) AS total_audio_count,
                    COALESCE(sum(t.duration), 0) AS total_duration,
                    count(*) FILTER (WHERE t.status = 'annotated'),
-                   COALESCE(sum(t.duration) FILTER
+                   COALESCE(sum(t.annotation_duration_seconds) FILTER
                        (WHERE t.status = 'annotated'), 0),
                    count(*) FILTER (WHERE t.status = 'skipped'),
                    COALESCE(sum(t.duration) FILTER
@@ -3538,7 +3544,7 @@ def admin_annotator_detail(annotator_id: str,
             f"""SELECT count(*) FILTER (WHERE t.status = 'annotated'),
                        count(*) FILTER (WHERE t.status = 'skipped'),
                        COALESCE(sum(t.duration), 0),
-                       COALESCE(sum(t.duration) FILTER
+                       COALESCE(sum(v.annotation_duration_seconds) FILTER
                            (WHERE t.status = 'annotated'), 0)
                 FROM annotation_tasks t
                 JOIN annotation_versions v

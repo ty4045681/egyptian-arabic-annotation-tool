@@ -195,7 +195,8 @@ def _complete_named(name, duration, submitted_at, *, status="annotated"):
     )
     with db.db_conn() as conn:
         conn.execute(
-            "UPDATE annotation_tasks SET duration = %s WHERE id = %s",
+            "UPDATE annotation_versions SET annotation_duration_seconds = %s "
+            "WHERE id = (SELECT current_published_version_id FROM annotation_tasks WHERE id = %s)",
             (duration, assignment["task_id"]),
         )
         conn.execute(

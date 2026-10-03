@@ -1137,7 +1137,7 @@ function normaliseAnnotatorDetail(data) {
   const stats = {
     ...pick(data, ["stats", "summary"], {}),
     current_contributions: currentCount,
-    current_duration_seconds: pick(current, ["trainable_duration_seconds", "annotated_duration_seconds", "duration_seconds"], 0),
+    current_duration_seconds: pick(current, ["annotated_duration_seconds", "duration_seconds"], 0),
     historical_submissions: completed,
     active_days: pick(history, ["active_days"], 0),
     revoked,
@@ -1275,7 +1275,7 @@ function renderAnnotatorDetail(data) {
   text($("annotatorMeta"), `Last active ${formatRelative(item.lastActiveAt)} · ${pick(data, ["assignment"], null) ? "Holding a task" : "No active assignment"}`);
   $("deactivateAnnotatorButton").disabled = item.status !== "active";
   text($("annotatorCurrent"), formatInteger(pick(stats, ["current_contributions", "current_count", "current_effective_count"], 0)));
-  text($("annotatorCurrentDuration"), `${formatDuration(pick(stats, ["current_duration_seconds", "effective_duration_seconds"], 0))} usable audio`);
+  text($("annotatorCurrentDuration"), `${formatDuration(pick(stats, ["current_duration_seconds", "effective_duration_seconds"], 0))} credited annotation time`);
   text($("annotatorSubmitted"), formatInteger(pick(stats, ["historical_submissions", "submitted", "completed_actions"], 0)));
   text($("annotatorActiveDays"), formatInteger(pick(stats, ["active_days"], 0)));
   text($("annotatorMedian"), formatSecondsAsTurnaround(pick(stats, ["median_turnaround_seconds", "turnaround_median_seconds"], null)));

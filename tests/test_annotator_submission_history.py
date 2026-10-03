@@ -34,7 +34,9 @@ def test_submission_history_hides_outcomes_and_counts_adopted_version_once(clien
     assert item["version_id"] == queued["secondary_version_id"]
     assert item["status"] == "annotated"
     assert response.json["summary"]["annotated"] == 1
-    assert response.json["summary"]["duration_seconds"] == item["duration"]
+    assert response.json["summary"]["duration_seconds"] == 5.0
+    assert item["annotation_duration_seconds"] == 5.0
+    assert item["duration"] == 10.0
     assert not {"mode", "round_id", "state", "reason_codes", "decision"} & item.keys()
     detail = client.get(f'/api/completed/{item["task_id"]}?version_id={item["version_id"]}')
     assert detail.status_code == 200, detail.json

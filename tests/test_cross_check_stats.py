@@ -39,7 +39,7 @@ def _seed_annotated_duration(client, seed_tasks, count, duration, *, text=IDENTI
         assert claimed.status_code == 200, claimed.json
         assignment = claimed.json
         response, _ = complete(
-            client, assignment, segments=text_segments(assignment, text),
+            client, assignment, segments=text_segments(assignment, text, bq_rest=False),
         )
         assert response.status_code == 200, response.json
     client.post("/api/logout", json={})
@@ -87,7 +87,7 @@ def test_one_60s_audio_stays_60_while_b_workload_is_independent(
     assert dash["stats"]["annotated_duration_seconds"] == pytest.approx(60.0)
 
     response, _ = complete(
-        client, assignment, segments=text_segments(assignment, IDENTICAL),
+        client, assignment, segments=text_segments(assignment, IDENTICAL, bq_rest=False),
     )
     assert response.status_code == 200, response.json
     assert response.json["cross_check"]["state"] == "passed"
@@ -112,9 +112,9 @@ def test_two_60s_audios_sum_to_120_not_distinct_duration(client, seed_tasks):
     enable_cross_check(enabled=True, sampling_rate_bps=10000)
     login(client, "bob")
     first = bob_claim(client)
-    complete(client, first, segments=text_segments(first, IDENTICAL))
+    complete(client, first, segments=text_segments(first, IDENTICAL, bq_rest=False))
     second = bob_claim(client)
-    complete(client, second, segments=text_segments(second, IDENTICAL))
+    complete(client, second, segments=text_segments(second, IDENTICAL, bq_rest=False))
     assert _corpus() == (2, 120.0)
     workload_count, workload_seconds = _workload()
     assert workload_count == 2
@@ -130,10 +130,10 @@ def test_awaiting_review_keeps_corpus_duration_and_adds_workload(
             (queued[0]["task_id"],),
         )
         conn.commit()
-    assert _corpus()[1] == pytest.approx(60.0)
+    assert _corpus()[1] == pytest.approx(5.0)
     assert _workload()[1] == pytest.approx(60.0)
     overview = repo.admin_overview({})
-    assert overview["totals"]["annotated_duration_seconds"] == pytest.approx(60.0)
+    assert overview["totals"]["annotated_duration_seconds"] == pytest.approx(5.0)
     assert overview["totals"]["cross_check_submitted_count"] == 1
     assert overview["pending"]["assigned_count"] == 0
     assert overview["pending"]["cross_check_in_progress_count"] == 0
@@ -150,7 +150,7 @@ def test_pool_splits_normal_and_cross_check_available(client, seed_tasks):
     )
     complete(
         client, claimed.json,
-        segments=text_segments(claimed.json, IDENTICAL),
+        segments=text_segments(claimed.json, IDENTICAL, bq_rest=False),
     )
     client.post("/api/logout", json={})
 
@@ -184,7 +184,7 @@ def test_cross_check_by_scene_matches_claim_source_row(client, seed_tasks):
     assert claimed.status_code == 200, claimed.json
     complete(
         client, claimed.json,
-        segments=text_segments(claimed.json, IDENTICAL),
+        segments=text_segments(claimed.json, IDENTICAL, bq_rest=False),
     )
     client.post("/api/logout", json={})
     enable_cross_check(enabled=True, sampling_rate_bps=10000)
@@ -225,7 +225,7 @@ def test_auto_pass_does_not_move_speed_bucket(client, seed_tasks, monkeypatch):
     enable_cross_check(enabled=True, sampling_rate_bps=10000)
     login(client, "bob")
     assignment = bob_claim(client)
-    complete(client, assignment, segments=text_segments(assignment, IDENTICAL))
+    complete(client, assignment, segments=text_segments(assignment, IDENTICAL, bq_rest=False))
     after = repo.public_annotation_speed("UTC")
     after_days = {item["date"]: item["duration_seconds"] for item in after["days"]}
     assert after_days["2026-09-10"] == pytest.approx(60.0)
@@ -269,6 +269,6 @@ def test_adopting_secondary_reattributes_speed_to_b_submit_time(
     speed = repo.public_annotation_speed("UTC")
     days = {item["date"]: item["duration_seconds"] for item in speed["days"]}
     assert days.get("2026-09-01", 0.0) == pytest.approx(0.0)
-    assert days[secondary_day] == pytest.approx(60.0)
-    assert sum(days.values()) == pytest.approx(60.0)
-    assert _corpus()[1] == pytest.approx(60.0)
+    assert days[secondary_day] == pytest.approx(5.0)
+    assert sum(days.values()) == pytest.approx(5.0)
+    assert _corpus()[1] == pytest.approx(5.0)

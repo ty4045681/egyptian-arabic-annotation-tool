@@ -99,7 +99,7 @@ def test_passed_export_only_final_version(client, seed_tasks, database):
     login(client, "bob")
     assignment = bob_claim(client)
     passed, _ = complete(
-        client, assignment, segments=text_segments(assignment, IDENTICAL),
+        client, assignment, segments=text_segments(assignment, IDENTICAL, bq_rest=False),
     )
     assert passed.json["cross_check"]["state"] == "passed"
     task_id = assignment["task_id"]

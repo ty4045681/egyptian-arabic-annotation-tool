@@ -64,11 +64,12 @@ def _set_submitted_at(task_id, when):
         conn.commit()
 
 
-def _set_duration(task_id, duration):
+def _set_credited_duration(task_id, duration):
     import db
     with db.db_conn() as conn:
         conn.execute(
-            "UPDATE annotation_tasks SET duration = %s WHERE id = %s",
+            "UPDATE annotation_versions SET annotation_duration_seconds = %s "
+            "WHERE id = (SELECT current_published_version_id FROM annotation_tasks WHERE id = %s)",
             (duration, task_id),
         )
         conn.commit()
@@ -192,8 +193,8 @@ def test_shanghai_midnight_boundary(database, seed_tasks, freeze_shanghai_aftern
     user, _ = _make_user("alice")
     before = _complete_next(user, prefix="before")
     after = _complete_next(user, prefix="after")
-    _set_duration(before["task_id"], 111)
-    _set_duration(after["task_id"], 222)
+    _set_credited_duration(before["task_id"], 111)
+    _set_credited_duration(after["task_id"], 222)
     _set_submitted_at(
         before["task_id"],
         datetime(2026, 9, 16, 15, 59, 59, tzinfo=timezone.utc),
@@ -539,8 +540,8 @@ def test_scene_midnight_boundary_matches_all_scenes(
     after = _complete_next(user, prefix="after")
     _attach_source(before["task_id"], "airport", batch="speed-mid-a")
     _attach_source(after["task_id"], "airport", batch="speed-mid-b")
-    _set_duration(before["task_id"], 111)
-    _set_duration(after["task_id"], 222)
+    _set_credited_duration(before["task_id"], 111)
+    _set_credited_duration(after["task_id"], 222)
     _set_submitted_at(
         before["task_id"],
         datetime(2026, 9, 16, 15, 59, 59, tzinfo=timezone.utc),
@@ -600,7 +601,8 @@ def _seed_selective_speed_rows(conn, *, total: int, recent: int) -> None:
     )
     conn.execute(
         """INSERT INTO annotation_versions (
-               task_id, version_no, lifecycle, target_status, submitted_at
+               task_id, version_no, lifecycle, target_status, submitted_at,
+               annotation_duration_seconds, annotation_duration_basis
            )
            SELECT id, 1, 'published', 'annotated',
                   CASE WHEN rn <= %s
@@ -608,7 +610,7 @@ def _seed_selective_speed_rows(conn, *, total: int, recent: int) -> None:
                             + ((rn %% 20) * interval '1 day')
                        ELSE timestamptz '2024-01-01 00:00:00+00'
                             + ((rn %% 300) * interval '1 day')
-                  END
+                  END, 10.0, 'trainable_segments_v1'
            FROM (
                SELECT id, row_number() OVER (ORDER BY id) AS rn
                FROM annotation_tasks

@@ -187,7 +187,7 @@ def load_snapshot(
 
     ranking_sql = f"""
         SELECT u.id::text, u.username, count(*)::int,
-               COALESCE(sum(t.duration), 0)::double precision
+               COALESCE(sum(v.annotation_duration_seconds), 0)::double precision
         FROM annotation_tasks t
         JOIN annotation_versions v ON v.id = t.current_published_version_id
         LEFT JOIN annotators u ON u.id = {credited}
@@ -196,8 +196,8 @@ def load_snapshot(
           AND u.id IS NOT NULL
           {completion_range_sql}
         GROUP BY u.id, u.username
-        HAVING COALESCE(sum(t.duration), 0) > %s
-        ORDER BY count(*) DESC, COALESCE(sum(t.duration), 0) DESC, u.username
+        HAVING COALESCE(sum(v.annotation_duration_seconds), 0) > %s
+        ORDER BY count(*) DESC, COALESCE(sum(v.annotation_duration_seconds), 0) DESC, u.username
     """
     ranking_params: list[object] = [
         *eligible_params, *completion_range_params, min_seconds,

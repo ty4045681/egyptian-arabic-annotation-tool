@@ -18,7 +18,7 @@ TRAINING_COMPLETION_EVENT_TYPES = ("completed", "cross_check_submitted")
 TRAINING_BEGIN_EVENT_TYPES = ("claimed", "reopened", "cross_check_claimed")
 UNIQUE_ANNOTATED_CORPUS_SQL = """
 SELECT count(*) AS annotated_count,
-       COALESCE(sum(t.duration), 0) AS annotated_duration_seconds
+       COALESCE(sum(v.annotation_duration_seconds), 0) AS annotated_duration_seconds
 FROM annotation_tasks t
 JOIN annotation_versions v ON v.id = t.current_published_version_id
 WHERE t.status = 'annotated'
