@@ -1041,6 +1041,18 @@ def api_health():
         return jsonify({"ok": False, "error": str(e)}), 503
 
 
+def client_log_path() -> Path:
+    """Use a persistent service log directory across code releases."""
+    configured = os.environ.get("ANNOTATION_CLIENT_LOG_PATH", "").strip()
+    if configured:
+        return Path(configured)
+    # systemd supplies colon-separated paths when LogsDirectory has many entries.
+    logs_directory = os.environ.get("LOGS_DIRECTORY", "").split(":", 1)[0].strip()
+    if logs_directory:
+        return Path(logs_directory) / "client_errors.log"
+    return SCRIPT_DIR / "client_errors.log"
+
+
 @app.route("/api/clientlog", methods=["POST"])
 def api_clientlog():
     value = request.get_json(silent=True)
@@ -1053,11 +1065,13 @@ def api_clientlog():
         "url": str(data.get("url", ""))[:300],
         "ip": request.headers.get("X-Forwarded-For", request.remote_addr or ""),
     }
+    serialized = json.dumps(entry, ensure_ascii=False)
     try:
-        with open(SCRIPT_DIR / "client_errors.log", "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        with client_log_path().open("a", encoding="utf-8") as f:
+            f.write(serialized + "\n")
     except OSError as e:
-        logger.warning("clientlog write failed: %s", e)
+        # stderr is captured by journald in production; preserve the event too.
+        logger.warning("clientlog write failed: %s; entry=%s", e, serialized)
     return jsonify({"success": True})
 
 

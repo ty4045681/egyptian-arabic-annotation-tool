@@ -133,6 +133,20 @@ uv run python manage_state.py apply-migrations
 uv run python manage_state.py schema
 ```
 
+### 浏览器错误日志
+
+浏览器错误日志路径按以下顺序选择：`ANNOTATION_CLIENT_LOG_PATH` 指定的文件、
+systemd `LogsDirectory=` 提供的 `LOGS_DIRECTORY` 中第一个目录下的
+`client_errors.log`、代码目录下的 `client_errors.log`（本地开发兼容）。
+生产服务应配置 `LogsDirectory=`，由 systemd 创建并授权日志目录；自定义文件路径
+的父目录需预先创建，并允许服务用户追加写入。
+
+当前腾讯云生产服务已有 `LogsDirectory=annotation-production`，因此新版代码
+自动写入 `/var/log/annotation-production/client_errors.log`，无需在各发布目录
+创建软链接。文件写入失败时，包含错误详情的日志会回退到服务标准错误，由
+journald 收集；`/api/clientlog` 继续返回成功。部署后需确认测试日志实际出现在
+文件或 journal 中，不能仅凭 HTTP 200 判断文件写入成功。
+
 ## 6. Nginx 和音频 Range
 
 ```bash

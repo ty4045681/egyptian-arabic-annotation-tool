@@ -19,6 +19,23 @@ tail -30 client_errors.log
 {"ok": true, "schema_versions": [1]}
 ```
 
+## 浏览器错误日志出现 Permission denied
+
+检查服务用户是否能写入实际日志目录。日志路径优先使用
+`ANNOTATION_CLIENT_LOG_PATH`，其次是 systemd `LOGS_DIRECTORY` 中的第一个目录，
+两者未设置时才使用代码目录。当前腾讯云生产环境的检查命令：
+
+```bash
+sudo systemctl show annotation-production -p User -p Group -p LogsDirectory
+sudo -u annotation test -w /var/log/annotation-production
+sudo tail -30 /var/log/annotation-production/client_errors.log
+sudo journalctl -u annotation-production -n 100 --no-pager
+```
+
+新版代码在文件写入失败时，会将同一条错误详情写入服务日志，搜索
+`clientlog write failed` 后的 `entry=` 即可查看。接口返回成功也可能走了该回退
+路径。修复目录权限或日志配置后，再检查一条带测试标记的日志是否实际落盘。
+
 ## 页面返回 503 / 健康检查失败
 
 1. 检查 PostgreSQL：
